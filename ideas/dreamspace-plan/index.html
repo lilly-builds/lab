@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dreamspace plan - have to / want to / dream</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #000; --paper: #fff; --f: "Special Elite", "Courier New", monospace; }
+  * { box-sizing: border-box; border-radius: 0; }
+  html, body { margin: 0; }
+  body { background: var(--paper); color: var(--ink); font: 400 16px/1.45 var(--f); font-synthesis: none; min-height: 100vh; }
+  button, input, select { font: inherit; color: inherit; border-radius: 0; }
+  button { cursor: pointer; background: var(--paper); border: 1px solid var(--ink); padding: 8px 14px; min-height: 40px; }
+  button:hover { background: var(--ink); color: var(--paper); }
+  :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+
+  .app { position: relative; max-width: 1180px; margin: 0 auto; padding: 52px 16px 56px; }
+  .back { position: absolute; top: 14px; left: 16px; font-size: 13px; color: var(--ink); text-decoration: none; border: 1px solid var(--ink); padding: 2px 8px; background: var(--paper); }
+  .back:hover { background: var(--ink); color: var(--paper); }
+  header { border-bottom: 1px solid var(--ink); padding-bottom: 14px; margin-bottom: 18px; }
+  .kicker { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; }
+  h1 { font-weight: 400; font-size: clamp(28px, 5vw, 46px); line-height: 1.1; margin: 6px 0 8px; }
+  header p { margin: 0; max-width: 62ch; }
+
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+  .tools .add { display: flex; flex: 1 1 380px; }
+  .tools input[type=text] { flex: 1; min-width: 0; border: 1px solid var(--ink); border-right: 0; padding: 8px 10px; background: var(--paper); }
+  .tools select { border: 1px solid var(--ink); border-right: 0; background: var(--paper); padding: 0 8px; }
+
+  .scroller { overflow-x: auto; border: 1px solid var(--ink); }
+  .board { position: relative; min-width: 980px; width: 100%; aspect-ratio: 70 / 47; container-type: inline-size; background: var(--paper); }
+  svg.rings { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  svg.rings ellipse { fill: none; stroke: var(--ink); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .label { position: absolute; transform: translate(-50%, -100%); font-size: clamp(14px, 2.1cqw, 26px); line-height: 1.2; pointer-events: none; text-align: center; white-space: nowrap; }
+  .label small { display: block; font-size: .55em; letter-spacing: .08em; text-transform: uppercase; }
+
+  .note { position: absolute; width: 9.5%; aspect-ratio: 1 / 1; transform: translate(-50%, -50%); background: var(--paper); border: 1px solid var(--ink);
+    padding: .6cqw .7cqw; font-size: max(10.5px, 1.05cqw); line-height: 1.25; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; overflow: hidden; z-index: 2; }
+  .note.edit { cursor: text; user-select: text; -webkit-user-select: text; z-index: 20; outline: 1px solid var(--ink); outline-offset: 2px; }
+  .note.edit span { outline: 0; }
+  .note.drag { cursor: grabbing; z-index: 20; box-shadow: 4px 4px 0 var(--ink); }
+  .note .x { position: absolute; top: 0; right: 0; width: 22px; height: 22px; min-height: 0; padding: 0; border: 0; border-left: 1px solid var(--ink); border-bottom: 1px solid var(--ink); font-size: 13px; line-height: 1; display: none; }
+  .note:hover .x, .note:focus-within .x { display: block; }
+  .note span { display: block; }
+
+  .legend { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 18px; border: 1px solid var(--ink); }
+  .legend div { padding: 12px 14px; border-right: 1px solid var(--ink); }
+  .legend div:last-child { border-right: 0; }
+  .legend h2 { font-weight: 400; font-size: 17px; margin: 0 0 4px; text-transform: uppercase; letter-spacing: .08em; }
+  .legend p { margin: 0; font-size: 14px; }
+  .hint { font-size: 13px; margin: 10px 0 0; }
+  @media (max-width: 720px) { .legend { grid-template-columns: 1fr; } .legend div { border-right: 0; border-bottom: 1px solid var(--ink); } .legend div:last-child { border-bottom: 0; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <a class="back" href="../ai-whiteboard/">Back to the board</a>
+  <header>
+    <div class="kicker">Plan / Dreamspace</div>
+    <h1>Dreamspace plan</h1>
+    <p>We use the project to plan the project. What Dreamspace has to do, what we want it to do, and what we dream it becomes.</p>
+  </header>
+
+  <form class="tools" id="form">
+    <div class="add">
+      <select id="where" aria-label="Circle"><option value="have">Have to</option><option value="want">Want to</option><option value="dream">Dream</option></select>
+      <input type="text" id="txt" maxlength="70" placeholder="Add a note to the board…" aria-label="Note text" autocomplete="off">
+      <button type="submit">Add</button>
+    </div>
+    <button type="button" id="reset">Reset board</button>
+  </form>
+
+  <div class="scroller"><div class="board" id="board">
+    <svg class="rings" viewBox="0 0 1400 940" preserveAspectRatio="none" aria-hidden="true">
+      <ellipse cx="250" cy="660" rx="250" ry="250"/><ellipse cx="700" cy="340" rx="250" ry="250"/><ellipse cx="1150" cy="660" rx="250" ry="250"/>
+    </svg>
+    <div class="label" style="left:17.86%;top:43%">Have to<small>the foundations</small></div>
+    <div class="label" style="left:50%;top:9.3%">Dream<small>the horizon</small></div>
+    <div class="label" style="left:82.14%;top:43%">Want to<small>the good life</small></div>
+  </div></div>
+
+  <div class="legend">
+    <div><h2>Have to</h2><p>Non-negotiable. Without it Dreamspace does not work.</p></div>
+    <div><h2>Dream</h2><p>The far edge: what this could become.</p></div>
+    <div><h2>Want to</h2><p>What makes it good, not just working.</p></div>
+  </div>
+  <p class="hint">Drag notes to rearrange. Double-click a note to edit it. Hover a note to remove it. Everything saves in this browser.</p>
+</div>
+
+<script>
+(function () {
+  var KEY = 'dreamspace-plan-v1';
+  var ASP = 940 / 1400; // board height / width, to turn width-units into y %
+  // Circle centres as % of board; offsets are in width-% units, s = note width in %.
+  var C = { have: [17.86, 70.21], dream: [50, 36.17], want: [82.14, 70.21] };
+  var OFF5 = [[-4.9, -10], [4.9, -10], [0, 0], [-4.9, 10], [4.9, 10]];
+  var OFF3 = [[-5.6, -6.5], [5.6, -6.5], [0, 6.5]];
+  var SEED = {
+    have: ['One input box', 'One router that picks the right tool', 'Make it real builds an app in the browser', 'Save and reopen boards', 'Works in a real browser (test it)'],
+    want: ['Community templates', 'Embeds that just work', 'Bare images, no frames', 'Gallery polish', 'Use your own key, no setup'],
+    dream: ['One fluid creative dreamspace', 'People make ideas real with zero admin', 'No modes, no tool names, it just does the right thing']
+  };
+  var board = document.getElementById('board'), notes = [], uid = 0;
+
+  function seed() {
+    var out = [];
+    Object.keys(SEED).forEach(function (k) {
+      var off = k === 'dream' ? OFF3 : OFF5, s = k === 'dream' ? 11 : 9.5;
+      SEED[k].forEach(function (t, i) { out.push({ id: ++uid, t: t, s: s, x: C[k][0] + off[i][0], y: C[k][1] + off[i][1] / ASP }); });
+    });
+    return out;
+  }
+  function load() {
+    try {
+      var s = JSON.parse(localStorage.getItem(KEY));
+      if (Array.isArray(s) && s.length) { uid = s.reduce(function (m, n) { return Math.max(m, n.id); }, 0); return s; }
+    } catch (e) {}
+    return seed();
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(notes)); } catch (e) {} }
+
+  function render() {
+    board.querySelectorAll('.note').forEach(function (n) { n.remove(); });
+    notes.forEach(function (n) {
+      var el = document.createElement('div');
+      el.className = 'note'; el.style.left = n.x + '%'; el.style.top = n.y + '%'; el.style.width = (n.s || 9.5) + '%';
+      var s = document.createElement('span'); s.textContent = n.t;
+      var x = document.createElement('button'); x.className = 'x'; x.type = 'button'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove note');
+      x.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+      x.addEventListener('click', function () { notes = notes.filter(function (m) { return m.id !== n.id; }); save(); render(); });
+      el.appendChild(s); el.appendChild(x); board.appendChild(el);
+
+      function edit() {
+        el.classList.add('edit'); s.contentEditable = 'true'; s.focus();
+        var rg = document.createRange(); rg.selectNodeContents(s); var sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg);
+      }
+      s.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); s.blur(); } });
+      s.addEventListener('blur', function () {
+        if (!el.classList.contains('edit')) return;
+        el.classList.remove('edit'); s.contentEditable = 'false';
+        var t = s.textContent.trim().slice(0, 70);
+        if (t) n.t = t;
+        s.textContent = n.t; save();
+      });
+
+      var lastTap = 0;
+      el.addEventListener('pointerdown', function (e) {
+        if (e.button || el.classList.contains('edit')) return;
+        var r = board.getBoundingClientRect(); el.setPointerCapture(e.pointerId); el.classList.add('drag');
+        var sx = e.clientX, sy = e.clientY, moved = false;
+        var dx = (e.clientX - r.left) / r.width * 100 - n.x, dy = (e.clientY - r.top) / r.height * 100 - n.y;
+        function mv(ev) {
+          if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 4) moved = true;
+          n.x = Math.min(97, Math.max(3, (ev.clientX - r.left) / r.width * 100 - dx));
+          n.y = Math.min(95, Math.max(5, (ev.clientY - r.top) / r.height * 100 - dy));
+          el.style.left = n.x + '%'; el.style.top = n.y + '%';
+        }
+        function up() {
+          el.classList.remove('drag'); el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); save();
+          if (moved) { lastTap = 0; return; }
+          var now = Date.now();
+          if (now - lastTap < 400) { lastTap = 0; edit(); } else lastTap = now;
+        }
+        el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+      });
+    });
+  }
+
+  document.getElementById('form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var inp = document.getElementById('txt'), t = inp.value.trim();
+    if (!t) return;
+    var c = C[document.getElementById('where').value], j = function () { return (Math.random() - 0.5) * 8; };
+    notes.push({ id: ++uid, t: t, s: 9.5, x: c[0] + j(), y: c[1] + j() / ASP });
+    inp.value = ''; save(); render(); inp.focus();
+  });
+  document.getElementById('reset').addEventListener('click', function () {
+    if (!confirm('Reset the board to the starting notes?')) return;
+    uid = 0; notes = seed(); save(); render();
+  });
+
+  notes = load(); render();
+})();
+</script>
+</body>
+</html>
