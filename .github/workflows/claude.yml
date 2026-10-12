@@ -25,7 +25,7 @@ jobs:
     permissions:
       contents: write # Ship step merges Claude's work to main
       pull-requests: write
-      issues: read
+      issues: write # Ship step closes the shipped issue
       id-token: write
       actions: read # Required for Claude to read CI results on PRs
     steps:
@@ -60,14 +60,35 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
           IS_PR: ${{ github.event.issue.pull_request != null || github.event.pull_request != null }}
           NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
           set -euo pipefail
+          site="https://$(echo "$OWNER" | tr "[:upper:]" "[:lower:]").github.io/${REPO#*/}/"
+
+          # Merge with GitHub's workflow token skips the "Closes #N" auto-close, so close by hand
+          close_issue() {
+            [ "$(gh issue view "$1" -R "$REPO" --json state -q '.state')" = "OPEN" ] || return 0
+            gh issue close "$1" -R "$REPO" --comment "Shipped in #$2: $3"
+          }
+
+          ship() {
+            local pr=$1 page dir link
+            page=$(gh pr view "$pr" -R "$REPO" --json files -q '[.files[].path | select(endswith(".html"))][0] // ""')
+            dir=$(dirname "${page:-.}")
+            link="$site"; [ "$dir" = "." ] || link="$site$dir/"
+            gh pr merge "$pr" -R "$REPO" --merge --delete-branch
+            for issue in $(gh pr view "$pr" -R "$REPO" --json closingIssuesReferences -q '.closingIssuesReferences[].number'); do
+              close_issue "$issue" "$pr" "$link"
+            done
+            [ "$IS_PR" = "true" ] || close_issue "$NUMBER" "$pr" "$link"
+          }
+
           if [ "$IS_PR" = "true" ]; then
             head=$(gh pr view "$NUMBER" -R "$REPO" --json headRefName,state,isCrossRepository -q 'select(.state == "OPEN" and .isCrossRepository == false) | .headRefName')
             case "$head" in
-              claude/*) gh pr merge "$NUMBER" -R "$REPO" --merge --delete-branch ;;
+              claude/*) ship "$NUMBER" ;;
               *) echo "PR #$NUMBER is not an open claude/* PR from this repo, nothing to ship" ;;
             esac
             exit 0
@@ -80,6 +101,5 @@ jobs:
             if [ -z "$pr" ]; then
               pr=$(gh pr create -R "$REPO" --base main --head "$branch" --title "$title" --body "Closes #$NUMBER" | grep -o '[0-9]*$')
             fi
-            gh pr merge "$pr" -R "$REPO" --merge --delete-branch
+            ship "$pr"
           done
-
