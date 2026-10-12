@@ -29,6 +29,8 @@
   .card:focus-visible, .card:focus-within { outline: 2px solid var(--ink); outline-offset: 3px; }
   .card canvas { display: block; width: 100%; aspect-ratio: 4 / 3; border: 1px solid rgba(0,0,0,.18); background: var(--paper); }
   .card .title { display: block; margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(0,0,0,.25); font-size: 20px; line-height: 1.25; overflow-wrap: anywhere; }
+  .card .author .xlink { color: inherit; text-transform: none; }
+  .card .author .xlink:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
   .card .author { display: block; margin-top: 4px; font: 400 13px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .06em; overflow-wrap: anywhere; }
   @media (max-width: 479px) { .card { padding: 12px; } }
   @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
@@ -253,7 +255,8 @@
       var e = d.elements[i];
       if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
     }
-    return { title: title, why: why, love: love, author: author, elements: d.elements };
+    var x = typeof d.x === 'string' && /^[A-Za-z0-9_]{1,15}$/.test(d.x) ? d.x : '';
+    return { title: title, why: why, love: love, author: author, x: x, elements: d.elements };
   }
   function decode(issue) {
     var m = MARKER.exec(issue.body || '');
@@ -321,7 +324,15 @@
     cv.setAttribute('role', 'img');
     cv.setAttribute('aria-label', t.title);
     var title = document.createElement('span'); title.className = 'title'; title.textContent = t.title;
-    var author = document.createElement('span'); author.className = 'author'; author.textContent = 'by ' + (t.author || 'anonymous');
+    var author = document.createElement('span'); author.className = 'author'; author.textContent = t.author && t.author.toLowerCase() !== 'anonymous' ? 'by ' + t.author : (t.x ? '' : 'by anonymous');
+    if (t.x && /^[A-Za-z0-9_]{1,15}$/.test(t.x)) {
+      var xl = document.createElement('a');
+      xl.className = 'xlink'; xl.textContent = '@' + t.x;
+      xl.href = 'https://x.com/' + t.x; xl.target = '_blank'; xl.rel = 'noopener noreferrer nofollow';
+      xl.setAttribute('aria-label', 'Open @' + t.x + ' on X');
+      if (author.textContent) author.appendChild(document.createTextNode(' '));
+      author.appendChild(xl);
+    }
     var story = document.createElement('button');
     story.type = 'button'; story.className = 'story'; story.setAttribute('aria-expanded', 'false');
     [['Why I made it', t.why], ['Why I love it', t.love]].forEach(function (qa) {
