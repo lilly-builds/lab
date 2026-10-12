@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI whiteboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300&family=Newsreader:opsz,wght@6..72,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #000;
+    --paper: #fff;
+    --note: #bfd7ff;
+    --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+    --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); }
+  body { color: var(--ink); font: 300 17px/1.4 var(--serif); }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; background: none; border: 0; padding: 0; }
+  :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+
+  canvas#board { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; cursor: crosshair; }
+  canvas#board.move { cursor: grab; }
+
+  textarea#noteEdit { position: fixed; display: none; margin: 0; padding: 8px; resize: none; overflow: hidden; border: 1px solid var(--ink); border-radius: 0;
+    background: var(--note); font: 300 16px/20px var(--serif); outline: 0; box-shadow: none; aspect-ratio: 1 / 1; z-index: 5; }
+  textarea#noteEdit:focus, textarea#noteEdit:focus-visible { outline: 0; box-shadow: none; }
+
+  #dock { position: fixed; left: 0; right: 0; bottom: 0; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; z-index: 10; }
+  #dock > * { pointer-events: auto; }
+
+  #bar { display: flex; gap: 2px; background: var(--paper); }
+  #bar button { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  #bar button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  #bar button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  #bar button:disabled { opacity: .3; cursor: default; }
+  #magic.busy svg { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .25; transform: scale(.85); } }
+  @media (prefers-reduced-motion: reduce) { #magic.busy svg { animation: none; opacity: .4; } }
+
+  #panel { display: none; width: min(420px, 100%); background: var(--paper); border: 1px solid var(--ink); padding: 4px 4px 4px 12px; margin: 0; }
+  #panel.open { display: block; }
+  #panel .row { display: flex; align-items: center; }
+  #panel input { flex: 1; min-width: 0; min-height: 44px; border: 0; border-radius: 0; background: transparent; font: 300 16px/1.4 var(--serif); padding: 0; outline: 0; box-shadow: none; }
+  #panel input:focus, #panel input:focus-visible { outline: 0; box-shadow: none; }
+  #panel input.mono { font-family: var(--mono); font-weight: 300; }
+  #panel .gear { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
+  #panel .gear svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  #cfg { display: none; }
+  #cfg.open { display: block; }
+
+  #err { font: 300 14px/1.4 var(--mono); opacity: 0; transition: opacity .8s ease; text-align: center; max-width: min(420px, 100%); background: var(--paper); pointer-events: none !important; }
+  #err.show { opacity: 1; transition: none; }
+</style>
+</head>
+<body>
+<canvas id="board"></canvas>
+<textarea id="noteEdit" aria-label="Note" maxlength="400"></textarea>
+
+<div id="dock">
+  <div id="err" role="status" aria-live="polite"></div>
+  <form id="panel" autocomplete="off">
+    <div class="row">
+      <input id="ask" type="text" placeholder="Ask anything about the board" aria-label="Ask anything about the board" enterkeyhint="send" autocomplete="off">
+      <button type="button" class="gear" id="gear" aria-label="Settings" aria-expanded="false">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg>
+      </button>
+    </div>
+    <div id="cfg">
+      <div class="row"><input id="key" class="mono" type="password" placeholder="API key" aria-label="API key" autocomplete="off" spellcheck="false"></div>
+      <div class="row"><input id="model" class="mono" type="text" placeholder="Model" aria-label="Model id" autocomplete="off" spellcheck="false"></div>
+    </div>
+  </form>
+  <div id="bar" role="toolbar" aria-label="Tools">
+    <button type="button" data-tool="pen" aria-label="Pen" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 0a2 2 0 0 1 0 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg></button>
+    <button type="button" data-tool="note" aria-label="Note" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/></svg></button>
+    <button type="button" data-tool="move" aria-label="Move" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></button>
+    <button type="button" id="undo" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 8h-3"/></svg></button>
+    <button type="button" id="magic" aria-label="Ask AI" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M10 4c.7 5 2.5 7.3 7 8-4.5.7-6.3 3-7 8-.7-5-2.5-7.3-7-8 4.5-.7 6.3-3 7-8z"/><path d="M19 3v4M17 5h4"/></svg></button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- providers: add another model by writing one more object ---------- */
+  var providers = {
+    anthropic: {
+      id: 'anthropic',
+      label: 'Anthropic',
+      defaults: { model: 'claude-sonnet-5' },
+      complete: async function (o) {
+        var content = [];
+        if (o.imagePng) content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: o.imagePng } });
+        content.push({ type: 'text', text: o.text });
+        var res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          signal: o.signal,
+          headers: {
+            'x-api-key': o.key,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({ model: o.model || this.defaults.model, max_tokens: 2048, system: o.system, messages: [{ role: 'user', content: content }] })
+        });
+        var data = null;
+        try { data = await res.json(); } catch (e) {}
+        if (!res.ok) {
+          var err = new Error((data && data.error && data.error.message) || ('Request failed (' + res.status + ')'));
+          err.status = res.status;
+          throw err;
+        }
+        var blocks = (data && data.content) || [];
+        return blocks.filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
+      }
+    }
+  };
+  var PROVIDER = 'anthropic';
+
+  var SYSTEM = [
+    'You are a collaborator on a shared whiteboard. You get a PNG of the visible board and the board as JSON (element array, board coordinates; "view" is the visible region the PNG shows).',
+    'Reply with ONLY one JSON object, no prose, no code fences: {"say": "optional short text reply", "add": [elements]}.',
+    'Element types you may add:',
+    '{"type":"note","x":0,"y":0,"text":"..."} square sticky note, x,y is top-left, keep text under 120 characters.',
+    '{"type":"text","x":0,"y":0,"text":"..."} plain label, x,y is top-left.',
+    '{"type":"rect","x":0,"y":0,"width":0,"height":0} and {"type":"ellipse", same fields}, optional "text" label.',
+    '{"type":"line","x1":0,"y1":0,"x2":0,"y2":0} and {"type":"arrow", same fields}.',
+    '{"type":"image","x":0,"y":0,"width":0,"height":0,"url":"https://..."} only with an image URL the user gave you.',
+    'Use the same board coordinates as the JSON. Place new things in empty space near what the user drew, never on top of existing elements. Keep diagrams tidy and sparse: few elements, aligned, generous spacing. Notes are about 120 units wide. Answer questions with "say" and add nothing unless drawing helps.'
+  ].join('\n');
+
+  /* ---------- state ---------- */
+  var KEY_SCENE = 'aiwb.scene', KEY_VIEW = 'aiwb.view', KEY_API = 'aiwb.key', KEY_MODEL = 'aiwb.model';
+  var cv = document.getElementById('board'), ctx = cv.getContext('2d');
+  var els = [], view = { x: 0, y: 0 }, tool = 'pen', undoStack = [], editing = null, busy = false;
+  var imgCache = {}, NOTE = 120, nextId = 1;
+  var dpr = 1, W = 0, H = 0;
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  try { var s = JSON.parse(lsGet(KEY_SCENE) || '[]'); if (Array.isArray(s)) els = s.filter(function (e) { return e && typeof e === 'object' && e.type; }); } catch (e) {}
+  try { var vv = JSON.parse(lsGet(KEY_VIEW) || 'null'); if (vv && isFinite(vv.x) && isFinite(vv.y)) view = { x: +vv.x, y: +vv.y }; } catch (e) {}
+  els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
+
+  function save() { lsSet(KEY_SCENE, JSON.stringify(els)); }
+  function saveView() { lsSet(KEY_VIEW, JSON.stringify(view)); }
+  function snap() { undoStack.push(JSON.stringify(els)); if (undoStack.length > 60) undoStack.shift(); syncUndo(); }
+  function syncUndo() { document.getElementById('undo').disabled = !undoStack.length; }
+  function newId() { return 'e' + (nextId++); }
+
+  /* ---------- text layout ---------- */
+  var FONT = '300 16px "Newsreader", "Iowan Old Style", Georgia, serif';
+  var FONT_BIG = '300 22px "Newsreader", "Iowan Old Style", Georgia, serif';
+  function wrap(text, maxW, font) {
+    ctx.font = font;
+    var out = [];
+    String(text || '').split('\n').forEach(function (para) {
+      var words = para.split(/\s+/).filter(Boolean), line = '';
+      if (!words.length) { out.push(''); return; }
+      words.forEach(function (w) {
+        var t = line ? line + ' ' + w : w;
+        if (line && ctx.measureText(t).width > maxW) { out.push(line); line = w; } else line = t;
+      });
+      out.push(line);
+    });
+    return out;
+  }
+  function fitNote(el) {
+    var s = NOTE;
+    while (s < 280 && wrap(el.text, s - 16, FONT).length * 20 > s - 16) s += 20;
+    el.w = el.h = s;
+  }
+  function textBox(el) {
+    var lines = wrap(el.text, 280, FONT_BIG);
+    var w = 0; lines.forEach(function (l) { w = Math.max(w, ctx.measureText(l).width); });
+    return { lines: lines, w: Math.max(20, w), h: Math.max(1, lines.length) * 28 };
+  }
+
+  /* ---------- geometry ---------- */
+  function bbox(el) {
+    if (el.type === 'pen') {
+      var minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+      el.pts.forEach(function (p) { minx = Math.min(minx, p[0]); miny = Math.min(miny, p[1]); maxx = Math.max(maxx, p[0]); maxy = Math.max(maxy, p[1]); });
+      return { x: el.x + minx, y: el.y + miny, w: maxx - minx, h: maxy - miny };
+    }
+    if (el.type === 'text') { var t = textBox(el); return { x: el.x, y: el.y, w: t.w, h: t.h }; }
+    if (el.type === 'line' || el.type === 'arrow') return { x: Math.min(el.x, el.x + el.w), y: Math.min(el.y, el.y + el.h), w: Math.abs(el.w), h: Math.abs(el.h) };
+    return { x: el.x, y: el.y, w: el.w, h: el.h };
+  }
+  function distSeg(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy, t = l ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l)) : 0;
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  }
+  function hit(el, px, py) {
+    var pad = 10;
+    if (el.type === 'pen') {
+      for (var i = 0; i < el.pts.length; i++) {
+        var a = el.pts[i], b = el.pts[i + 1] || a;
+        if (distSeg(px, py, el.x + a[0], el.y + a[1], el.x + b[0], el.y + b[1]) < pad) return true;
+      }
+      return false;
+    }
+    if (el.type === 'line' || el.type === 'arrow') return distSeg(px, py, el.x, el.y, el.x + el.w, el.y + el.h) < pad;
+    var b2 = bbox(el);
+    return px >= b2.x - 4 && px <= b2.x + b2.w + 4 && py >= b2.y - 4 && py <= b2.y + b2.h + 4;
+  }
+  function topAt(px, py) { for (var i = els.length - 1; i >= 0; i--) if (hit(els[i], px, py)) return els[i]; return null; }
+
+  /* ---------- rendering ---------- */
+  function getImage(el) {
+    var c = imgCache[el.url];
+    if (c) return c.ok ? c.img : null;
+    var img = new Image();
+    c = imgCache[el.url] = { img: img, ok: false };
+    img.crossOrigin = 'anonymous';
+    img.onload = function () { c.ok = true; draw(); };
+    img.onerror = function () {
+      var n = els.length;
+      els = els.filter(function (e) { return !(e.type === 'image' && e.url === el.url); });
+      if (els.length !== n) { save(); draw(); }
+    };
+    img.src = el.url;
+    return null;
+  }
+  function drawEl(g, el, ox, oy) {
+    var ai = !!el.ai;
+    g.save();
+    g.lineWidth = el.type === 'pen' ? 2.2 : 1.5;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = ai ? '#555' : '#000';
+    g.fillStyle = ai ? '#555' : '#000';
+    if (ai && el.type !== 'pen') g.setLineDash([7, 5]);
+    var x = el.x - ox, y = el.y - oy;
+    if (el.type === 'pen') {
+      var p = el.pts;
+      g.beginPath();
+      if (p.length === 1) { g.arc(x + p[0][0], y + p[0][1], 1.4, 0, Math.PI * 2); g.closePath(); g.fill(); }
+      else {
+        g.moveTo(x + p[0][0], y + p[0][1]);
+        for (var i = 1; i < p.length - 1; i++) g.quadraticCurveTo(x + p[i][0], y + p[i][1], x + (p[i][0] + p[i + 1][0]) / 2, y + (p[i][1] + p[i + 1][1]) / 2);
+        g.lineTo(x + p[p.length - 1][0], y + p[p.length - 1][1]);
+        g.stroke();
+      }
+    } else if (el.type === 'note') {
+      g.fillStyle = '#bfd7ff'; g.fillRect(x, y, el.w, el.h);
+      g.lineWidth = 1; g.strokeStyle = ai ? '#555' : '#000';
+      g.setLineDash(ai ? [4, 3] : []);
+      g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
+      g.setLineDash([]);
+      if (editing !== el.id) {
+        g.fillStyle = '#000'; g.textBaseline = 'top'; g.font = FONT;
+        var ls = wrap(el.text, el.w - 16, FONT), max = Math.floor((el.h - 16) / 20);
+        ls.slice(0, max).forEach(function (l, i) { g.fillText(l, x + 8, y + 8 + i * 20); });
+      }
+    } else if (el.type === 'text') {
+      var t = textBox(el);
+      g.font = FONT_BIG; g.textBaseline = 'top';
+      t.lines.forEach(function (l, i) { g.fillText(l, x, y + i * 28 + 3); });
+    } else if (el.type === 'rect') {
+      g.strokeRect(x, y, el.w, el.h); label(g, el, x + el.w / 2, y + el.h / 2, el.w - 12);
+    } else if (el.type === 'ellipse') {
+      g.beginPath(); g.ellipse(x + el.w / 2, y + el.h / 2, Math.abs(el.w / 2), Math.abs(el.h / 2), 0, 0, Math.PI * 2); g.closePath(); g.stroke();
+      label(g, el, x + el.w / 2, y + el.h / 2, el.w * 0.7);
+    } else if (el.type === 'line' || el.type === 'arrow') {
+      var x2 = x + el.w, y2 = y + el.h;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
+      if (el.type === 'arrow') {
+        var a = Math.atan2(el.h, el.w), hl = 12;
+        g.setLineDash([]);
+        g.beginPath(); g.moveTo(x2 - hl * Math.cos(a - 0.45), y2 - hl * Math.sin(a - 0.45)); g.lineTo(x2, y2); g.lineTo(x2 - hl * Math.cos(a + 0.45), y2 - hl * Math.sin(a + 0.45)); g.stroke();
+      }
+    } else if (el.type === 'image') {
+      var im = getImage(el);
+      if (im) g.drawImage(im, x, y, el.w, el.h);
+    }
+    g.restore();
+  }
+  function label(g, el, cx, cy, maxW) {
+    if (!el.text) return;
+    g.setLineDash([]); g.fillStyle = '#000'; g.font = FONT; g.textAlign = 'center'; g.textBaseline = 'middle';
+    var ls = wrap(el.text, Math.max(30, maxW), FONT);
+    g.font = FONT;
+    ls.forEach(function (l, i) { g.fillText(l, cx, cy + (i - (ls.length - 1) / 2) * 20); });
+    g.textAlign = 'left';
+  }
+  function draw() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    els.forEach(function (el) { drawEl(ctx, el, view.x, view.y); });
+  }
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    draw();
+    if (editing) placeEditor();
+  }
+  window.addEventListener('resize', resize);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
+
+  /* ---------- note editor ---------- */
+  var ta = document.getElementById('noteEdit');
+  function placeEditor() {
+    var el = els.filter(function (e) { return e.id === editing; })[0];
+    if (!el) return;
+    ta.style.left = (el.x - view.x) + 'px'; ta.style.top = (el.y - view.y) + 'px'; ta.style.width = el.w + 'px'; ta.style.height = el.h + 'px';
+  }
+  function editNote(el) {
+    commitEdit();
+    editing = el.id; ta.value = el.text || ''; ta.style.display = 'block'; placeEditor(); draw();
+    ta.focus();
+  }
+  function commitEdit() {
+    if (!editing) return;
+    var id = editing; editing = null;
+    ta.style.display = 'none';
+    var el = els.filter(function (e) { return e.id === id; })[0];
+    if (el) {
+      var v = ta.value.trim();
+      if (!v) { els = els.filter(function (e) { return e !== el; }); }
+      else if (v !== el.text) { snap(); el.text = v; fitNote(el); }
+      save();
+    }
+    draw();
+  }
+  ta.addEventListener('blur', commitEdit);
+  ta.addEventListener('keydown', function (e) { if (e.key === 'Escape') ta.blur(); });
+
+  /* ---------- pointer interaction ---------- */
+  var drag = null;
+  function pt(e) { return { x: e.clientX + view.x, y: e.clientY + view.y }; }
+  cv.addEventListener('pointerdown', function (e) {
+    if (!e.isPrimary || drag) return;
+    closePanel();
+    var p = pt(e);
+    if (editing) ta.blur();
+    cv.setPointerCapture(e.pointerId);
+    if (tool === 'pen') {
+      snap();
+      var el = { id: newId(), type: 'pen', x: p.x, y: p.y, pts: [[0, 0]] };
+      els.push(el); drag = { kind: 'pen', el: el };
+    } else if (tool === 'note') {
+      snap();
+      var n = { id: newId(), type: 'note', x: p.x - NOTE / 2, y: p.y - NOTE / 2, w: NOTE, h: NOTE, text: '' };
+      els.push(n); drag = { kind: 'none' };
+      setTimeout(function () { editNote(n); }, 0);
+    } else {
+      var t = topAt(p.x, p.y);
+      if (t) { snap(); drag = { kind: 'move', el: t, sx: e.clientX, sy: e.clientY, ox: t.x, oy: t.y, moved: false }; }
+      else drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
+    }
+    draw();
+  });
+  cv.addEventListener('pointermove', function (e) {
+    if (!drag || !e.isPrimary) return;
+    var p = pt(e);
+    if (drag.kind === 'pen') {
+      var el = drag.el, last = el.pts[el.pts.length - 1], q = [p.x - el.x, p.y - el.y];
+      if (Math.hypot(q[0] - last[0], q[1] - last[1]) >= 1.5) { el.pts.push(q); draw(); }
+    } else if (drag.kind === 'move') {
+      var dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      drag.el.x = drag.ox + dx; drag.el.y = drag.oy + dy; draw();
+    } else if (drag.kind === 'pan') {
+      view.x = drag.vx - (e.clientX - drag.sx); view.y = drag.vy - (e.clientY - drag.sy); draw();
+    }
+  });
+  function end(e) {
+    if (!drag || (e && !e.isPrimary)) return;
+    var d = drag; drag = null;
+    if (d.kind === 'move') {
+      if (!d.moved) { undoStack.pop(); syncUndo(); if (d.el.type === 'note') editNote(d.el); }
+      else save();
+    } else if (d.kind === 'pan') saveView();
+    else save();
+    draw();
+  }
+  cv.addEventListener('pointerup', end);
+  cv.addEventListener('pointercancel', end);
+
+  /* ---------- toolbar ---------- */
+  var toolBtns = document.querySelectorAll('[data-tool]');
+  function setTool(t) {
+    tool = t;
+    toolBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.tool === t)); });
+    cv.classList.toggle('move', t === 'move');
+  }
+  toolBtns.forEach(function (b) { b.addEventListener('click', function () { commitEdit(); setTool(b.dataset.tool); }); });
+  function undo() {
+    commitEdit();
+    if (!undoStack.length) return;
+    els = JSON.parse(undoStack.pop()); save(); syncUndo(); draw();
+  }
+  document.getElementById('undo').addEventListener('click', undo);
+  document.addEventListener('keydown', function (e) {
+    var tag = document.activeElement && document.activeElement.tagName;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && tag !== 'TEXTAREA' && tag !== 'INPUT') { e.preventDefault(); undo(); }
+    if (e.key === 'Escape') closePanel();
+  });
+  syncUndo();
+
+  /* ---------- magic panel + settings ---------- */
+  var panel = document.getElementById('panel'), ask = document.getElementById('ask'), cfg = document.getElementById('cfg');
+  var keyIn = document.getElementById('key'), modelIn = document.getElementById('model'), magic = document.getElementById('magic'), gear = document.getElementById('gear');
+  keyIn.value = lsGet(KEY_API) || '';
+  modelIn.value = lsGet(KEY_MODEL) || '';
+  modelIn.placeholder = providers[PROVIDER].defaults.model;
+  keyIn.addEventListener('input', function () { lsSet(KEY_API, keyIn.value.trim()); });
+  modelIn.addEventListener('input', function () { lsSet(KEY_MODEL, modelIn.value.trim()); });
+  function openPanel(withCfg) {
+    commitEdit();
+    panel.classList.add('open'); magic.setAttribute('aria-expanded', 'true');
+    setCfg(!!withCfg);
+    (withCfg ? keyIn : ask).focus();
+  }
+  function closePanel() { panel.classList.remove('open'); magic.setAttribute('aria-expanded', 'false'); }
+  function setCfg(on) { cfg.classList.toggle('open', on); gear.setAttribute('aria-expanded', String(on)); }
+  magic.addEventListener('click', function () { panel.classList.contains('open') ? closePanel() : openPanel(!keyIn.value.trim()); });
+  gear.addEventListener('click', function () { var on = !cfg.classList.contains('open'); setCfg(on); (on ? keyIn : ask).focus(); });
+
+  var errEl = document.getElementById('err'), errTimer = null;
+  function showErr(msg) {
+    errEl.textContent = msg; errEl.classList.add('show');
+    clearTimeout(errTimer);
+    errTimer = setTimeout(function () { errEl.classList.remove('show'); }, 3500);
+  }
+
+  panel.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (document.activeElement === keyIn || document.activeElement === modelIn) {
+      lsSet(KEY_API, keyIn.value.trim()); lsSet(KEY_MODEL, modelIn.value.trim());
+      if (keyIn.value.trim()) { setCfg(false); ask.focus(); }
+      return;
+    }
+    send();
+  });
+
+  /* ---------- sending ---------- */
+  function sceneForModel() {
+    var vis = { x: Math.round(view.x), y: Math.round(view.y), width: W, height: H };
+    var list = els.map(function (el) {
+      var b = bbox(el), o = { id: el.id, type: el.type };
+      if (el.type === 'line' || el.type === 'arrow') { o.x1 = Math.round(el.x); o.y1 = Math.round(el.y); o.x2 = Math.round(el.x + el.w); o.y2 = Math.round(el.y + el.h); }
+      else { o.x = Math.round(b.x); o.y = Math.round(b.y); o.width = Math.round(b.w); o.height = Math.round(b.h); }
+      if (el.text) o.text = el.text;
+      if (el.url) o.url = el.url;
+      if (el.ai) o.byAI = true;
+      return o;
+    });
+    return { view: vis, elements: list };
+  }
+  function boardPng() {
+    var k = Math.min(1, 1400 / Math.max(W, H));
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(W * k)); c.height = Math.max(1, Math.round(H * k));
+    var g = c.getContext('2d');
+    g.scale(k, k); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    els.forEach(function (el) { drawEl(g, el, view.x, view.y); });
+    try { return c.toDataURL('image/png').split(',')[1]; } catch (e) { return null; }
+  }
+  async function send() {
+    var q = ask.value.trim();
+    if (!q || busy) return;
+    var key = keyIn.value.trim();
+    if (!key) { setCfg(true); keyIn.focus(); return; }
+    var prov = providers[PROVIDER];
+    busy = true; magic.classList.add('busy');
+    try {
+      var text = q + '\n\nBoard JSON:\n' + JSON.stringify(sceneForModel());
+      var reply = await prov.complete({ system: SYSTEM, text: text, imagePng: boardPng(), model: modelIn.value.trim() || prov.defaults.model, key: key, signal: undefined });
+      var parsed = parseReply(reply);
+      if (!parsed) { showErr('Could not read the reply'); return; }
+      applyReply(parsed);
+      ask.value = ''; closePanel();
+    } catch (err) {
+      if (err && (err.status === 401 || err.status === 403)) showErr('Bad API key');
+      else if (err instanceof TypeError) showErr('Network error');
+      else showErr(String((err && err.message) || 'Something went wrong').slice(0, 120));
+    } finally {
+      busy = false; magic.classList.remove('busy');
+    }
+  }
+
+  /* ---------- reply parsing (defensive) ---------- */
+  function parseReply(raw) {
+    if (typeof raw !== 'string') return null;
+    var s = raw.trim().replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '');
+    var a = s.indexOf('{'), b = s.lastIndexOf('}');
+    if (a < 0 || b <= a) return null;
+    try { var o = JSON.parse(s.slice(a, b + 1)); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; } catch (e) { return null; }
+  }
+  function num(v, d) { v = Number(v); return isFinite(v) ? Math.max(-20000, Math.min(20000, v)) : d; }
+  function str(v, n) { return typeof v === 'string' ? v.slice(0, n) : ''; }
+  function sanitize(a) {
+    if (!a || typeof a !== 'object') return null;
+    var t = a.type, el = { id: newId(), type: t, ai: true };
+    if (t === 'note') { el.x = num(a.x, view.x + 40); el.y = num(a.y, view.y + 40); el.text = str(a.text, 400); if (!el.text) return null; fitNote(el); }
+    else if (t === 'text') { el.x = num(a.x, 0); el.y = num(a.y, 0); el.text = str(a.text, 400); if (!el.text) return null; }
+    else if (t === 'rect' || t === 'ellipse') {
+      el.x = num(a.x, 0); el.y = num(a.y, 0);
+      el.w = Math.abs(num(a.width != null ? a.width : a.w, 120)) || 120;
+      el.h = Math.abs(num(a.height != null ? a.height : a.h, 80)) || 80;
+      el.text = str(a.text, 120);
+    }
+    else if (t === 'line' || t === 'arrow') {
+      if (a.x1 != null || a.x2 != null) { el.x = num(a.x1, 0); el.y = num(a.y1, 0); el.w = num(a.x2, el.x) - el.x; el.h = num(a.y2, el.y) - el.y; }
+      else { el.x = num(a.x, 0); el.y = num(a.y, 0); el.w = num(a.width, 100); el.h = num(a.height, 0); }
+    }
+    else if (t === 'image') {
+      var u = str(a.url, 2000);
+      if (!/^https?:\/\//i.test(u)) return null;
+      el.url = u; el.x = num(a.x, 0); el.y = num(a.y, 0);
+      el.w = Math.abs(num(a.width, 200)) || 200; el.h = Math.abs(num(a.height, 200)) || 200;
+    }
+    else return null;
+    return el;
+  }
+  function freeSpot(size) {
+    var boxes = els.map(bbox);
+    for (var r = 0; r < 12; r++) for (var c = 0; c < 20; c++) {
+      var x = view.x + 24 + c * 40, y = view.y + 24 + r * 40;
+      if (x + size > view.x + W - 24 || y + size > view.y + H - 100) continue;
+      var ok = boxes.every(function (b) { return x + size + 12 < b.x || x > b.x + b.w + 12 || y + size + 12 < b.y || y > b.y + b.h + 12; });
+      if (ok) return { x: x, y: y };
+    }
+    return { x: view.x + 24, y: view.y + 24 };
+  }
+  function applyReply(r) {
+    var add = Array.isArray(r.add) ? r.add.slice(0, 40).map(sanitize).filter(Boolean) : [];
+    var say = typeof r.say === 'string' ? r.say.trim().slice(0, 400) : '';
+    if (!add.length && !say) { showErr('Nothing to add'); return; }
+    snap();
+    add.forEach(function (e) { els.push(e); });
+    if (say) {
+      var n = { id: newId(), type: 'note', ai: true, text: say, x: 0, y: 0 };
+      fitNote(n);
+      var p = freeSpot(n.w); n.x = p.x; n.y = p.y;
+      els.push(n);
+    }
+    save(); draw();
+  }
+
+  resize();
+})();
+</script>
+</body>
+</html>
