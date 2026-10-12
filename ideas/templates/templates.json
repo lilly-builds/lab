@@ -1,3 +1,5 @@
 [
-  { "id": "dream-board", "title": "Dream board", "author": "Lilly Field", "file": "dream-board.json" }
+  { "id": "dream-board", "title": "Dream board", "author": "Lilly Field", "file": "dream-board.json" },
+  { "id": "dreamspace-plan", "title": "Dreamspace plan", "author": "Lilly Field", "file": "dreamspace-plan.json" },
+  { "id": "idea-map", "title": "Idea map", "author": "Lilly Field", "file": "idea-map.json" }
 ]
