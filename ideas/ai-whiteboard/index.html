@@ -6,19 +6,19 @@
 <title>AI whiteboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300&family=Newsreader:opsz,wght@6..72,300&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
 <style>
   :root {
     --ink: #000;
     --paper: #fff;
     --note: #bfd7ff;
-    --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
-    --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --serif: "Special Elite", "Courier New", monospace;
+    --mono: "Special Elite", "Courier New", monospace;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); }
-  body { color: var(--ink); font: 300 17px/1.4 var(--serif); }
+  body { color: var(--ink); font: 400 17px/1.4 var(--serif); font-synthesis: none; }
   button, input, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; background: none; border: 0; padding: 0; }
   :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
@@ -434,7 +434,9 @@
   function nearWidth(v) { v = Number(v); return isFinite(v) && v > 0 ? (v <= 1.5 ? 1 : v <= 3 ? 2 : 4) : undefined; }
   function isClosed(t) { return t === 'rect' || t === 'diamond' || t === 'ellipse'; }
 
-  var SYSTEM = [
+  function buildSystem() {
+    var adv = advanceEm();
+    return [
     'You are a collaborator on a shared whiteboard. You get a PNG of the visible board and the board as JSON (element array, board coordinates; "view" is the visible region the PNG shows).',
     'Reply with ONLY one JSON object, no prose, no code fences: {"say": "optional short text reply", "add": [elements]}.',
     'Element types you may add:',
@@ -449,8 +451,10 @@
     '"fill" on rect, ellipse and diamond: "none", "#ffc9c9", "#b2f2bb", "#a5d8ff", "#ffec99" or "#ffffff". "fill" on note: "#bfd7ff", "#ffec99", "#b2f2bb" or "#ffc9c9".',
     '"strokeWidth": 1 thin, 2 regular or 4 bold. "dashed": true or false.',
     'Leave style out unless color helps meaning; use few colors. Existing elements may carry the same style fields.',
-    'Use the same board coordinates as the JSON. Place new things in empty space near what the user drew, never on top of existing elements. Keep diagrams tidy and sparse: few elements, aligned, generous spacing. Notes are about 120 units wide. Answer questions with "say" and add nothing unless drawing helps.'
-  ].join('\n');
+    'Use the same board coordinates as the JSON. Place new things in empty space near what the user drew, never on top of existing elements. Keep diagrams tidy and sparse: few elements, aligned, generous spacing. Notes are about 120 units wide. Answer questions with "say" and add nothing unless drawing helps.',
+    'All text is drawn in a typewriter face (Special Elite). Each character is about ' + adv.toFixed(2) + ' times the font size wide (about ' + (adv * 16).toFixed(1) + ' units at size 16, ' + (adv * 24).toFixed(1) + ' at size 24) and a line is about 1.4 times the font size tall (22 units at size 16). Size text boxes, "w" and shape widths with that, so labels fit inside their shapes.'
+    ].join('\n');
+  }
 
   /* ---------- state ---------- */
   var KEY_SCENE = 'aiwb.scene', KEY_VIEW = 'aiwb.view', KEY_PROVIDER = 'aiwb.provider';
@@ -546,7 +550,13 @@
   }
 
   /* ---------- text layout ---------- */
-  var FONT = '300 16px "Newsreader", "Iowan Old Style", Georgia, serif';
+  var FAMILY = '"Special Elite", "Courier New", monospace';
+  var FONT = '400 16px ' + FAMILY;
+  /* real advance of the face at 1em: the larger of M and n, measured once the font is loaded */
+  function advanceEm() {
+    ctx.font = '400 100px ' + FAMILY;
+    return Math.max(ctx.measureText('M').width, ctx.measureText('n').width) / 100;
+  }
   function wrap(text, maxW, font) {
     ctx.font = font;
     var out = [];
@@ -566,9 +576,19 @@
     while (s < 280 && wrap(el.text, s - 16, FONT).length * 20 > s - 16) s += 20;
     el.w = el.h = s;
   }
-  function textLH(el) { return Math.round(el.size * 1.3); }
+  /* note text: 16px, shrinking one px at a time to 12px when the square is too small */
+  function noteLayout(el) {
+    var fs = 16, font, lh, lines;
+    for (; fs >= 12; fs--) {
+      font = '400 ' + fs + 'px ' + FAMILY; lh = Math.round(fs * 1.25);
+      lines = wrap(el.text, el.w - 16, font);
+      if (lines.length * lh <= el.h - 16) break;
+    }
+    return { font: font, lh: lh, lines: lines, max: Math.floor((el.h - 16) / lh) };
+  }
+  function textLH(el) { return Math.round(el.size * 1.4); }
   function textBox(el) {
-    var font = '300 ' + el.size + 'px "Newsreader", "Iowan Old Style", Georgia, serif', lh = textLH(el);
+    var font = '400 ' + el.size + 'px ' + FAMILY, lh = textLH(el);
     var lines = wrap(el.text, el.w, font);
     var w = 0; lines.forEach(function (l) { w = Math.max(w, ctx.measureText(l).width); });
     return { lines: lines, font: font, lh: lh, w: Math.max(24, w), h: Math.max(1, lines.length) * lh };
@@ -670,9 +690,9 @@
       g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
       g.setLineDash([]);
       if (editing !== el.id) {
-        g.fillStyle = '#000'; g.textBaseline = 'top'; g.font = FONT;
-        var ls = wrap(el.text, el.w - 16, FONT), max = Math.floor((el.h - 16) / 20);
-        ls.slice(0, max).forEach(function (l, i) { g.fillText(l, x + 8, y + 8 + i * 20); });
+        var nl = noteLayout(el);
+        g.fillStyle = '#000'; g.textBaseline = 'top'; g.font = nl.font;
+        nl.lines.slice(0, nl.max).forEach(function (l, i) { g.fillText(l, x + 8, y + 8 + i * nl.lh); });
       }
     } else if (el.type === 'text') {
       if (editing !== el.id) {
@@ -699,8 +719,10 @@
       g.setLineDash(el.pending ? [4, 3] : []); g.lineWidth = 1; g.strokeStyle = '#000'; g.fillStyle = '#000';
       g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
       g.beginPath(); g.moveTo(x, y + 32.5); g.lineTo(x + el.w, y + 32.5); g.stroke();
-      g.font = '300 11px "DM Mono", ui-monospace, monospace'; g.textBaseline = 'middle';
-      g.fillText(String(el.title || '').toUpperCase().slice(0, Math.max(0, Math.floor((el.w - 60) / 7))), x + 10, y + 16);
+      g.font = '400 11px ' + FAMILY; g.textBaseline = 'middle';
+      var tt = String(el.title || '').toUpperCase(), room = Math.max(0, el.w - 60);
+      while (tt && g.measureText(tt).width > room) tt = tt.slice(0, -1);
+      g.fillText(tt, x + 10, y + 16);
     } else if (el.type === 'image') {
       var im = getImage(el);
       if (im) g.drawImage(im, x, y, el.w, el.h);
@@ -748,7 +770,10 @@
     if (editing) placeEditor();
   }
   window.addEventListener('resize', resize);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
+  if (document.fonts && document.fonts.load) {
+    document.fonts.load('16px "Special Elite"').then(draw, draw);
+    document.fonts.ready.then(draw);
+  }
 
   /* ---------- style bar ---------- */
   var propsEl = document.getElementById('props'), pStroke = document.getElementById('pStroke'), pFill = document.getElementById('pFill'), pNote = document.getElementById('pNote');
@@ -1294,7 +1319,7 @@
       await new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); });
       if (ac.signal.aborted) return;
       var text = q + '\n\nBoard JSON:\n' + JSON.stringify(sceneForModel());
-      var reply = await prov.complete({ system: SYSTEM, text: text, imagePng: boardPng(), model: getModel(PROVIDER), key: key, signal: ac.signal });
+      var reply = await prov.complete({ system: buildSystem(), text: text, imagePng: boardPng(), model: getModel(PROVIDER), key: key, signal: ac.signal });
       if (ac.signal.aborted) return;
       var parsed = parseReply(reply);
       if (!parsed) { showErr('Could not read the reply'); return; }
@@ -1835,7 +1860,7 @@
         '',
         'Rules:',
         '- One self-contained index.html in ideas/' + slug + '/, no build step.',
-        '- Minimal black and white editorial design: square, thin outlines, Newsreader Light and DM Mono Light.',
+        '- Minimal black and white editorial design: square, thin outlines, Special Elite typewriter font (Google Fonts) throughout.',
         '- Do not change anything under .github/.'
       ].join('\n');
       return ISSUE + '?title=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body);
