@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card styles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #000;
+    --paper: #fff;
+    --serif: "Special Elite", "Courier New", monospace;
+    --mono: "Special Elite", "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; overflow-x: hidden; }
+  body { background: var(--paper); color: var(--ink); font: 400 17px/1.45 var(--serif); font-synthesis: none; min-height: 100vh; }
+
+  .app { max-width: 1240px; margin: 0 auto; padding: 24px 16px 56px; }
+  h1 { font: 400 clamp(26px, 6vw, 38px)/1.2 var(--serif); margin: 10px 0 8px; text-align: center; }
+  .lead { margin: 0 0 32px; text-align: center; font: 300 14px/1.4 var(--mono); }
+
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; max-width: 560px; margin: 0 auto; }
+  @media (min-width: 1100px) { .cols { grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: none; } }
+  .col { min-width: 0; }
+  .tag { margin: 0 0 10px; font: 400 13px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .12em; }
+
+  .card { position: relative; min-width: 0; transition: transform 150ms; }
+  .card:hover { transform: translateY(-2px); }
+  .card:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
+  .card canvas { display: block; width: 100%; background: var(--paper); }
+  .title { display: block; overflow-wrap: anywhere; }
+  .author { display: block; overflow-wrap: anywhere; }
+  .story { margin: 0; font: 400 13px/1.45 var(--mono); }
+  .story span { display: block; }
+  .story span + span { margin-top: 6px; }
+
+  /* A: postcard */
+  .a { display: flex; min-height: 340px; aspect-ratio: 3 / 2; background: var(--paper); border: 1px solid rgba(0,0,0,.55); padding: 8px; }
+  .a::before { content: ""; position: absolute; inset: 8px; border: 1px solid rgba(0,0,0,.12); pointer-events: none; }
+  .a .pic { flex: 0 0 58%; position: relative; margin: 8px 0 8px 8px; }
+  .a .pic canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .a .msg { flex: 1 1 0; min-width: 0; margin: 8px 8px 8px 12px; padding: 76px 8px 0 12px; border-left: 1px solid rgba(0,0,0,.55); }
+  .a .title { font-size: 20px; line-height: 1.2; font-style: italic; transform: rotate(-1.5deg); transform-origin: left; margin-bottom: 14px; }
+  .a .author { font-size: 13px; line-height: 26px; border-bottom: 1px solid rgba(0,0,0,.25); }
+  .a .rule { height: 26px; border-bottom: 1px solid rgba(0,0,0,.25); }
+  .a .story { margin-top: 12px; }
+  .stamp { position: absolute; top: 18px; right: 18px; width: 56px; height: 68px; border: 2px dashed #000; background: var(--paper); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font: 400 10px/1.1 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+  .stamp svg { display: block; }
+  .postmark { position: absolute; top: 20px; right: 50px; width: 150px; height: 64px; pointer-events: none; }
+  @media (max-width: 519px) {
+    .a { display: block; aspect-ratio: auto; padding: 8px 8px 8px; }
+    .a .pic { margin: 84px 8px 0; aspect-ratio: 4 / 3; }
+    .a .msg { margin: 12px 8px 8px; padding: 12px 0 0; border-left: 0; border-top: 1px solid rgba(0,0,0,.55); }
+  }
+
+  /* B: index card */
+  .b { padding: 16px; background: #faf8f2; border: 1px solid var(--ink); border-radius: 0; box-shadow: 0 1px 0 rgba(0,0,0,.06), 0 8px 18px -10px rgba(0,0,0,.28); }
+  .b canvas { aspect-ratio: 4 / 3; border: 1px solid rgba(0,0,0,.18); }
+  .b .title { margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(0,0,0,.25); font-size: 20px; line-height: 1.25; }
+  .b .author { margin-top: 4px; font-size: 13px; line-height: 1.4; text-transform: uppercase; letter-spacing: .06em; }
+  .b .story { margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(0,0,0,.25); background: repeating-linear-gradient(to bottom, transparent 0, transparent 22px, rgba(0,0,0,.08) 22px, rgba(0,0,0,.08) 23px); }
+  @media (max-width: 479px) { .b { padding: 12px; } }
+
+  /* C: simple black border */
+  .c { padding: 14px; background: var(--paper); border: 2px solid var(--ink); border-radius: 0; }
+  .c canvas { aspect-ratio: 4 / 3; }
+  .c .title { margin-top: 12px; font-size: 20px; line-height: 1.25; }
+  .c .author { margin-top: 2px; font-size: 13px; line-height: 1.4; }
+  .c .story { margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Card styles</h1>
+  <p class="lead">Pick one. The winner goes into the gallery.</p>
+  <div class="cols">
+
+    <section class="col" aria-labelledby="la">
+      <h2 class="tag" id="la">A: Postcard</h2>
+      <div class="card a" tabindex="0">
+        <div class="pic"><canvas role="img" aria-label="Dream board"></canvas></div>
+        <div class="msg">
+          <span class="title">Dream board</span>
+          <span class="author">Lilly Field</span>
+          <div class="rule"></div><div class="rule"></div><div class="rule"></div>
+          <p class="story"><span>Why I made it: my best ideas kept getting lost in a notes app, so I wanted them all on one page.</span><span>Why I love it: sorting the have-tos from the want-tos makes the dream part feel closer.</span></p>
+        </div>
+        <svg class="postmark" viewBox="0 0 150 64" width="150" height="64" fill="none" stroke="#000" stroke-width="1.2" aria-hidden="true">
+          <g opacity=".35">
+            <circle cx="118" cy="32" r="31"/>
+            <path d="M4 24 q8 -6 16 0 t16 0 t16 0 t16 0"/>
+            <path d="M4 36 q8 -6 16 0 t16 0 t16 0 t16 0"/>
+          </g>
+        </svg>
+        <div class="stamp" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#000" stroke-width="1.5"><circle cx="11" cy="11" r="9"/><circle cx="11" cy="11" r="4"/></svg>
+          <span>Lab</span>
+          <span>12 Oct</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="col" aria-labelledby="lb">
+      <h2 class="tag" id="lb">B: Index card</h2>
+      <div class="card b" tabindex="0">
+        <canvas role="img" aria-label="Dream board"></canvas>
+        <span class="title">Dream board</span>
+        <span class="author">Lilly Field</span>
+        <p class="story"><span>Why I made it: my best ideas kept getting lost in a notes app, so I wanted them all on one page.</span><span>Why I love it: sorting the have-tos from the want-tos makes the dream part feel closer.</span></p>
+      </div>
+    </section>
+
+    <section class="col" aria-labelledby="lc">
+      <h2 class="tag" id="lc">C: Simple black border</h2>
+      <div class="card c" tabindex="0">
+        <canvas role="img" aria-label="Dream board"></canvas>
+        <span class="title">Dream board</span>
+        <span class="author">Lilly Field</span>
+        <p class="story"><span>Why I made it: my best ideas kept getting lost in a notes app, so I wanted them all on one page.</span><span>Why I love it: sorting the have-tos from the want-tos makes the dream part feel closer.</span></p>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var FAMILY = '"Special Elite", "Courier New", monospace';
+  var FONT_BIG = '400 22px ' + FAMILY;
+  var probe = document.createElement('canvas').getContext('2d');
+
+  /* drawing code copied from index.html, trimmed to ellipses and text */
+  function wrap(g, text, maxW, font) {
+    g.font = font;
+    var out = [];
+    String(text || '').split('\n').forEach(function (para) {
+      var words = para.split(/\s+/).filter(Boolean), line = '';
+      if (!words.length) { out.push(''); return; }
+      words.forEach(function (w) {
+        var t = line ? line + ' ' + w : w;
+        if (line && g.measureText(t).width > maxW) { out.push(line); line = w; } else line = t;
+      });
+      out.push(line);
+    });
+    return out;
+  }
+  function textBox(el) {
+    var lines = wrap(probe, el.text, 280, FONT_BIG), w = 0;
+    lines.forEach(function (l) { w = Math.max(w, probe.measureText(l).width); });
+    return { lines: lines, w: Math.max(20, w), h: Math.max(1, lines.length) * 28 };
+  }
+  function bbox(el) {
+    if (el.type === 'text') { var t = textBox(el); return { x: el.x, y: el.y, w: t.w, h: t.h }; }
+    return { x: el.x, y: el.y, w: el.w, h: el.h };
+  }
+  function drawEl(g, el) {
+    g.save();
+    g.lineWidth = 1.5; g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = '#000'; g.fillStyle = '#000';
+    if (el.type === 'text') {
+      var t = textBox(el);
+      g.font = FONT_BIG; g.textBaseline = 'top';
+      t.lines.forEach(function (l, i) { g.fillText(l, el.x, el.y + i * 28 + 3); });
+    } else if (el.type === 'ellipse') {
+      g.beginPath(); g.ellipse(el.x + el.w / 2, el.y + el.h / 2, Math.abs(el.w / 2), Math.abs(el.h / 2), 0, 0, Math.PI * 2); g.closePath(); g.stroke();
+    }
+    g.restore();
+  }
+  function preview(cv, els) {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var W = cv.clientWidth || 260, H = cv.clientHeight || 195;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    var g = cv.getContext('2d');
+    var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    els.forEach(function (el) {
+      var b = bbox(el);
+      x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
+    });
+    if (x1 < x0) return;
+    var pad = 12, k = Math.min((W - pad * 2) / Math.max(1, x1 - x0), (H - pad * 2) / Math.max(1, y1 - y0));
+    var tx = (W - (x1 - x0) * k) / 2 - x0 * k, ty = (H - (y1 - y0) * k) / 2 - y0 * k;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    g.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty);
+    els.forEach(function (el) { drawEl(g, el); });
+  }
+
+  var canvases = document.querySelectorAll('.card canvas');
+  fetch('dream-board.json').then(function (r) { return r.json(); }).then(function (els) {
+    if (!Array.isArray(els)) return;
+    els = els.filter(function (e) { return e && typeof e === 'object' && e.type; });
+    var go = function () { for (var i = 0; i < canvases.length; i++) preview(canvases[i], els); };
+    go();
+    if (document.fonts && document.fonts.load) document.fonts.load('16px "Special Elite"').then(go, go);
+    var timer;
+    window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(go, 100); });
+  }).catch(function () {});
+})();
+</script>
+</body>
+</html>
