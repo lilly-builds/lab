@@ -129,8 +129,14 @@
   .epend rect { fill: none; stroke: var(--ink); stroke-width: 1; stroke-dasharray: 6 5; animation: march 1.2s linear infinite; }
   .emb.stall .epend rect { animation: none; }
   @keyframes march { to { stroke-dashoffset: -11; } }
-  .enote { position: absolute; top: 0; left: 0; right: 0; padding: 7px 10px; background: var(--paper); border-bottom: 1px solid var(--ink); font: 300 12px/1.4 var(--mono); pointer-events: none; }
-  .enote a { pointer-events: auto; color: var(--ink); text-decoration: underline; }
+  .ecard { position: absolute; inset: 6px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 16px; background: var(--paper); border: 1px solid var(--ink); text-align: center; overflow: auto; font-family: var(--mono); font-weight: 300; color: var(--ink); pointer-events: none; }
+  .ecard[hidden], .ecard .chint[hidden] { display: none; }
+  .ecard .cname { font-size: 12px; line-height: 1.2; text-transform: uppercase; letter-spacing: .08em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ecard .cmid { margin: auto 0; }
+  .ecard .cmsg { font-size: 18px; line-height: 1.3; }
+  .ecard .chint { margin-top: 8px; font-size: 13px; line-height: 1.4; }
+  .ecard .copen { pointer-events: auto; display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 22px; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); text-decoration: none; font: 300 12px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+  .ecard .copen:hover, .ecard .copen:focus-visible { background: var(--ink); color: var(--paper); }
   @media (prefers-reduced-motion: reduce) { .epend rect { animation: none; } .ebody iframe { transition: none; } }
 
   /* connect modal */
@@ -2028,6 +2034,71 @@
     adoptBoard(list);
   }
 
+  /* ---------- embedFor: translate known links to their embeddable form (render time only; elements keep the original url) ---------- */
+  /* embedFor:start */
+  var NO_EMBED = {
+    'pinterest.com': 'Pinterest', 'pin.it': 'Pinterest', 'instagram.com': 'Instagram', 'facebook.com': 'Facebook', 'fb.com': 'Facebook',
+    'linkedin.com': 'LinkedIn', 'x.com': 'X', 'twitter.com': 'X', 'reddit.com': 'Reddit', 'tiktok.com': 'TikTok', 'amazon.com': 'Amazon',
+    'netflix.com': 'Netflix', 'github.com': 'GitHub', 'notion.so': 'Notion', 'docs.google.com': 'Google Docs', 'drive.google.com': 'Google Docs'
+  };
+  function noEmbedName(host) {
+    for (var h = host; h; ) {
+      if (Object.prototype.hasOwnProperty.call(NO_EMBED, h)) return NO_EMBED[h];
+      var i = h.indexOf('.'); if (i < 0) break; h = h.slice(i + 1);
+    }
+    return '';
+  }
+  function embedFor(raw) {
+    var out = { src: raw, provider: '', name: '', framable: true }, u;
+    try { u = new URL(String(raw)); } catch (e) { return out; }
+    if (u.protocol !== 'https:') return out;
+    var host = u.hostname.toLowerCase(), bare = host.replace(/^www\./, ''), path = u.pathname, m, q = u.searchParams;
+    function hit(provider, name, src) { out.src = src; out.provider = provider; out.name = name; return out; }
+    if (bare === 'youtube.com' || host === 'm.youtube.com' || bare === 'youtu.be') {
+      var id = '', list = '', ID = /^[A-Za-z0-9_-]{6,15}$/;
+      if (bare === 'youtu.be') { m = /^\/([^/]+)\/?$/.exec(path); if (m) id = m[1]; }
+      else if (path === '/watch') { id = q.get('v') || ''; list = q.get('list') || ''; }
+      else if ((m = /^\/(?:shorts|live)\/([^/]+)\/?$/.exec(path))) id = m[1];
+      else if (path === '/playlist') list = q.get('list') || '';
+      if (id && ID.test(id)) {
+        var t = q.get('t') || q.get('start') || '', secs = 0, tm;
+        if (/^\d{1,6}s?$/.test(t)) secs = parseInt(t, 10);
+        else if (t && (tm = /^(?:(\d{1,3})h)?(?:(\d{1,4})m)?(?:(\d{1,6})s)?$/.exec(t))) secs = (+tm[1] || 0) * 3600 + (+tm[2] || 0) * 60 + (+tm[3] || 0);
+        return hit('youtube', 'YouTube', 'https://www.youtube-nocookie.com/embed/' + id + (secs > 0 ? '?start=' + secs : ''));
+      }
+      if (!id && /^[A-Za-z0-9_-]{10,60}$/.test(list)) return hit('youtube', 'YouTube', 'https://www.youtube-nocookie.com/embed/videoseries?list=' + list);
+    } else if (bare === 'vimeo.com') {
+      m = /^\/(?:channels\/[^/]+\/)?(\d{1,12})\/?$/.exec(path);
+      if (m) return hit('vimeo', 'Vimeo', 'https://player.vimeo.com/video/' + m[1]);
+    } else if (host === 'open.spotify.com') {
+      m = /^\/(track|album|playlist|episode|show|artist)\/([A-Za-z0-9]{10,30})\/?$/.exec(path);
+      if (m) return hit('spotify', 'Spotify', 'https://open.spotify.com/embed/' + m[1] + '/' + m[2]);
+    } else if (bare === 'google.com' && (path === '/maps' || path.indexOf('/maps/') === 0)) {
+      var mq = '', dec = function (x) { try { return decodeURIComponent(x.replace(/\+/g, ' ')); } catch (e) { return ''; } };
+      if (path === '/maps' || path === '/maps/') mq = q.get('q') || '';
+      else if ((m = /^\/maps\/(?:place|search)\/([^/]+)/.exec(path))) mq = dec(m[1]);
+      else if ((m = /^\/maps\/@(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/.exec(path))) mq = m[1] + ',' + m[2];
+      mq = mq.replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (mq) return hit('maps', 'Google Maps', 'https://www.google.com/maps?q=' + encodeURIComponent(mq) + '&output=embed');
+    } else if (host === 'maps.app.goo.gl' || (bare === 'goo.gl' && path.indexOf('/maps') === 0)) {
+      out.name = 'Google Maps'; out.framable = false; return out;
+    } else if (bare === 'loom.com') {
+      m = /^\/share\/([A-Za-z0-9]{10,40})\/?$/.exec(path);
+      if (m) return hit('loom', 'Loom', 'https://www.loom.com/embed/' + m[1]);
+    } else if (bare === 'soundcloud.com') {
+      m = /^\/([A-Za-z0-9_-]+)\/((?:sets\/)?[A-Za-z0-9_-]+)\/?$/.exec(path);
+      if (m && !/^(discover|search|you|stream|upload|pages|settings|charts|messages|notifications)$/.test(m[1]))
+        return hit('soundcloud', 'SoundCloud', 'https://w.soundcloud.com/player/?url=' + encodeURIComponent('https://soundcloud.com' + path));
+    } else if (host === 'codepen.io') {
+      m = /^\/([A-Za-z0-9_-]{1,40})\/pen\/([A-Za-z0-9]{4,20})\/?$/.exec(path);
+      if (m) return hit('codepen', 'CodePen', 'https://codepen.io/' + m[1] + '/embed/' + m[2] + '?default-tab=result');
+    }
+    var blocked = noEmbedName(host);
+    if (blocked) { out.name = blocked; out.framable = false; }
+    return out;
+  }
+  /* embedFor:end */
+
   /* ---------- embed frames (DOM, synced from els on every draw) ---------- */
   var embedLayer = document.getElementById('embeds'), embedNodes = {};
   var ICON_X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
@@ -2054,9 +2125,11 @@
     n.pend.setAttribute('class', 'epend'); n.pend.setAttribute('aria-hidden', 'true');
     rc.setAttribute('width', '100%'); rc.setAttribute('height', '100%');
     n.pend.appendChild(rc); n.body.appendChild(n.pend);
-    n.note = mk('div', 'enote', n.body); n.note.hidden = true;
-    n.note.appendChild(document.createTextNode("This page can't be shown here. "));
-    n.noteLink = mk('a', '', n.note); n.noteLink.textContent = 'Open it'; n.noteLink.target = '_blank'; n.noteLink.rel = 'noopener noreferrer';
+    n.card = mk('div', 'ecard', n.body); n.card.hidden = true;
+    n.cName = mk('div', 'cname', n.card);
+    var mid = mk('div', 'cmid', n.card);
+    n.cMsg = mk('div', 'cmsg', mid); n.cHint = mk('div', 'chint', mid);
+    n.cOpen = mk('a', 'copen', n.card); n.cOpen.textContent = 'Open'; n.cOpen.target = '_blank'; n.cOpen.rel = 'noopener noreferrer';
 
     n.close.addEventListener('click', function () {
       snap(); els = els.filter(function (e) { return e.id !== id; });
@@ -2073,16 +2146,25 @@
   function dropFrame(n) {
     clearTimeout(n.timer); n.timer = 0;
     if (n.iframe) { n.iframe.remove(); n.iframe = null; }
-    n.src = null; n.loaded = false; n.note.hidden = true;
+    n.src = null; n.loaded = false; n.card.hidden = true;
   }
-  /* a blocked page gives no signal, so no load event after 4s means show the note (only while the frame is on screen) */
+  var HINT_NAMES = { Pinterest: 1, Instagram: 1, X: 1, TikTok: 1 };
+  function showCard(n, known) {
+    var name = known ? n.info.name : n.host;
+    n.cName.textContent = name;
+    n.cMsg.textContent = known ? name + " doesn't allow embedding." : 'This page might not allow embedding.';
+    n.cHint.textContent = known && HINT_NAMES[name] === 1 ? "Paste the post's own embed link if it has one." : '';
+    n.cHint.hidden = !n.cHint.textContent;
+    n.card.hidden = false;
+  }
+  /* a blocked page gives no signal, so no load event after 4s means show the card (only while the frame is on screen) */
   function armNote(n) {
     clearTimeout(n.timer);
     n.timer = setTimeout(function () {
       if (n.loaded || !n.iframe) return;
       var r = n.root.getBoundingClientRect();
       if (r.bottom < 0 || r.right < 0 || r.top > window.innerHeight || r.left > window.innerWidth || document.hidden) { armNote(n); return; }
-      n.note.hidden = false;
+      showCard(n, false);
     }, 4000);
   }
   function updateEmbedNode(n, el) {
@@ -2099,24 +2181,30 @@
     n.retry.hidden = !stalled;
     n.int.hidden = !(sel && !el.pending);
     n.int.setAttribute('aria-pressed', String(interactId === el.id));
-    if (n.open.getAttribute('href') !== el.url) { n.open.setAttribute('href', el.url); n.noteLink.setAttribute('href', el.url); }
+    if (n.open.getAttribute('href') !== el.url) { n.open.setAttribute('href', el.url); n.cOpen.setAttribute('href', el.url); }
     n.pend.style.display = el.pending ? '' : 'none';
     if (el.pending) { n.sawPending = true; if (n.iframe) dropFrame(n); return; }
+    if (n.src !== el.url) {
+      dropFrame(n);
+      n.src = el.url; n.info = embedFor(el.url);
+      n.host = ''; try { n.host = new URL(el.url).hostname.replace(/^www\./, ''); } catch (e) {}
+    }
+    var info = n.info;
+    if (!info.framable) { if (n.iframe) { n.iframe.remove(); n.iframe = null; } showCard(n, true); return; }
     if (!n.iframe) {
-      var f = document.createElement('iframe');
-      f.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups');
-      f.setAttribute('loading', 'lazy'); f.setAttribute('referrerpolicy', 'no-referrer');
+      var f = document.createElement('iframe'), prov = !!info.provider;
+      /* translated provider urls are cross-origin to the board, so allow-same-origin there means the provider's own origin */
+      f.setAttribute('sandbox', prov ? 'allow-scripts allow-same-origin allow-popups allow-forms allow-presentation' : 'allow-scripts allow-forms allow-popups');
+      if (prov) { f.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen'); f.setAttribute('allowfullscreen', ''); }
+      f.setAttribute('loading', 'lazy'); f.setAttribute('referrerpolicy', prov ? 'strict-origin-when-cross-origin' : 'no-referrer');
       f.setAttribute('title', el.title || 'Embedded page');
-      f.addEventListener('load', function () { n.loaded = true; clearTimeout(n.timer); n.note.hidden = true; });
+      f.addEventListener('load', function () { n.loaded = true; clearTimeout(n.timer); n.card.hidden = true; });
       n.iframe = f; n.body.insertBefore(f, n.pend);
       if (n.sawPending) {
         f.className = 'fade'; n.sawPending = false;
         requestAnimationFrame(function () { requestAnimationFrame(function () { f.classList.remove('fade'); }); });
       }
-    }
-    if (n.src !== el.url) {
-      n.src = el.url; n.loaded = false; n.note.hidden = true;
-      n.iframe.src = el.url; armNote(n);
+      f.src = info.src; armNote(n);
     }
   }
   function syncEmbeds() {
