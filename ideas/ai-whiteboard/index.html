@@ -43,13 +43,16 @@
   @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .25; transform: scale(.85); } }
   @media (prefers-reduced-motion: reduce) { #magic.busy svg { animation: none; opacity: .4; } }
 
-  #panel { display: none; width: min(420px, 100%); background: var(--paper); border: 1px solid var(--ink); padding: 4px 4px 4px 12px; margin: 0; }
-  #panel.open { display: block; }
-  #panel .row { display: flex; align-items: center; }
-  #panel input { flex: 1; min-width: 0; min-height: 44px; border: 0; border-radius: 0; background: transparent; font: 300 16px/1.4 var(--serif); padding: 0; outline: 0; box-shadow: none; }
-  #panel input:focus, #panel input:focus-visible { outline: 0; box-shadow: none; }
-  #panel .gear { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
-  #panel .gear svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  #panel, #xpanel { display: none; width: min(420px, 100%); background: var(--paper); border: 1px solid var(--ink); padding: 4px 4px 4px 12px; margin: 0; }
+  #panel.open, #xpanel.open { display: block; }
+  #panel .row, #xpanel .row { display: flex; align-items: center; }
+  #panel .row2 { display: flex; justify-content: flex-end; padding-top: 2px; }
+  #panel .mini { min-height: 36px; padding: 0 14px; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); font: 300 12px/1 var(--mono); letter-spacing: .04em; }
+  #panel .mini:active { background: var(--ink); color: var(--paper); }
+  #panel input, #xpanel input { flex: 1; min-width: 0; min-height: 44px; border: 0; border-radius: 0; background: transparent; font: 300 16px/1.4 var(--serif); padding: 0; outline: 0; box-shadow: none; }
+  #panel input:focus, #panel input:focus-visible, #xpanel input:focus, #xpanel input:focus-visible { outline: 0; box-shadow: none; }
+  #panel .gear, #xpanel .gear { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
+  #panel .gear svg, #xpanel .gear svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
 
   #err { font: 300 14px/1.4 var(--mono); opacity: 0; transition: opacity .8s ease; text-align: center; max-width: min(420px, 100%); background: var(--paper); pointer-events: none !important; }
   #err.show { opacity: 1; transition: none; }
@@ -64,6 +67,32 @@
   #props .tool { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
   #props .tool svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-linecap: butt; }
   #props .tool[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+  /* embedded frames: DOM layer above the canvas, pointers pass through except on the bar buttons */
+  #embeds { position: fixed; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+  .emb { position: absolute; display: flex; flex-direction: column; background: var(--paper); border: 1px solid var(--ink); pointer-events: none; }
+  .emb.sel { outline: 1px dashed var(--ink); outline-offset: 5px; }
+  .emb .eh { display: none; position: absolute; width: 9px; height: 9px; background: var(--paper); border: 1px solid var(--ink); }
+  .emb.sel .eh { display: block; }
+  .emb .eh.a { left: -5.5px; top: -5.5px; } .emb .eh.b { right: -5.5px; top: -5.5px; }
+  .emb .eh.c { right: -5.5px; bottom: -5.5px; } .emb .eh.d { left: -5.5px; bottom: -5.5px; }
+  .ebar { flex: none; height: 32px; display: flex; align-items: center; padding: 0 14px 0 10px; border-bottom: 1px solid var(--ink); background: var(--paper); font: 300 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+  .etitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ebar button, .ebar a { pointer-events: auto; flex: none; min-width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--ink); text-decoration: none; text-transform: uppercase; letter-spacing: .08em; }
+  .ebar button svg, .ebar a svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  .ebar button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  .ebar .eretry { gap: 6px; padding: 0 6px; }
+  .ebody { position: relative; flex: 1; min-height: 0; }
+  .ebody iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--paper); pointer-events: none; transition: opacity .25s linear; }
+  .ebody iframe.fade { opacity: 0; }
+  .emb.act iframe { pointer-events: auto; }
+  .epend { position: absolute; left: 8px; top: 8px; width: calc(100% - 16px); height: calc(100% - 16px); overflow: visible; }
+  .epend rect { fill: none; stroke: var(--ink); stroke-width: 1; stroke-dasharray: 6 5; animation: march 1.2s linear infinite; }
+  .emb.stall .epend rect { animation: none; }
+  @keyframes march { to { stroke-dashoffset: -11; } }
+  .enote { position: absolute; top: 0; left: 0; right: 0; padding: 7px 10px; background: var(--paper); border-bottom: 1px solid var(--ink); font: 300 12px/1.4 var(--mono); pointer-events: none; }
+  .enote a { pointer-events: auto; color: var(--ink); text-decoration: underline; }
+  @media (prefers-reduced-motion: reduce) { .epend rect { animation: none; } .ebody iframe { transition: none; } }
 
   /* connect modal */
   #scrim { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(255,255,255,.88); }
@@ -93,6 +122,7 @@
 </head>
 <body>
 <canvas id="board"></canvas>
+<div id="embeds"></div>
 <textarea id="noteEdit" aria-label="Note" maxlength="400"></textarea>
 
 <div id="dock">
@@ -116,8 +146,15 @@
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg>
       </button>
     </div>
+    <div class="row2"><button type="button" class="mini" id="makeReal">Make it real</button></div>
   </form>
-  <div id="bar" role="toolbar" aria-label="Tools">
+  <form id="xpanel" autocomplete="off" novalidate>
+    <div class="row">
+      <input id="xurl" type="url" placeholder="https://" aria-label="Page address" enterkeyhint="go" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button type="submit" class="gear" aria-label="Place frame"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    </div>
+  </form>
+  <div id="bar"role="toolbar" aria-label="Tools">
     <button type="button" data-tool="pen" aria-label="Pen" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 0a2 2 0 0 1 0 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg></button>
     <button type="button" data-tool="note" aria-label="Note" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M8 9.5h8M8 13h5"/></svg></button>
     <button type="button" data-tool="rect" aria-label="Rectangle" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4" y="6.5" width="16" height="11"/></svg></button>
@@ -125,7 +162,8 @@
     <button type="button" data-tool="ellipse" aria-label="Ellipse" aria-pressed="false"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8.5" ry="6"/></svg></button>
     <button type="button" data-tool="line" aria-label="Line" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19L19 5"/></svg></button>
     <button type="button" data-tool="arrow" aria-label="Arrow" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19L19 5M10 5h9v9"/></svg></button>
-    <button type="button" data-tool="move" aria-label="Select and move" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></button>
+    <button type="button" id="embedBtn" aria-label="Embed a page" aria-expanded="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M13.5 19.5v-6h6"/></svg></button>
+    <button type="button" data-tool="move"aria-label="Select and move" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></button>
     <button type="button" id="undo" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 8h-3"/></svg></button>
     <button type="button" id="share" aria-label="Share as template"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></svg></button>
     <button type="button" id="magic" aria-label="Ask AI" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M10 4c.7 5 2.5 7.3 7 8-4.5.7-6.3 3-7 8-.7-5-2.5-7.3-7-8 4.5-.7 6.3-3 7-8z"/><path d="M19 3v4M17 5h4"/></svg></button>
@@ -282,6 +320,7 @@
     '{"type":"rect","x":0,"y":0,"width":0,"height":0}, {"type":"ellipse", same fields} and {"type":"diamond", same fields}, optional "text" label.',
     '{"type":"line","x1":0,"y1":0,"x2":0,"y2":0} and {"type":"arrow", same fields}.',
     '{"type":"image","x":0,"y":0,"width":0,"height":0,"url":"https://..."} only with an image URL the user gave you.',
+    '{"type":"embed","x":0,"y":0,"width":360,"height":280,"url":"https://lilly-builds.github.io/lab/...","text":"title"} a live page, only for URLs under https://lilly-builds.github.io/lab/.',
     'Optional style fields on any element except image, using ONLY these values:',
     '"strokeColor": "#1e1e1e" black, "#e03131" red, "#2f9e44" green, "#1971c2" blue, "#f08c00" amber.',
     '"fill" on rect, ellipse and diamond: "none", "#ffc9c9", "#b2f2bb", "#a5d8ff", "#ffec99" or "#ffffff". "fill" on note: "#bfd7ff", "#ffec99", "#b2f2bb" or "#ffc9c9".',
@@ -320,9 +359,43 @@
     if (oldModel !== null) lsDel(OLD_MODEL);
   })();
 
-  try { var s = JSON.parse(lsGet(KEY_SCENE) || '[]'); if (Array.isArray(s)) els = s.filter(function (e) { return e && typeof e === 'object' && e.type; }); } catch (e) {}
+  /* ---------- embeds: sanitizing ---------- */
+  var PAGES = 'https://lilly-builds.github.io/lab/', EMB_MAX = 6, EMB_MIN_W = 160, EMB_MIN_H = 120, STALL = 30 * 60 * 1000;
+  function cleanUrl(u) {
+    try {
+      var x = new URL(String(u).trim());
+      if (x.protocol !== 'https:' || x.username || x.password || !x.hostname) return null;
+      return x.href.length <= 2000 ? x.href : null;
+    } catch (e) { return null; }
+  }
+  function cleanEmbed(o) {
+    var url = cleanUrl(o.url);
+    if (!url) return null;
+    var el = {
+      id: typeof o.id === 'string' && /^[\w-]{1,24}$/.test(o.id) ? o.id : null,
+      type: 'embed', x: num(o.x, 0), y: num(o.y, 0),
+      w: Math.max(EMB_MIN_W, Math.min(1200, Math.abs(num(o.w, 360)))), h: Math.max(EMB_MIN_H, Math.min(1200, Math.abs(num(o.h, 280)))),
+      url: url, title: str(o.title, 60) || new URL(url).hostname
+    };
+    if (o.pending === true && url.indexOf(PAGES) === 0) { el.pending = true; el.since = Math.min(Date.now(), Number(o.since) || Date.now()); }
+    return el;
+  }
+  /* keep every non-embed as is; embeds are rebuilt from known fields and capped */
+  function loadEls(arr) {
+    var out = [], n = 0;
+    arr.forEach(function (e) {
+      if (!e || typeof e !== 'object' || !e.type) return;
+      if (e.type === 'embed') { if (n >= EMB_MAX) return; e = cleanEmbed(e); if (!e) return; n++; }
+      out.push(e);
+    });
+    return out;
+  }
+  function embedCount() { return els.filter(function (e) { return e.type === 'embed'; }).length; }
+
+  try { var s = JSON.parse(lsGet(KEY_SCENE) || '[]'); if (Array.isArray(s)) els = loadEls(s); } catch (e) {}
   try { var vv = JSON.parse(lsGet(KEY_VIEW) || 'null'); if (vv && isFinite(vv.x) && isFinite(vv.y)) view = { x: +vv.x, y: +vv.y }; } catch (e) {}
   els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
+  els.forEach(function (e) { if (!e.id) e.id = 'e' + (nextId++); });
 
   function save() { lsSet(KEY_SCENE, JSON.stringify(els)); }
   function saveView() { lsSet(KEY_VIEW, JSON.stringify(view)); }
@@ -396,7 +469,7 @@
   /* resize handles: corners for boxes, both ends for lines and arrows */
   function handles(el) {
     if (el.type === 'line' || el.type === 'arrow') return [{ x: el.x, y: el.y }, { x: el.x + el.w, y: el.y + el.h }];
-    if (isClosed(el.type) || el.type === 'image') return [{ x: el.x, y: el.y }, { x: el.x + el.w, y: el.y }, { x: el.x + el.w, y: el.y + el.h }, { x: el.x, y: el.y + el.h }];
+    if (isClosed(el.type) || el.type === 'image' || el.type === 'embed') return [{ x: el.x, y: el.y }, { x: el.x + el.w, y: el.y }, { x: el.x + el.w, y: el.y + el.h }, { x: el.x, y: el.y + el.h }];
     return [];
   }
   function handleAt(el, px, py) {
@@ -480,6 +553,12 @@
         g.setLineDash([]);
         g.beginPath(); g.moveTo(x2 - hl * Math.cos(a - 0.45), y2 - hl * Math.sin(a - 0.45)); g.lineTo(x2, y2); g.lineTo(x2 - hl * Math.cos(a + 0.45), y2 - hl * Math.sin(a + 0.45)); g.stroke();
       }
+    } else if (el.type === 'embed') {
+      g.setLineDash(el.pending ? [4, 3] : []); g.lineWidth = 1; g.strokeStyle = '#000'; g.fillStyle = '#000';
+      g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
+      g.beginPath(); g.moveTo(x, y + 32.5); g.lineTo(x + el.w, y + 32.5); g.stroke();
+      g.font = '300 11px "DM Mono", ui-monospace, monospace'; g.textBaseline = 'middle';
+      g.fillText(String(el.title || '').toUpperCase().slice(0, Math.max(0, Math.floor((el.w - 60) / 7))), x + 10, y + 16);
     } else if (el.type === 'image') {
       var im = getImage(el);
       if (im) g.drawImage(im, x, y, el.w, el.h);
@@ -495,6 +574,7 @@
     g.textAlign = 'left';
   }
   function drawSel(g, el) {
+    if (el.type === 'embed') return;
     var b = bbox(el), x = b.x - view.x, y = b.y - view.y;
     g.save();
     g.lineWidth = 1; g.strokeStyle = '#000'; g.setLineDash([4, 3]);
@@ -510,6 +590,7 @@
     var s = selEl();
     if (s && editing !== s.id) drawSel(ctx, s);
     renderProps();
+    syncEmbeds();
   }
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -610,7 +691,7 @@
   ta.addEventListener('keydown', function (e) { if (e.key === 'Escape') ta.blur(); });
 
   /* ---------- pointer interaction ---------- */
-  var drag = null;
+  var drag = null, lastTap = { id: null, t: 0 }, interactId = null;
   function pt(e) { return { x: e.clientX + view.x, y: e.clientY + view.y }; }
   function styled(el) {
     el.strokeColor = cur.strokeColor; el.strokeWidth = cur.strokeWidth;
@@ -668,7 +749,9 @@
         if (drag.i === 0) { h.x = p.x; h.y = p.y; h.w = drag.ex - p.x; h.h = drag.ey - p.y; }
         else { h.w = p.x - h.x; h.h = p.y - h.y; }
       } else {
-        h.x = Math.min(drag.ax, p.x); h.y = Math.min(drag.ay, p.y); h.w = Math.max(8, Math.abs(p.x - drag.ax)); h.h = Math.max(8, Math.abs(p.y - drag.ay));
+        var mw = h.type === 'embed' ? EMB_MIN_W : 8, mh = h.type === 'embed' ? EMB_MIN_H : 8;
+        h.w = Math.max(mw, Math.abs(p.x - drag.ax)); h.h = Math.max(mh, Math.abs(p.y - drag.ay));
+        h.x = p.x < drag.ax ? drag.ax - h.w : drag.ax; h.y = p.y < drag.ay ? drag.ay - h.h : drag.ay;
       }
       draw();
     } else if (drag.kind === 'move') {
@@ -683,7 +766,15 @@
     if (!drag || (e && !e.isPrimary)) return;
     var d = drag; drag = null;
     if (d.kind === 'move') {
-      if (!d.moved) { undoStack.pop(); syncUndo(); if (d.el.type === 'note') editNote(d.el); }
+      if (!d.moved) {
+        undoStack.pop(); syncUndo();
+        if (d.el.type === 'note') editNote(d.el);
+        else if (d.el.type === 'embed') {
+          var now = Date.now();
+          if (lastTap.id === d.el.id && now - lastTap.t < 350 && !d.el.pending) { interactId = d.el.id; lastTap = { id: null, t: 0 }; }
+          else lastTap = { id: d.el.id, t: now };
+        }
+      }
       else save();
     } else if (d.kind === 'pan') saveView();
     else if (d.kind === 'shape') {
@@ -721,16 +812,21 @@
   syncUndo();
 
   /* ---------- ask panel ---------- */
+  var xpanel = document.getElementById('xpanel'), xurl = document.getElementById('xurl'), embedBtn = document.getElementById('embedBtn'), makeRealBtn = document.getElementById('makeReal');
   var panel = document.getElementById('panel'), ask = document.getElementById('ask'), magic = document.getElementById('magic'), gear = document.getElementById('gear');
   function openPanel() {
     commitEdit();
+    xpanel.classList.remove('open'); embedBtn.setAttribute('aria-expanded', 'false');
     panel.classList.add('open'); magic.setAttribute('aria-expanded', 'true');
     ask.focus();
   }
-  function closePanel() { panel.classList.remove('open'); magic.setAttribute('aria-expanded', 'false'); }
+  function closePanel() {
+    panel.classList.remove('open'); xpanel.classList.remove('open');
+    magic.setAttribute('aria-expanded', 'false'); embedBtn.setAttribute('aria-expanded', 'false');
+  }
+  /* the panel always opens: Make it real needs no key, and sending without one still asks to connect */
   magic.addEventListener('click', function () {
     if (panel.classList.contains('open')) closePanel();
-    else if (!getKey(PROVIDER)) { commitEdit(); openModal({ opener: magic, resume: true }); }
     else openPanel();
   });
   gear.addEventListener('click', function () { openModal({ opener: gear }); });
@@ -846,6 +942,7 @@
       if (el.type === 'line' || el.type === 'arrow') { o.x1 = Math.round(el.x); o.y1 = Math.round(el.y); o.x2 = Math.round(el.x + el.w); o.y2 = Math.round(el.y + el.h); }
       else { o.x = Math.round(b.x); o.y = Math.round(b.y); o.width = Math.round(b.w); o.height = Math.round(b.h); }
       if (el.text) o.text = el.text;
+      else if (el.type === 'embed' && el.title) o.text = el.title;
       if (el.url) o.url = el.url;
       if (el.strokeColor) o.strokeColor = el.strokeColor;
       if (el.fill && el.fill !== 'none') o.fill = el.fill;
@@ -931,22 +1028,32 @@
       el.url = u; el.x = num(a.x, 0); el.y = num(a.y, 0);
       el.w = Math.abs(num(a.width, 200)) || 200; el.h = Math.abs(num(a.height, 200)) || 200;
     }
+    else if (t === 'embed') {
+      var eu = cleanUrl(str(a.url, 2000));
+      if (!eu || eu.indexOf(PAGES) !== 0) return null;
+      var ne = cleanEmbed({ x: a.x, y: a.y, w: a.width != null ? a.width : a.w, h: a.height != null ? a.height : a.h, url: eu, title: a.title || a.text });
+      if (!ne) return null;
+      ne.id = newId();
+      return ne;
+    }
     else return null;
     applyStyle(a, el);
     return el;
   }
-  function freeSpot(size) {
-    var boxes = els.map(bbox);
+  function freeSpot(size, hgt) {
+    var boxes = els.map(bbox), sh = hgt || size;
     for (var r = 0; r < 12; r++) for (var c = 0; c < 20; c++) {
       var x = view.x + 24 + c * 40, y = view.y + 24 + r * 40;
-      if (x + size > view.x + W - 24 || y + size > view.y + H - 100) continue;
-      var ok = boxes.every(function (b) { return x + size + 12 < b.x || x > b.x + b.w + 12 || y + size + 12 < b.y || y > b.y + b.h + 12; });
+      if (x + size > view.x + W - 24 || y + sh > view.y + H - 100) continue;
+      var ok = boxes.every(function (b) { return x + size + 12 < b.x || x > b.x + b.w + 12 || y + sh + 12 < b.y || y > b.y + b.h + 12; });
       if (ok) return { x: x, y: y };
     }
     return { x: view.x + 24, y: view.y + 24 };
   }
   function applyReply(r) {
     var add = Array.isArray(r.add) ? r.add.slice(0, 40).map(sanitize).filter(Boolean) : [];
+    var room = EMB_MAX - embedCount();
+    add = add.filter(function (e) { return e.type !== 'embed' || room-- > 0; });
     var say = typeof r.say === 'string' ? r.say.trim().slice(0, 400) : '';
     if (!add.length && !say) { showErr('Nothing to add'); return; }
     snap();
@@ -978,11 +1085,12 @@
       return fetch('../templates/' + t.file).then(function (r) { return r.json(); });
     }).then(function (tpl) {
       if (!Array.isArray(tpl)) return;
-      tpl = tpl.filter(function (e) { return e && typeof e === 'object' && e.type; });
+      tpl = loadEls(tpl);
       if (!tpl.length) return;
       if (els.length) lsSet(KEY_SCENE + '.prev.' + Date.now(), JSON.stringify(els));
       els = tpl; selId = null; nextId = 1; undoStack = []; syncUndo();
       els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
+      els.forEach(function (e) { if (!e.id) e.id = newId(); });
       var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       els.forEach(function (e) { var b = bbox(e); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); });
       view = { x: Math.round((x0 + x1) / 2 - W / 2), y: Math.round((y0 + y1) / 2 - H / 2) };
@@ -991,7 +1099,232 @@
     if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
   }
 
+  /* ---------- embed frames (DOM, synced from els on every draw) ---------- */
+  var embedLayer = document.getElementById('embeds'), embedNodes = {};
+  var ICON_X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  var ICON_OPEN = '<svg viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></svg>';
+  var ICON_TOUCH = '<svg viewBox="0 0 24 24"><path d="M8 4l10 8-4.5 1 2.5 5-2 1-2.5-5L8 19z"/></svg>';
+  var ICON_RETRY = '<svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.2-5.1M19 4v4h-4"/></svg>';
+  function mk(tag, cls, parent) { var n = document.createElement(tag); if (cls) n.className = cls; if (parent) parent.appendChild(n); return n; }
+  function embedById(id) { for (var i = 0; i < els.length; i++) if (els[i].id === id && els[i].type === 'embed') return els[i]; return null; }
+  function isStalled(el) { return !!el.pending && Date.now() - (el.since || 0) > STALL; }
+
+  function makeEmbedNode(el) {
+    var id = el.id, n = { id: id, src: null, iframe: null, loaded: false, timer: 0, sawPending: false };
+    n.root = mk('div', 'emb', embedLayer);
+    ['a', 'b', 'c', 'd'].forEach(function (k) { mk('i', 'eh ' + k, n.root); });
+    var bar = mk('div', 'ebar', n.root);
+    n.title = mk('span', 'etitle', bar);
+    n.retry = mk('button', 'eretry', bar); n.retry.type = 'button'; n.retry.innerHTML = ICON_RETRY; n.retry.appendChild(document.createTextNode('Retry')); n.retry.setAttribute('aria-label', 'Retry');
+    n.int = mk('button', 'eint', bar); n.int.type = 'button'; n.int.innerHTML = ICON_TOUCH; n.int.setAttribute('aria-label', 'Interact'); n.int.setAttribute('aria-pressed', 'false');
+    n.open = mk('a', 'eopen', bar); n.open.innerHTML = ICON_OPEN; n.open.target = '_blank'; n.open.rel = 'noopener noreferrer'; n.open.setAttribute('aria-label', 'Open in a new tab');
+    n.close = mk('button', 'eclose', bar); n.close.type = 'button'; n.close.innerHTML = ICON_X; n.close.setAttribute('aria-label', 'Close frame');
+    n.body = mk('div', 'ebody', n.root);
+    var ns = 'http://www.w3.org/2000/svg', rc = document.createElementNS(ns, 'rect');
+    n.pend = document.createElementNS(ns, 'svg');
+    n.pend.setAttribute('class', 'epend'); n.pend.setAttribute('aria-hidden', 'true');
+    rc.setAttribute('width', '100%'); rc.setAttribute('height', '100%');
+    n.pend.appendChild(rc); n.body.appendChild(n.pend);
+    n.note = mk('div', 'enote', n.body); n.note.hidden = true;
+    n.note.appendChild(document.createTextNode("This page can't be shown here. "));
+    n.noteLink = mk('a', '', n.note); n.noteLink.textContent = 'Open it'; n.noteLink.target = '_blank'; n.noteLink.rel = 'noopener noreferrer';
+
+    n.close.addEventListener('click', function () {
+      snap(); els = els.filter(function (e) { return e.id !== id; });
+      if (selId === id) selId = null;
+      save(); draw();
+    });
+    n.retry.addEventListener('click', function () {
+      var e = embedById(id); if (!e) return;
+      e.since = Date.now(); save(); draw(); pollTick();
+    });
+    n.int.addEventListener('click', function () { interactId = interactId === id ? null : id; draw(); });
+    return n;
+  }
+  function dropFrame(n) {
+    clearTimeout(n.timer); n.timer = 0;
+    if (n.iframe) { n.iframe.remove(); n.iframe = null; }
+    n.src = null; n.loaded = false; n.note.hidden = true;
+  }
+  /* a blocked page gives no signal, so no load event after 4s means show the note (only while the frame is on screen) */
+  function armNote(n) {
+    clearTimeout(n.timer);
+    n.timer = setTimeout(function () {
+      if (n.loaded || !n.iframe) return;
+      var r = n.root.getBoundingClientRect();
+      if (r.bottom < 0 || r.right < 0 || r.top > window.innerHeight || r.left > window.innerWidth || document.hidden) { armNote(n); return; }
+      n.note.hidden = false;
+    }, 4000);
+  }
+  function updateEmbedNode(n, el) {
+    var st = n.root.style;
+    st.left = Math.round(el.x - view.x) + 'px'; st.top = Math.round(el.y - view.y) + 'px';
+    st.width = Math.round(el.w) + 'px'; st.height = Math.round(el.h) + 'px';
+    var stalled = isStalled(el), sel = selId === el.id;
+    n.root.classList.toggle('sel', sel);
+    n.root.classList.toggle('act', interactId === el.id && !el.pending);
+    n.root.classList.toggle('stall', stalled);
+    var t = stalled ? 'Not live yet.' : (el.title || '');
+    if (n.title.textContent !== t) n.title.textContent = t;
+    n.retry.hidden = !stalled;
+    n.int.hidden = !(sel && !el.pending);
+    n.int.setAttribute('aria-pressed', String(interactId === el.id));
+    if (n.open.getAttribute('href') !== el.url) { n.open.setAttribute('href', el.url); n.noteLink.setAttribute('href', el.url); }
+    n.pend.style.display = el.pending ? '' : 'none';
+    if (el.pending) { n.sawPending = true; if (n.iframe) dropFrame(n); return; }
+    if (!n.iframe) {
+      var f = document.createElement('iframe');
+      f.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups');
+      f.setAttribute('loading', 'lazy'); f.setAttribute('referrerpolicy', 'no-referrer');
+      f.setAttribute('title', el.title || 'Embedded page');
+      f.addEventListener('load', function () { n.loaded = true; clearTimeout(n.timer); n.note.hidden = true; });
+      n.iframe = f; n.body.insertBefore(f, n.pend);
+      if (n.sawPending) {
+        f.className = 'fade'; n.sawPending = false;
+        requestAnimationFrame(function () { requestAnimationFrame(function () { f.classList.remove('fade'); }); });
+      }
+    }
+    if (n.src !== el.url) {
+      n.src = el.url; n.loaded = false; n.note.hidden = true;
+      n.iframe.src = el.url; armNote(n);
+    }
+  }
+  function syncEmbeds() {
+    selEl();
+    if (interactId && interactId !== selId) interactId = null;
+    var seen = {};
+    els.forEach(function (el) {
+      if (el.type !== 'embed') return;
+      seen[el.id] = true;
+      var n = embedNodes[el.id] || (embedNodes[el.id] = makeEmbedNode(el));
+      updateEmbedNode(n, el);
+    });
+    Object.keys(embedNodes).forEach(function (id) {
+      if (seen[id]) return;
+      dropFrame(embedNodes[id]); embedNodes[id].root.remove(); delete embedNodes[id];
+    });
+  }
+
+  function addEmbed(o) {
+    if (embedCount() >= EMB_MAX) { showErr('Six frames at most. Close one first.'); return null; }
+    var w = Math.max(200, Math.min(360, W - 48)), h = 260, sp = freeSpot(w, h);
+    var el = cleanEmbed({ x: sp.x, y: sp.y, w: w, h: h, url: o.url, title: o.title, pending: o.pending });
+    if (!el) return null;
+    el.id = newId();
+    snap(); els.push(el);
+    setTool('move'); selId = el.id;
+    save(); draw();
+    return el;
+  }
+
+  /* embed tool + paste */
+  function openEmbedPanel(v) {
+    commitEdit();
+    panel.classList.remove('open'); magic.setAttribute('aria-expanded', 'false');
+    xpanel.classList.add('open'); embedBtn.setAttribute('aria-expanded', 'true');
+    xurl.value = v || ''; xurl.focus();
+  }
+  embedBtn.addEventListener('click', function () {
+    if (xpanel.classList.contains('open')) closePanel(); else openEmbedPanel('');
+  });
+  xpanel.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var raw = xurl.value.trim();
+    if (!raw) return;
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(raw)) raw = 'https://' + raw;
+    var u = cleanUrl(raw);
+    if (!u) { showErr('Use an https link'); return; }
+    if (addEmbed({ url: u })) { xurl.value = ''; closePanel(); }
+  });
+  document.addEventListener('paste', function (e) {
+    if (modalOpen || editing) return;
+    var a = document.activeElement, tag = a && a.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    var t = ((e.clipboardData && e.clipboardData.getData('text')) || '').trim();
+    if (!t || /\s/.test(t) || !/^https:\/\//i.test(t) || !cleanUrl(t)) return;
+    e.preventDefault(); openEmbedPanel(cleanUrl(t));
+  });
+
+  /* ---------- make it real: prefilled issue in the lab repo, then wait for the page ---------- */
+  var ISSUE = 'https://github.com/lilly-builds/lab/issues/new';
+  function makeSlug(idea) {
+    var words = idea.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 5);
+    var base = words.join('-').slice(0, 34).replace(/-+$/, '') || 'idea', suf = '';
+    while (suf.length < 4) suf += Math.random().toString(36).slice(2);
+    suf = suf.slice(0, 4);
+    var slug = base + '-' + suf;
+    return /^[a-z0-9-]{3,40}$/.test(slug) ? slug : 'idea-' + suf;
+  }
+  function issueUrl(idea, slug) {
+    var flat = idea.replace(/\s+/g, ' ');
+    var title = 'Make it real: ' + (flat.length > 60 ? flat.slice(0, 59).trim() + '…' : flat);
+    function build(p) {
+      var body = [
+        '@claude Build this idea as a live web app.',
+        '',
+        'Idea:',
+        p,
+        '',
+        'Target folder: ideas/' + slug + '/',
+        '',
+        'Rules:',
+        '- One self-contained index.html in ideas/' + slug + '/, no build step.',
+        '- Minimal black and white editorial design: square, thin outlines, Newsreader Light and DM Mono Light.',
+        '- Do not change anything under .github/.'
+      ].join('\n');
+      return ISSUE + '?title=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body);
+    }
+    var p = idea.slice(0, 2000), u = build(p);
+    while (u.length > 6000 && p.length > 20) {
+      p = p.slice(0, Math.max(10, p.length - Math.ceil((u.length - 6000) / 3) - 1)).trim();
+      u = build(p + '…');
+    }
+    return u;
+  }
+  function makeItReal() {
+    var idea = ask.value.trim();
+    if (!idea) { ask.focus(); showErr('Type the idea first'); return; }
+    if (embedCount() >= EMB_MAX) { showErr('Six frames at most. Close one first.'); return; }
+    var slug = makeSlug(idea);
+    var el = addEmbed({ url: PAGES + 'ideas/' + slug + '/', title: idea.replace(/\s+/g, ' ').slice(0, 40), pending: true });
+    if (!el) return;
+    window.open(issueUrl(idea, slug), '_blank', 'noopener');
+    ask.value = ''; closePanel();
+  }
+  makeRealBtn.addEventListener('click', makeItReal);
+
+  /* watcher: Pages answers CORS reads, so a plain fetch of index.html says whether the page exists */
+  var probing = {};
+  function probeUrl(u) {
+    u = u.split('#')[0].split('?')[0];
+    return /\.html?$/.test(u) ? u : u.replace(/\/?$/, '/') + 'index.html';
+  }
+  function checkLive(el) {
+    var id = el.id;
+    if (probing[id]) return;
+    probing[id] = true;
+    fetch(probeUrl(el.url) + '?v=' + Date.now(), { cache: 'no-store' }).then(function (res) {
+      if (!res.ok) return;
+      var cur = embedById(id);
+      if (!cur || !cur.pending) return;
+      cur.pending = false; delete cur.since; save(); draw();
+    }).catch(function () {}).then(function () { delete probing[id]; });
+  }
+  function pollTick() {
+    if (document.hidden) return;
+    var any = false;
+    els.forEach(function (el) {
+      if (el.type !== 'embed' || !el.pending) return;
+      any = true;
+      if (!isStalled(el)) checkLive(el);
+    });
+    if (any) syncEmbeds();
+  }
+  setInterval(pollTick, 15000);
+  document.addEventListener('visibilitychange', pollTick);
+
   resize();
+  pollTick();
   var tplId = new URLSearchParams(location.search).get('template');
   if (tplId) loadTemplate(tplId);
 })();
