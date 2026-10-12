@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dream Circle</title>
+<title>Dream board</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400&family=Newsreader:opsz,wght@6..72,300;6..72,400&display=swap" rel="stylesheet">
@@ -27,10 +27,9 @@
   .app { max-width: 760px; margin: 0 auto; padding: 20px 12px 56px; }
   .mono { font-family: var(--mono); font-weight: 300; font-size: 12px; letter-spacing: .02em; }
   .sim { text-align: center; margin: 0 0 28px; }
-  h1 { font-weight: 300; font-size: clamp(38px, 9vw, 64px); line-height: 1; letter-spacing: -.02em; margin: 0; text-align: center; }
-  .prompt { text-align: center; font-style: italic; font-size: 20px; margin: 10px 0 20px; }
+  .prompt { text-align: center; font-style: italic; font-size: 20px; margin: 10px 0 12px; font-size: clamp(26px, 6vw, 38px); }
 
-  .board { position: relative; width: 100%; max-width: 720px; margin: 0 auto; aspect-ratio: 1 / 1; border: 1px solid var(--ink); touch-action: manipulation; cursor: crosshair; }
+  .board { position: relative; width: 100%; max-width: 720px; margin: 0 auto; aspect-ratio: 1 / 1; touch-action: manipulation; cursor: crosshair; }
   svg.rings { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   svg.rings circle { fill: none; stroke: var(--ink); stroke-width: .35; stroke-dasharray: 1; stroke-dashoffset: 1;
     transform-origin: center; transform-box: fill-box; transform: rotate(-90deg); animation: draw 1.6s cubic-bezier(.5,0,.2,1) forwards; }
@@ -41,9 +40,10 @@
 
   .label { position: absolute; min-height: 44px; min-width: 44px; padding: 0 10px; font-size: clamp(16px, 3.4vw, 26px); letter-spacing: -.01em; white-space: nowrap; z-index: 3; }
   .label:hover { text-decoration: underline; text-underline-offset: 4px; }
-  .label.have { left: 6%; top: 8%; }
-  .label.want { right: 6%; top: 8%; }
-  .label.dream { left: 50%; transform: translateX(-50%); bottom: 4%; }
+  .label { transform: translateX(-50%); }
+  .label.dream { left: 50%; top: 5%; }
+  .label.have { left: 25%; top: 51%; }
+  .label.want { left: 75%; top: 51%; }
 
   .sticky { position: absolute; width: clamp(92px, 24%, 150px); min-height: 64px; padding: 6px 8px; background: var(--note); border: 1px solid var(--ink);
     transform: translate(-50%, -50%); display: flex; flex-direction: column; justify-content: space-between; gap: 4px; z-index: 2;
@@ -81,18 +81,17 @@
 <body>
 <div class="app">
   <p class="mono sim" role="note">Simulation: the helper is pretend. Nothing real is sent, booked or scheduled.</p>
-  <h1>Dream Circle</h1>
   <p class="prompt">What’s on your mind?</p>
 
   <div class="board" id="board">
     <svg class="rings" viewBox="0 0 100 100" aria-hidden="true">
-      <circle cx="35" cy="35" r="32" pathLength="1"/>
-      <circle cx="65" cy="35" r="32" pathLength="1"/>
-      <circle cx="50" cy="65" r="32" pathLength="1"/>
+      <circle cx="50" cy="27" r="25" pathLength="1"/>
+      <circle cx="25" cy="73" r="25" pathLength="1"/>
+      <circle cx="75" cy="73" r="25" pathLength="1"/>
     </svg>
+    <button class="label dream" data-add="dream" type="button">Dream</button>
     <button class="label have" data-add="have" type="button">Have to do</button>
     <button class="label want" data-add="want" type="button">Want to do</button>
-    <button class="label dream" data-add="dream" type="button">Dream</button>
   </div>
   <p class="mono hint">Tap inside a circle to add a note. Drag a note to another circle to move it.</p>
 
@@ -109,9 +108,9 @@
   'use strict';
 
   var CIRCLES = {
-    have:  { name: 'Have to do', cx: 0.35, cy: 0.35, r: 0.32 },
-    want:  { name: 'Want to do', cx: 0.65, cy: 0.35, r: 0.32 },
-    dream: { name: 'Dream',      cx: 0.50, cy: 0.65, r: 0.32 }
+    dream: { name: 'Dream',      cx: 0.50, cy: 0.27, r: 0.25 },
+    have:  { name: 'Have to do', cx: 0.25, cy: 0.73, r: 0.25 },
+    want:  { name: 'Want to do', cx: 0.75, cy: 0.73, r: 0.25 }
   };
   var STATUS = { picked: 'Picked up', working: 'Working', blocked: 'Needs one detail', scheduled: 'Scheduled',
                  done: 'Done', plan: 'Steps drafted', stopped: 'Stopped' };
@@ -138,12 +137,12 @@
 
   /* ---------- geometry ---------- */
   function circleAt(fx, fy) {
-    var best = null, bestD = Infinity;
+    var found = null;
     Object.keys(CIRCLES).forEach(function (k) {
-      var c = CIRCLES[k], d = Math.hypot(fx - c.cx, fy - c.cy);
-      if (d <= c.r && d < bestD) { best = k; bestD = d; }
+      var c = CIRCLES[k];
+      if (Math.hypot(fx - c.cx, fy - c.cy) <= c.r) found = k;
     });
-    return best;
+    return found;
   }
   function clampPos(fx, fy) {
     var W = board.clientWidth || 300, sw = clamp(0.24 * W, 92, 150);
@@ -151,7 +150,7 @@
   }
   function anchor(circle, i) {
     var c = CIRCLES[circle], a = (i || 0) * 2.4;
-    return clampPos(c.cx + Math.cos(a) * 0.1, c.cy + Math.sin(a) * 0.1 + (circle === 'dream' ? 0.04 : 0));
+    return clampPos(c.cx + Math.cos(a) * 0.05, c.cy + 0.06 + Math.sin(a) * 0.05);
   }
 
   /* ---------- simulated helper ---------- */
@@ -208,10 +207,10 @@
   function clearAll() { notes.forEach(function (n) { n.token++; }); notes = []; render(); }
   function loadStarters() {
     clearAll();
-    addNote('Dentist check-up', 'have', { x: 0.25, y: 0.27 });
-    addNote('Water the plants every Sunday', 'have', { x: 0.28, y: 0.52 });
-    addNote('Sunset hike and picnic', 'want', { x: 0.74, y: 0.27 });
-    addNote('Learn watercolors', 'dream', { x: 0.5, y: 0.8 });
+    addNote('Dentist check-up', 'have', { x: 0.25, y: 0.67 });
+    addNote('Water the plants every Sunday', 'have', { x: 0.25, y: 0.83 });
+    addNote('Sunset hike and picnic', 'want', { x: 0.75, y: 0.72 });
+    addNote('Learn watercolors', 'dream', { x: 0.5, y: 0.3 });
   }
 
   /* ---------- rendering ---------- */
