@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The dreamspace, as a metro map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #000; --paper: #fff; --f: "Special Elite", "Courier New", monospace; }
+  * { box-sizing: border-box; border-radius: 0; box-shadow: none; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--f); font-weight: normal; font-style: normal; }
+  body { padding: 20px 16px 60px; }
+  h1, h2, h3 { font-weight: normal; margin: 0; }
+  h1 { font-size: 28px; letter-spacing: 0.5px; }
+  h2 { font-size: 20px; margin: 36px 0 12px; }
+  h3 { font-size: 15px; }
+  .sub { font-size: 13px; margin: 6px 0 14px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; margin-bottom: 18px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  .label { font-size: 12px; margin-right: 2px; }
+  .key { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+  .key svg { display: block; overflow: visible; }
+  .tag { display: inline-block; font-family: var(--f); font-size: 11px; line-height: 1; padding: 3px 6px; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); }
+  .tag.SHIPPED { background: var(--ink); color: var(--paper); }
+  .tag.BUILDING { border-width: 2px; padding: 2px 5px; }
+  .tag.QUEUED { border: 1px solid var(--ink); }
+  .tag.IDEA { border: 1px dashed var(--ink); }
+  button.tog { display: inline-flex; align-items: center; gap: 6px; font-family: var(--f); font-size: 12px; font-weight: normal; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 5px 9px; cursor: pointer; }
+  button.tog[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  button.tog svg { display: block; overflow: visible; background: var(--paper); }
+  #scroller { border: 1px solid var(--ink); overflow-x: auto; overflow-y: hidden; background: var(--paper); }
+  #wrap { position: relative; }
+  #map { display: block; width: 100%; height: auto; }
+  #map text { font-family: var(--f); font-weight: normal; font-style: normal; fill: var(--ink); }
+  #map text.halo { paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: miter; }
+  #map .st { cursor: pointer; }
+  #map .st:focus { outline: none; }
+  #map .st .ring { display: none; fill: none; stroke: var(--ink); stroke-width: 2; }
+  #map .st:focus .ring, #map .st.sel .ring { display: block; }
+  #map .dim { opacity: 0.25; }
+  #card { position: absolute; width: 230px; background: var(--paper); border: 1px solid var(--ink); padding: 9px 10px; font-size: 13px; line-height: 1.35; z-index: 2; }
+  #card[hidden] { display: none; }
+  #card .ct { font-size: 15px; margin-bottom: 6px; }
+  #card .cl { font-size: 11px; margin-top: 6px; }
+  #card .cn { margin-top: 7px; }
+  .lists { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+  .block { border: 1px solid var(--ink); padding: 12px; }
+  .block h3 { display: flex; align-items: center; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--ink); margin-bottom: 8px; }
+  .block h3 svg { flex: none; }
+  .block ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .block li { font-size: 14px; line-height: 1.3; }
+  .block li .tag { margin-left: 6px; vertical-align: 1px; }
+  .block li .nt { display: block; font-size: 11px; margin-top: 3px; }
+  .end { margin-top: 20px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>The dreamspace, as a metro map</h1>
+<div class="sub">Lines are workstreams. Stations are features. Everything ends at one place.</div>
+<div class="bar">
+  <div class="row" id="legend"></div>
+  <div class="row" id="filters"><span class="label">Show only</span></div>
+</div>
+<div id="scroller">
+  <div id="wrap">
+    <svg id="map" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Metro map of the dreamspace plan. A list version follows below the map."></svg>
+    <div id="card" role="status" hidden></div>
+  </div>
+</div>
+<h2>As a list</h2>
+<div class="lists" id="lists"></div>
+<div class="end" id="endnote"></div>
+
+<script>
+// ===== DATA BLOCK: the only part future edits touch =====
+// To add a feature: add one line to STATIONS in the order it appears along its line.
+// LINES: {id, name, pattern}  pattern is one of: solid, dashed, dotted, double, dashdot.
+//   Lines are drawn top to bottom in this order.
+// STATIONS: {id, line, text, status, note?, also?}
+//   status is exactly one of: SHIPPED, BUILDING, QUEUED, IDEA.
+//   also (optional) is a second line id: the station is an interchange and sits on the
+//   lane of `line`; the other line bends over to touch it. List it once, never twice.
+// Unknown line or status ends up on the "Loose" line at the bottom so nothing is dropped.
+var LINES = [
+  {id: "core", name: "Core loop", pattern: "solid"},
+  {id: "share", name: "Share and publish", pattern: "double"},
+  {id: "gallery", name: "Gallery and community", pattern: "dotted"},
+  {id: "canvas", name: "Canvas", pattern: "dashed"},
+  {id: "vision", name: "Vision", pattern: "dashdot"}
+];
+var STATIONS = [
+  {id: "input", line: "core", text: "One input box", status: "BUILDING"},
+  {id: "drawback", line: "core", text: "Draw-back AI", status: "SHIPPED"},
+  {id: "router", line: "core", text: "One router picks the tool", status: "SHIPPED", note: "issue 57"},
+  {id: "makereal", line: "core", text: "Make it real in the browser", status: "SHIPPED"},
+  {id: "errors", line: "core", text: "Real errors and retry", status: "BUILDING"},
+  {id: "timer", line: "core", text: "Live build timer", status: "QUEUED"},
+  {id: "whirlwind", line: "core", text: "The whirlwind build moment", status: "BUILDING"},
+
+  {id: "embeds", line: "share", text: "Embeds", status: "SHIPPED"},
+  {id: "sitecards", line: "share", text: "Cards for sites that cannot embed", status: "SHIPPED"},
+  {id: "invite", line: "share", text: "Invite link", status: "SHIPPED", also: "gallery"},
+  {id: "publish", line: "share", text: "Publish to a link", status: "SHIPPED", note: "GitHub, owner only"},
+  {id: "ownpage", line: "share", text: "Own page per idea", status: "SHIPPED"},
+  {id: "ideamap", line: "share", text: "Idea map", status: "SHIPPED", also: "core"},
+
+  {id: "templates", line: "gallery", text: "Template gallery", status: "SHIPPED"},
+  {id: "cards", line: "gallery", text: "Index-card cards", status: "SHIPPED"},
+  {id: "submit", line: "gallery", text: "Community submit", status: "SHIPPED"},
+  {id: "xhandle", line: "gallery", text: "X handle", status: "SHIPPED"},
+
+  {id: "shapes", line: "canvas", text: "Shapes and circles", status: "SHIPPED"},
+  {id: "texttool", line: "canvas", text: "Text tool", status: "SHIPPED"},
+  {id: "eraser", line: "canvas", text: "Eraser", status: "SHIPPED"},
+  {id: "spatial", line: "canvas", text: "Spatial awareness", status: "SHIPPED"},
+  {id: "editask", line: "canvas", text: "Edit the board by asking", status: "SHIPPED"},
+  {id: "bare", line: "canvas", text: "Bare images", status: "QUEUED"},
+
+  {id: "zeroadmin", line: "vision", text: "Zero admin for users", status: "SHIPPED"},
+  {id: "nomodes", line: "vision", text: "No modes, no tool names", status: "BUILDING"},
+  {id: "myplan", line: "vision", text: "Use my plan, not an API key", status: "IDEA", note: "needs a backend and a business decision"},
+  {id: "platformkey", line: "vision", text: "Platform key with a free allowance", status: "IDEA"},
+  {id: "testreal", line: "vision", text: "Tested in a real browser", status: "IDEA"}
+];
+var TERMINUS = {text: "One fluid creative dreamspace"};
+// ===== END DATA BLOCK =====
+
+var STATUSES = ["SHIPPED", "BUILDING", "QUEUED", "IDEA"];
+var PATTERNS = [
+  ["solid", "solid"], ["dashed", "dashed"], ["dotted", "dotted"], ["double", "double"], ["dashdot", "dash-dot"]
+];
+var NS = "http://www.w3.org/2000/svg";
+
+// geometry
+var LANE = 90;       // vertical distance between lanes
+var DX = 190;        // horizontal distance between station columns
+var TAG_X = 20, TAG_W = 156, TAG_H = 46;
+var X0 = TAG_X + TAG_W + 100;   // x of column 0
+var Y0 = 70;         // y of the first lane
+var HALF = 9, IHALF = 13;       // half size of a station / interchange marker
+var LABEL_WRAP = 20;
+var LH = 15;         // label line height
+
+function S(tag, attrs, text) {
+  var e = document.createElementNS(NS, tag);
+  if (attrs) Object.keys(attrs).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+  if (text != null) e.textContent = text;
+  return e;
+}
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function wrap(text, n, maxLines) {
+  var words = String(text).split(/\s+/), out = [], cur = "";
+  words.forEach(function (w) {
+    if (cur && (cur + " " + w).length > n) { out.push(cur); cur = w; }
+    else cur = cur ? cur + " " + w : w;
+  });
+  if (cur) out.push(cur);
+  return out;
+}
+
+// ---- line pattern: a miter-joined polyline in one of five patterns ----
+function patternPath(pts, pattern) {
+  var d = pts.map(function (p, i) { return (i ? "L" : "M") + p[0] + " " + p[1]; }).join(" ");
+  var g = S("g");
+  var base = {d: d, fill: "none", stroke: "#000", "stroke-width": 4, "stroke-linejoin": "miter", "stroke-linecap": "butt", "stroke-miterlimit": 10};
+  if (pattern === "dashed") base["stroke-dasharray"] = "8 6";
+  else if (pattern === "dotted") base["stroke-dasharray"] = "2 5";
+  else if (pattern === "dashdot") base["stroke-dasharray"] = "10 5 2 5";
+  else if (pattern === "double") base["stroke-width"] = 6;   // 2 + 2 gap + 2
+  g.appendChild(S("path", base));
+  if (pattern === "double") {
+    g.appendChild(S("path", {d: d, fill: "none", stroke: "#fff", "stroke-width": 2, "stroke-linejoin": "miter", "stroke-linecap": "butt", "stroke-miterlimit": 10}));
+  }
+  return g;
+}
+
+// ---- station markers, centered on 0,0 ----
+function marker(status, half) {
+  var g = S("g");
+  var s = half * 2;
+  if (status === "SHIPPED") {
+    g.appendChild(S("rect", {x: -half, y: -half, width: s, height: s, fill: "#000"}));
+    return g;
+  }
+  g.appendChild(S("rect", {x: -half, y: -half, width: s, height: s, fill: "#fff"}));
+  if (status === "BUILDING") g.appendChild(S("rect", {x: -half, y: -half, width: half, height: s, fill: "#000"}));
+  var o = {x: -half + 1, y: -half + 1, width: s - 2, height: s - 2, fill: "none", stroke: "#000", "stroke-width": 2};
+  if (status === "IDEA") o["stroke-dasharray"] = "4 3";
+  g.appendChild(S("rect", o));
+  return g;
+}
+function interchange(half, dashed) {
+  var g = S("g");
+  var s = half * 2;
+  var o = {x: -half + 1.5, y: -half + 1.5, width: s - 3, height: s - 3, fill: "#fff", stroke: "#000", "stroke-width": 3};
+  if (dashed) o["stroke-dasharray"] = "5 3";
+  g.appendChild(S("rect", o));
+  return g;
+}
+
+function miniSvg(w, h) {
+  return S("svg", {width: w, height: h, viewBox: "0 0 " + w + " " + h, "aria-hidden": "true"});
+}
+function statusIcon(status) {
+  var v = miniSvg(18, 18);
+  var g = marker(status, HALF);
+  g.setAttribute("transform", "translate(9 9)");
+  v.appendChild(g);
+  return v;
+}
+function patternIcon(pattern, w) {
+  var v = miniSvg(w, 10);
+  v.appendChild(patternPath([[0, 5], [w, 5]], pattern));
+  return v;
+}
+
+// ---- legend + filters ----
+var activeFilters = {};
+var selected = null;      // station record
+var stationEls = [];      // {rec, g}
+var lineEls = {};         // line id -> [elements] to dim together
+
+(function () {
+  var lg = document.getElementById("legend");
+  var fl = document.getElementById("filters");
+  lg.appendChild(el("span", "label", "Stations"));
+  STATUSES.forEach(function (s) {
+    var k = el("span", "key");
+    k.appendChild(statusIcon(s));
+    k.appendChild(el("span", null, s));
+    lg.appendChild(k);
+    var b = el("button", "tog");
+    b.type = "button";
+    b.setAttribute("aria-pressed", "false");
+    b.appendChild(statusIcon(s));
+    b.appendChild(el("span", null, s));
+    b.onclick = function (ev) {
+      ev.stopPropagation();
+      activeFilters[s] = !activeFilters[s];
+      b.setAttribute("aria-pressed", activeFilters[s] ? "true" : "false");
+      refresh();
+    };
+    fl.appendChild(b);
+  });
+  lg.appendChild(el("span", "label", "Lines"));
+  PATTERNS.forEach(function (p) {
+    var k = el("span", "key");
+    k.appendChild(patternIcon(p[0], 40));
+    k.appendChild(el("span", null, p[1]));
+    lg.appendChild(k);
+  });
+})();
+
+// ---- model: resolve lines, interchanges, columns ----
+function buildModel() {
+  var lines = LINES.map(function (l) { return {id: l.id, name: l.name, pattern: l.pattern, items: [], visits: []}; });
+  var byId = {};
+  lines.forEach(function (l) { byId[l.id] = l; });
+  var loose = {id: "__loose", name: "Loose", pattern: "solid", items: [], visits: [], loose: true};
+  var recs = [];
+  STATIONS.forEach(function (s) {
+    var okStatus = STATUSES.indexOf(s.status) >= 0;
+    var ok = byId[s.line] && okStatus;
+    var host = ok ? byId[s.line] : loose;
+    var also = (ok && s.also && s.also !== s.line && byId[s.also]) ? byId[s.also] : null;
+    var r = {src: s, host: host, also: also, status: okStatus ? s.status : "IDEA", col: 0};
+    host.items.push(r);
+    if (also) also.visits.push(r);
+    recs.push(r);
+  });
+  if (loose.items.length) lines.push(loose);
+  lines.forEach(function (l, i) { l.index = i; l.y = Y0 + i * LANE; });
+
+  // columns: stations take consecutive columns, skipping columns where another
+  // line's interchange sits on this lane. Repeat until stable (hosts can be visited too).
+  recs.forEach(function (r) { r.col = r.host.items.indexOf(r); });
+  for (var pass = 0; pass < 20; pass++) {
+    var changed = false;
+    lines.forEach(function (l) {
+      var taken = {};
+      l.visits.forEach(function (v) { taken[v.col] = true; });
+      var c = 0;
+      l.items.forEach(function (r) {
+        while (taken[c]) c++;
+        if (r.col !== c) { r.col = c; changed = true; }
+        c++;
+      });
+    });
+    if (!changed) break;
+  }
+  recs.forEach(function (r) {
+    r.x = X0 + r.col * DX;
+    r.y = r.host.y;
+  });
+  return {lines: lines, recs: recs};
+}
+
+var model = null;
+
+function build() {
+  var svg = document.getElementById("map");
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  model = buildModel();
+  var lines = model.lines;
+  var n = lines.length;
+
+  // paths
+  var maxEnd = 0;
+  lines.forEach(function (l) {
+    var ev = [];
+    l.items.forEach(function (r) { ev.push({col: r.col, rec: r, visit: false}); });
+    l.visits.forEach(function (r) { ev.push({col: r.col, rec: r, visit: true}); });
+    ev.sort(function (a, b) { return a.col - b.col; });
+    var pts = [[TAG_X + TAG_W, l.y]];
+    ev.forEach(function (e) {
+      var x = X0 + e.col * DX;
+      if (e.visit) {
+        var run = Math.abs(e.rec.y - l.y);
+        pts.push([x - run, l.y], [x, e.rec.y], [x + run, l.y]);
+      } else pts.push([x, l.y]);
+    });
+    l.pts = pts;
+  });
+  var yMid = (lines[0].y + lines[n - 1].y) / 2;
+  var ATT = 16;
+  var maxNeed = 0;
+  lines.forEach(function (l, i) {
+    l.ay = yMid + (i - (n - 1) / 2) * ATT;
+    l.run = Math.abs(l.ay - l.y);
+    var last = l.pts[l.pts.length - 1];
+    maxNeed = Math.max(maxNeed, last[0] + l.run);
+  });
+  var xB = maxNeed + 60;
+  lines.forEach(function (l) {
+    var last = l.pts[l.pts.length - 1];
+    var pts = l.pts.slice();
+    if (l.run > 0) pts.push([xB - l.run, l.y]);
+    else pts.push([xB, l.y]);
+    pts.push([xB, l.ay]);
+    l.pts = pts;
+  });
+
+  // terminus geometry
+  var tLines = wrap(String(TERMINUS.text).toUpperCase(), 13);
+  var TW = 210;
+  var TH = Math.max(140, (n - 1) * ATT + 70, tLines.length * 24 + 50);
+  var tTop = yMid - TH / 2;
+
+  var gLines = S("g"), gTags = S("g"), gSt = S("g");
+  lines.forEach(function (l) {
+    lineEls[l.id] = [];
+    var g = patternPath(l.pts, l.pattern);
+    gLines.appendChild(g);
+    lineEls[l.id].push(g);
+
+    // label tag at the start of the line
+    var tg = S("g");
+    tg.appendChild(S("rect", {x: TAG_X, y: l.y - TAG_H / 2, width: TAG_W, height: TAG_H, fill: "#fff", stroke: "#000", "stroke-width": 2}));
+    var nm = wrap(l.name, 17);
+    nm.slice(0, 2).forEach(function (t, i) {
+      tg.appendChild(S("text", {x: TAG_X + 10, y: l.y - TAG_H / 2 + 15 + i * 14, "font-size": 13}, t));
+    });
+    tg.appendChild(patternPath([[TAG_X + 10, l.y + TAG_H / 2 - 8], [TAG_X + TAG_W - 10, l.y + TAG_H / 2 - 8]], l.pattern));
+    gTags.appendChild(tg);
+    lineEls[l.id].push(tg);
+  });
+
+  // terminus
+  var gT = S("g");
+  gT.appendChild(S("rect", {x: xB - 6, y: tTop - 6, width: TW + 12, height: TH + 12, fill: "none", stroke: "#000", "stroke-width": 1}));
+  gT.appendChild(S("rect", {x: xB, y: tTop, width: TW, height: TH, fill: "#fff", stroke: "#000", "stroke-width": 2}));
+  tLines.forEach(function (t, i) {
+    gT.appendChild(S("text", {x: xB + TW / 2, y: yMid - (tLines.length - 1) * 12 + i * 24 + 6, "text-anchor": "middle", "font-size": 17}, t));
+  });
+
+  // stations
+  stationEls = [];
+  model.recs.forEach(function (r) {
+    var isX = !!r.also;
+    var half = isX ? IHALF : HALF;
+    var g = S("g", {"class": "st", tabindex: 0, role: "button", "aria-pressed": "false",
+      transform: "translate(" + r.x + " " + r.y + ")",
+      "aria-label": r.src.text + ", " + String(r.src.status) + (isX ? ", interchange with " + r.also.name : "") + ", on " + r.host.name});
+    g.appendChild(S("rect", {"class": "ring", x: -half - 5, y: -half - 5, width: half * 2 + 10, height: half * 2 + 10}));
+    g.appendChild(isX ? interchange(half, r.status === "IDEA") : marker(r.status, half));
+    // label side: away from the line that bends over to touch an interchange,
+    // otherwise alternate along the lane
+    var up = r.host.items.indexOf(r) % 2 === 0;
+    if (isX) up = r.also.y > r.y;
+    r.up = up;
+    var ls = wrap(r.src.text, LABEL_WRAP);
+    var off = half + 4;
+    ls.forEach(function (t, i) {
+      var by = up ? -off - 3 - (ls.length - 1 - i) * LH : off + 11 + i * LH;
+      g.appendChild(S("text", {"class": "halo", x: 0, y: by, "text-anchor": "middle", "font-size": 14}, t));
+    });
+    var rec = r;
+    g.addEventListener("click", function (ev) { ev.stopPropagation(); toggle(rec); });
+    g.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); ev.stopPropagation(); toggle(rec); }
+    });
+    gSt.appendChild(g);
+    stationEls.push({rec: r, g: g});
+  });
+
+  svg.appendChild(gLines);
+  svg.appendChild(gTags);
+  svg.appendChild(gT);
+  svg.appendChild(gSt);
+
+  // viewBox from content
+  var minX = 0;
+  var maxX = xB + TW + 6 + TAG_X;
+  var minY = Math.min(lines[0].y - TAG_H / 2, tTop - 6, lines[0].y - 60) - 14;
+  var maxY = Math.max(lines[n - 1].y + 62, tTop + TH + 6) + 14;
+  var vb = {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
+  model.vb = vb;
+  svg.setAttribute("viewBox", vb.x + " " + vb.y + " " + vb.w + " " + vb.h);
+  svg.style.minWidth = Math.max(900, Math.round(vb.w * 0.75)) + "px";
+
+  buildList();
+  refresh();
+}
+
+// ---- list view ----
+function statusTag(s) { return el("span", "tag " + (STATUSES.indexOf(s) >= 0 ? s : "IDEA"), String(s)); }
+
+function buildList() {
+  var box = document.getElementById("lists");
+  while (box.firstChild) box.removeChild(box.firstChild);
+  model.lines.forEach(function (l) {
+    var b = el("section", "block");
+    var h = el("h3");
+    h.appendChild(patternIcon(l.pattern, 44));
+    h.appendChild(el("span", null, l.name));
+    b.appendChild(h);
+    var ul = el("ul");
+    var rows = l.items.concat(l.visits);
+    rows.sort(function (a, c) { return (l.items.indexOf(a) >= 0 ? a.col : a.col) - c.col; });
+    rows.forEach(function (r) {
+      var li = el("li");
+      li.appendChild(el("span", null, r.src.text));
+      li.appendChild(statusTag(r.src.status));
+      var other = r.host === l ? r.also : r.host;
+      if (other && (r.also)) li.appendChild(el("span", "nt", "interchange with " + other.name));
+      if (r.src.note) li.appendChild(el("span", "nt", r.src.note));
+      ul.appendChild(li);
+    });
+    b.appendChild(ul);
+    box.appendChild(b);
+  });
+  document.getElementById("endnote").textContent = "Every line ends at: " + String(TERMINUS.text).toUpperCase();
+}
+
+// ---- interaction ----
+function anyFilter() { return STATUSES.some(function (s) { return activeFilters[s]; }); }
+
+function toggle(rec) {
+  selected = selected === rec ? null : rec;
+  refresh();
+}
+
+function refresh() {
+  var hl = null;
+  if (selected) {
+    hl = {};
+    hl[selected.host.id] = true;
+    if (selected.also) hl[selected.also.id] = true;
+  }
+  Object.keys(lineEls).forEach(function (id) {
+    lineEls[id].forEach(function (e) {
+      e.setAttribute("class", hl && !hl[id] ? "dim" : "");
+    });
+  });
+  var f = anyFilter();
+  stationEls.forEach(function (s) {
+    var r = s.rec;
+    var onLine = !hl || hl[r.host.id] || (r.also && hl[r.also.id]);
+    var match = !f || activeFilters[r.src.status];
+    var cls = "st" + (!onLine || !match ? " dim" : "") + (r === selected ? " sel" : "");
+    s.g.setAttribute("class", cls);
+    s.g.setAttribute("aria-pressed", r === selected ? "true" : "false");
+  });
+  showCard();
+}
+
+function showCard() {
+  var card = document.getElementById("card");
+  while (card.firstChild) card.removeChild(card.firstChild);
+  if (!selected) { card.hidden = true; return; }
+  var r = selected;
+  card.appendChild(el("div", "ct", r.src.text));
+  card.appendChild(statusTag(r.src.status));
+  if (r.src.note) card.appendChild(el("div", "cn", r.src.note));
+  card.appendChild(el("div", "cl", r.also ? "Interchange: " + r.host.name + " and " + r.also.name : "Line: " + r.host.name));
+  card.hidden = false;
+  var svg = document.getElementById("map");
+  var scale = svg.getBoundingClientRect().width / model.vb.w;
+  var wrapW = svg.getBoundingClientRect().width;
+  var left = (r.x - model.vb.x) * scale - 115;
+  var top = (r.y - model.vb.y) * scale + (r.up ? 24 : 24) * 1.0;
+  if (!r.up) top = (r.y - model.vb.y) * scale - card.offsetHeight - 24;
+  if (top < 4) top = (r.y - model.vb.y) * scale + 24;
+  left = Math.max(4, Math.min(left, wrapW - 234));
+  card.style.left = left + "px";
+  card.style.top = top + "px";
+}
+
+document.addEventListener("click", function () { if (selected) { selected = null; refresh(); } });
+document.getElementById("card").addEventListener("click", function (ev) { ev.stopPropagation(); });
+document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && selected) { selected = null; refresh(); } });
+window.addEventListener("resize", function () { if (selected) showCard(); });
+
+build();
+</script>
+</body>
+</html>
