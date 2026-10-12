@@ -1,5 +1,8 @@
 [
-  { "id": "e1", "type": "ellipse", "x": 240, "y": 40, "w": 300, "h": 300, "text": "Dream" },
-  { "id": "e2", "type": "ellipse", "x": 20, "y": 370, "w": 300, "h": 300, "text": "Have to do" },
-  { "id": "e3", "type": "ellipse", "x": 460, "y": 370, "w": 300, "h": 300, "text": "Want to do" }
+  { "id": "e1", "type": "ellipse", "x": 480, "y": 60, "w": 440, "h": 440 },
+  { "id": "e2", "type": "ellipse", "x": 0, "y": 120, "w": 440, "h": 440 },
+  { "id": "e3", "type": "ellipse", "x": 960, "y": 120, "w": 440, "h": 440 },
+  { "id": "t1", "type": "text", "x": 678, "y": 9, "text": "Dream", "size": 24, "w": 280 },
+  { "id": "t2", "type": "text", "x": 175, "y": 69, "text": "Have to do", "size": 24, "w": 280 },
+  { "id": "t3", "type": "text", "x": 1135, "y": 69, "text": "Want to do", "size": 24, "w": 280 }
 ]
