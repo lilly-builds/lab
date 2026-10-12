@@ -207,6 +207,54 @@
         var blocks = (r.data && r.data.content) || [];
         return blocks.filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
       }
+    },
+    openai: {
+      id: 'openai',
+      label: 'OpenAI',
+      keyHint: 'sk-',
+      placeholder: 'sk-...',
+      defaults: { model: 'gpt-6.1-sol' },
+      post: async function (key, body, signal) {
+        var res = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          signal: signal,
+          headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        var data = null;
+        try { data = await res.json(); } catch (e) {}
+        return { res: res, data: data };
+      },
+      /* true: key accepted, false: key rejected, throws: could not check */
+      verify: async function (key, signal) {
+        var res = await fetch('https://api.openai.com/v1/models', { method: 'GET', signal: signal, headers: { 'Authorization': 'Bearer ' + key } });
+        if (res.ok) return true;
+        if (res.status === 401) return false;
+        throw new Error('status ' + res.status);
+      },
+      complete: async function (o) {
+        var content = [{ type: 'input_text', text: o.text }];
+        if (o.imagePng) content.push({ type: 'input_image', image_url: 'data:image/png;base64,' + o.imagePng });
+        var r = await this.post(o.key, {
+          model: o.model || this.defaults.model,
+          instructions: o.system,
+          input: [{ role: 'user', content: content }],
+          max_output_tokens: 4000,
+          text: { format: { type: 'json_object' } }
+        }, o.signal);
+        if (!r.res.ok) {
+          var err = new Error((r.data && r.data.error && r.data.error.message) || ('Request failed (' + r.res.status + ')'));
+          err.status = r.res.status;
+          throw err;
+        }
+        if (r.data && r.data.status === 'incomplete') throw new Error('Could not read the reply');
+        var out = (r.data && r.data.output) || [], parts = [];
+        out.forEach(function (item) {
+          if (!item || item.type !== 'message') return;
+          (item.content || []).forEach(function (c) { if (c && c.type === 'output_text' && typeof c.text === 'string') parts.push(c.text); });
+        });
+        return parts.join('\n');
+      }
     }
   };
 
