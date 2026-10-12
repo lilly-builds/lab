@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dream board</title>
+<style>
+  :root {
+    --ink: #3b2f27;
+    --ink-soft: #6b5a4d;
+    --paper: #f7eedb;
+    --have: #f6c945;
+    --want: #f08fa6;
+    --dream: #9bb8f0;
+    --line: #d9c7a3;
+    --accent: #b5502d;
+    --noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35  0 0 0 0 .25  0 0 0 0 .15  0 0 0 .09 0'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; overflow-x: hidden; }
+  body {
+    background: var(--paper) var(--noise);
+    color: var(--ink);
+    font: 17px/1.45 "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+  }
+  h1, h2, h3 { font-family: Georgia, "Times New Roman", serif; margin: 0; }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 3px solid #2f6fd0; outline-offset: 2px; }
+
+  .sim-banner {
+    background: #3b2f27; color: #fff6e0; text-align: center;
+    padding: 10px 14px; font-size: 15px; font-weight: 600;
+  }
+  .app { max-width: 1180px; margin: 0 auto; padding: 14px 12px 40px; }
+  header h1 { font-size: 30px; line-height: 1.15; }
+  header p { margin: 4px 0 12px; color: var(--ink-soft); }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .btn {
+    min-height: 44px; min-width: 44px; padding: 8px 14px;
+    border: 2px solid var(--ink); border-radius: 12px; background: #fffaf0;
+    font-weight: 600; box-shadow: 2px 3px 0 rgba(59,47,39,.25);
+  }
+  .btn:active { transform: translate(1px,1px); box-shadow: 1px 1px 0 rgba(59,47,39,.25); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: #7d3419; }
+  .btn.quiet { box-shadow: none; background: transparent; border-color: var(--line); }
+  .btn.danger { border-color: #9b2c2c; color: #9b2c2c; }
+  .btn[disabled] { opacity: .5; cursor: default; }
+  .chip-have { background: var(--have); } .chip-want { background: var(--want); } .chip-dream { background: var(--dream); }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  @media (min-width: 900px) {
+    .layout { grid-template-columns: minmax(0, 640px) minmax(0, 1fr); align-items: start; }
+    .app { padding: 22px 24px 50px; }
+  }
+
+  /* Board */
+  .board {
+    position: relative; width: 100%; aspect-ratio: 1 / 1; touch-action: manipulation;
+    background:
+      radial-gradient(circle, rgba(120,90,50,.18) 1.2px, transparent 1.6px) 0 0 / 22px 22px,
+      #fffaf0 var(--noise);
+    border: 3px solid var(--ink); border-radius: 18px; overflow: hidden;
+    box-shadow: 4px 6px 0 rgba(59,47,39,.25); cursor: copy;
+  }
+  .circle {
+    position: absolute; aspect-ratio: 1 / 1; border-radius: 50%;
+    width: 64%; mix-blend-mode: multiply; border: 3px solid rgba(59,47,39,.55);
+    pointer-events: none;
+  }
+  .circle.have  { left: 3%;  top: 3%;  background: rgba(246,201,69,.55); }
+  .circle.want  { left: 33%; top: 3%;  background: rgba(240,143,166,.5); }
+  .circle.dream { left: 18%; top: 33%; background: rgba(155,184,240,.55); }
+  .clabel {
+    position: absolute; font-family: Georgia, serif; font-weight: 700; font-size: 15px;
+    background: rgba(255,250,240,.85); padding: 2px 8px; border-radius: 10px; pointer-events: none;
+    white-space: nowrap; border: 1.5px solid rgba(59,47,39,.4);
+  }
+  .clabel.have  { left: 5%; top: 6%; }
+  .clabel.want  { right: 5%; top: 6%; }
+  .clabel.dream { left: 50%; transform: translateX(-50%); bottom: 4%; }
+
+  .empty-board {
+    position: absolute; left: 12%; right: 12%; top: 36%; text-align: center; pointer-events: none;
+    background: rgba(255,250,240,.9); border: 2px dashed var(--ink-soft); border-radius: 14px; padding: 10px;
+    font-weight: 600; z-index: 1;
+  }
+  .hint { color: var(--ink-soft); font-size: 14px; margin: 8px 2px 0; }
+
+  .sticky {
+    position: absolute; width: clamp(92px, 26%, 140px); height: 76px; padding: 6px 8px;
+    transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
+    border-radius: 3px 3px 12px 3px; box-shadow: 2px 4px 6px rgba(59,47,39,.35);
+    background-image: linear-gradient(transparent 70%, rgba(0,0,0,.07)), var(--noise);
+    overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+    display: flex; flex-direction: column; justify-content: space-between; z-index: 2;
+    border: 0; text-align: left; font-size: 14px; line-height: 1.2;
+  }
+  .sticky.have  { background-color: #fbe27a; }
+  .sticky.want  { background-color: #f9b4c4; }
+  .sticky.dream { background-color: #bcd0f7; }
+  .sticky.dragging { cursor: grabbing; z-index: 10; transform: translate(-50%, -50%) rotate(0deg) scale(1.08); box-shadow: 4px 10px 14px rgba(59,47,39,.4); }
+  .sticky.stopped { opacity: .6; }
+  .sticky .txt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-weight: 600; word-break: break-word; }
+  .badge {
+    display: inline-block; font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 10px;
+    background: rgba(255,255,255,.75); border: 1.5px solid var(--ink); align-self: flex-start; white-space: nowrap;
+  }
+  .badge.blocked { background: #ffd9a8; } .badge.done { background: #c9ecc4; } .badge.plan { background: #e3d6ff; }
+  .badge.scheduled { background: #cfe8f5; } .badge.stopped { background: #ddd; }
+
+  /* Activity cards */
+  .side h2 { font-size: 22px; margin-bottom: 8px; }
+  .cards { display: grid; gap: 12px; }
+  .card {
+    background: #fffaf0 var(--noise); border: 2px solid var(--ink); border-radius: 14px; padding: 12px;
+    box-shadow: 3px 4px 0 rgba(59,47,39,.2); min-width: 0;
+  }
+  .card.flash { animation: flash 1.2s; }
+  @keyframes flash { 0%,60% { background-color: #fff0b3; } 100% { background-color: #fffaf0; } }
+  .card-head { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+  .card-head h3 { font-size: 18px; flex: 1 1 100%; word-break: break-word; }
+  .tag { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; border: 1.5px solid var(--ink); }
+  .trail { list-style: none; margin: 10px 0; padding: 0 0 0 14px; border-left: 3px solid var(--line); }
+  .trail li { margin: 0 0 6px; font-size: 15px; position: relative; }
+  .trail li::before { content: ""; position: absolute; left: -21px; top: 7px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+  .trail time { color: var(--ink-soft); font-size: 12px; margin-right: 6px; }
+  .ask { background: #fff0d6; border: 2px solid #d9902f; border-radius: 12px; padding: 10px; margin: 8px 0; }
+  .ask label, .plan-box p { font-weight: 700; display: block; margin: 0 0 6px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .row input[type=text] { flex: 1 1 140px; min-width: 0; }
+  input[type=text] {
+    min-height: 44px; padding: 8px 10px; border: 2px solid var(--ink); border-radius: 10px; background: #fff; font-size: 16px; width: 100%;
+  }
+  .plan-box { background: #efe8ff; border: 2px solid #8a74c9; border-radius: 12px; padding: 10px; margin: 8px 0; }
+  .plan-box .row { flex-wrap: nowrap; margin-bottom: 8px; }
+  .card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .err { color: #9b2c2c; font-weight: 700; font-size: 14px; margin: 6px 0 0; min-height: 1.2em; }
+  .empty-list { padding: 18px; border: 2px dashed var(--ink-soft); border-radius: 14px; text-align: center; }
+
+  /* Dialog */
+  dialog {
+    border: 3px solid var(--ink); border-radius: 16px; padding: 16px; width: min(92vw, 420px);
+    background: #fffaf0 var(--noise); color: var(--ink); box-shadow: 6px 8px 0 rgba(59,47,39,.35);
+  }
+  dialog::backdrop { background: rgba(59,47,39,.45); }
+  dialog h2 { font-size: 22px; margin-bottom: 10px; }
+  fieldset { border: 0; padding: 0; margin: 12px 0 0; min-width: 0; }
+  legend { font-weight: 700; padding: 0; margin-bottom: 6px; }
+  .choices { display: flex; flex-wrap: wrap; gap: 8px; }
+  .choices label {
+    position: relative; min-height: 44px; min-width: 44px; display: flex; align-items: center; justify-content: center;
+    padding: 6px 12px; border: 2px solid var(--ink); border-radius: 22px; background: #fff; font-weight: 600; cursor: pointer;
+  }
+  .choices input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .choices label:has(input:checked) { background: var(--ink); color: #fff; }
+  .choices label:has(input:focus-visible) { outline: 3px solid #2f6fd0; outline-offset: 2px; }
+  .choices label.c-have:has(input:checked) { background: var(--have); color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }
+  .choices label.c-want:has(input:checked) { background: var(--want); color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }
+  .choices label.c-dream:has(input:checked) { background: var(--dream); color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }
+  .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  footer { margin-top: 26px; color: var(--ink-soft); font-size: 14px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div class="sim-banner" role="note">Pretend helper: this is a simulation. Nothing real is sent, booked, spent or scheduled.</div>
+<div class="app">
+  <header>
+    <h1>Dream board</h1>
+    <p>Stick a note in a circle and a helper picks it up. Tap inside a circle to start.</p>
+    <div class="toolbar">
+      <button class="btn chip-have" data-add="have">+ Have to do</button>
+      <button class="btn chip-want" data-add="want">+ Want to do</button>
+      <button class="btn chip-dream" data-add="dream">+ Dream</button>
+      <button class="btn quiet" id="clear">Clear board</button>
+      <button class="btn quiet danger" id="reset">Reset examples</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <section aria-label="Board">
+      <div class="board" id="board">
+        <div class="circle have"></div><div class="circle want"></div><div class="circle dream"></div>
+        <span class="clabel have">Have to do</span><span class="clabel want">Want to do</span><span class="clabel dream">Dream</span>
+        <div class="empty-board" id="emptyBoard" hidden>Nothing here yet. Tap inside a circle to stick your first note.</div>
+      </div>
+      <p class="hint">Tap a circle to add a note. Drag a note into another circle to move it; the helper won't start over.</p>
+    </section>
+
+    <section class="side" aria-label="Helper activity" aria-live="polite">
+      <h2>What the helper is doing</h2>
+      <div class="cards" id="cards"></div>
+    </section>
+  </div>
+  <footer>Everything on this page is a simulation that runs in your browser. No network calls, nothing is saved.</footer>
+</div>
+
+<dialog id="dlg" aria-labelledby="dlgTitle">
+  <form id="form" novalidate>
+    <h2 id="dlgTitle">New sticky note</h2>
+    <label for="noteText" style="font-weight:700">What is it?</label>
+    <input type="text" id="noteText" maxlength="80" autocomplete="off" placeholder="e.g. Call the plumber">
+    <p class="err" id="formErr" role="alert"></p>
+    <fieldset>
+      <legend>Which circle?</legend>
+      <div class="choices" id="circleChoices">
+        <label class="c-have"><input type="radio" name="circle" value="have">Have to do</label>
+        <label class="c-want"><input type="radio" name="circle" value="want">Want to do</label>
+        <label class="c-dream"><input type="radio" name="circle" value="dream">Dream</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Does it repeat?</legend>
+      <div class="choices">
+        <label><input type="radio" name="repeat" value="once" checked>One time</label>
+        <label><input type="radio" name="repeat" value="repeat">Repeats</label>
+      </div>
+    </fieldset>
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="cancel">Cancel</button>
+      <button type="submit" class="btn primary">Stick it</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  'use strict';
+
+  var CIRCLES = {
+    have:  { name: 'Have to do', cx: 0.35, cy: 0.35, r: 0.32 },
+    want:  { name: 'Want to do', cx: 0.65, cy: 0.35, r: 0.32 },
+    dream: { name: 'Dream',      cx: 0.50, cy: 0.65, r: 0.32 }
+  };
+  var STATUS = {
+    picked: 'Picked up', working: 'Working', blocked: 'Needs one detail', scheduled: 'Scheduled',
+    done: 'Done', plan: 'First steps drafted', stopped: 'Stopped'
+  };
+  var SHORT = { blocked: 'Question', plan: 'Plan ready' };   // fits the small sticky
+  var APPT = /dentist|doctor|appointment|haircut|vet\b|dermatolog|optician|checkup|check-up/i;
+
+  var board = document.getElementById('board');
+  var cardsEl = document.getElementById('cards');
+  var emptyBoard = document.getElementById('emptyBoard');
+  var notes = [];
+  var nextId = 1;
+  var els = {};      // id -> { sticky, card, sig }
+
+  function h(tag, attrs, kids) {
+    var e = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      if (k === 'text') e.textContent = attrs[k];
+      else if (k.slice(0, 2) === 'on') e.addEventListener(k.slice(2), attrs[k]);
+      else e.setAttribute(k, attrs[k]);
+    });
+    (kids || []).forEach(function (c) { if (c) e.appendChild(c); });
+    return e;
+  }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function clock(t) { return new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+
+  /* ---------- geometry ---------- */
+  function circleAt(fx, fy) {
+    var best = null, bestD = Infinity;
+    Object.keys(CIRCLES).forEach(function (k) {
+      var c = CIRCLES[k], d = Math.hypot(fx - c.cx, fy - c.cy);
+      if (d <= c.r && d < bestD) { best = k; bestD = d; }   // inside, nearest center wins
+    });
+    return best;
+  }
+  function clampPos(fx, fy) {
+    var W = board.clientWidth || 300, sw = clamp(0.26 * W, 92, 140);
+    var hx = sw / 2 / W, hy = 38 / W;
+    return { x: clamp(fx, hx, 1 - hx), y: clamp(fy, hy, 1 - hy) };
+  }
+  function anchor(circle, i) {
+    var c = CIRCLES[circle], a = (i || 0) * 2.4;
+    return clampPos(c.cx + Math.cos(a) * 0.1, c.cy + Math.sin(a) * 0.1 + (circle === 'dream' ? 0.04 : 0));
+  }
+
+  /* ---------- simulated helper ---------- */
+  function log(n, text) { n.trail.push({ t: Date.now(), text: text }); }
+  function later(n, ms, fn) {
+    var tok = n.token;
+    setTimeout(function () {
+      if (n.token !== tok || notes.indexOf(n) < 0) return;
+      fn(); sync(n);
+    }, ms);
+  }
+  function startHelper(n) {
+    n.token++;
+    n.status = 'picked';
+    log(n, 'Picked up your note: “' + n.text + '”.');
+    later(n, 1300, function () {
+      n.status = 'working';
+      log(n, n.repeat ? 'Working out how to repeat this.' : 'Working on it.');
+    });
+    later(n, 3400, function () {
+      if (n.repeat) {
+        n.status = 'scheduled';
+        log(n, 'Pretend-scheduled as a repeating reminder. Nothing real was scheduled.');
+      } else if (APPT.test(n.text)) {
+        n.status = 'blocked';
+        n.question = 'What days and times suit you best?';
+        log(n, 'I’m waiting on one detail before I can go on: ' + n.question);
+      } else if (n.origin === 'dream') {
+        n.status = 'plan';
+        n.plan = ['Write one sentence about what this would look like.',
+                  'Find one person or place that could help.',
+                  'Pick a 15-minute first try this week.'];
+        log(n, 'Drafted a small first-step plan. This dream is not done; the steps are yours to edit.');
+      } else {
+        n.status = 'done';
+        log(n, 'Finished (pretend). Nothing was actually sent or booked.');
+      }
+    });
+  }
+  function answer(n, text) {
+    log(n, 'You answered: “' + text + '”');
+    n.status = 'working'; n.question = null;
+    log(n, 'Thanks, carrying on.');
+    sync(n);
+    later(n, 2000, function () {
+      n.status = 'done';
+      log(n, 'Drafted a booking request using your answer (pretend). Nothing was sent.');
+    });
+  }
+  function stop(n) {
+    n.token++; n.question = null; n.status = 'stopped';
+    log(n, 'Stopped by you. I won’t do anything more on this.');
+    sync(n);
+  }
+
+  /* ---------- notes ---------- */
+  function addNote(text, circle, repeat, pos, silent) {
+    var n = { id: nextId++, text: text, circle: circle, origin: circle, repeat: repeat, x: pos.x, y: pos.y,
+              rot: ((nextId * 37) % 9 - 4), status: 'picked', trail: [], plan: null, question: null, token: 0 };
+    notes.push(n);
+    render();
+    startHelper(n);
+    sync(n);
+    return n;
+  }
+  function removeNote(n) {
+    n.token++;
+    notes.splice(notes.indexOf(n), 1);
+    render();
+  }
+  function loadStarters() {
+    notes.forEach(function (n) { n.token++; });
+    notes = [];
+    addNote('Dentist check-up', 'have', false, { x: 0.25, y: 0.27 });
+    addNote('Water the plants every Sunday', 'have', true, { x: 0.28, y: 0.52 });
+    addNote('Sunset hike and picnic dinner', 'want', false, { x: 0.74, y: 0.27 });
+    addNote('Learn to paint with watercolors', 'dream', false, { x: 0.5, y: 0.78 });
+  }
+
+  /* ---------- rendering ---------- */
+  function stickyFor(n) {
+    var s = h('div', { 'class': 'sticky', tabindex: '0', role: 'button' });
+    s.dataset.id = n.id;
+    attachDrag(s, n);
+    s.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusCard(n); } });
+    return s;
+  }
+  function syncSticky(n, s) {
+    s.className = 'sticky ' + n.circle + (n.status === 'stopped' ? ' stopped' : '') + (s.classList.contains('dragging') ? ' dragging' : '');
+    s.style.left = n.x * 100 + '%'; s.style.top = n.y * 100 + '%'; s.style.setProperty('--rot', n.rot + 'deg');
+    s.setAttribute('aria-label', n.text + ', ' + CIRCLES[n.circle].name + ', ' + STATUS[n.status] + '. Press Enter to see details.');
+    s.textContent = '';
+    s.appendChild(h('span', { 'class': 'txt', text: n.text }));
+    s.appendChild(h('span', { 'class': 'badge ' + n.status, text: (n.repeat ? '↻ ' : '') + (SHORT[n.status] || STATUS[n.status]) }));
+  }
+  function cardFor(n) {
+    var tag = h('span', { 'class': 'tag chip-' + n.circle, text: CIRCLES[n.circle].name });
+    var kids = [h('h3', { text: n.text }), tag, h('span', { 'class': 'badge ' + n.status, text: STATUS[n.status] })];
+    if (n.repeat) kids.push(h('span', { 'class': 'tag', text: '↻ Repeats' }));
+    var head = h('div', { 'class': 'card-head' }, kids);
+    var trail = h('ol', { 'class': 'trail' }, n.trail.map(function (t) {
+      return h('li', {}, [h('time', { text: clock(t.t) }), document.createTextNode(t.text)]);
+    }));
+    var card = h('article', { 'class': 'card', 'data-id': n.id }, [head, trail]);
+
+    if (n.status === 'blocked') {
+      var inp = h('input', { type: 'text', id: 'ans' + n.id, maxlength: '80', placeholder: 'e.g. Tuesday or Thursday mornings' });
+      var err = h('p', { 'class': 'err', role: 'alert' });
+      var go = function () {
+        var v = inp.value.trim();
+        if (!v) { err.textContent = 'Please type your answer first.'; inp.focus(); return; }
+        answer(n, v);
+      };
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+      card.appendChild(h('div', { 'class': 'ask' }, [
+        h('label', { 'for': 'ans' + n.id, text: n.question }),
+        h('div', { 'class': 'row' }, [inp, h('button', { 'class': 'btn primary', type: 'button', text: 'Answer', onclick: go })]),
+        err
+      ]));
+    }
+    if (n.plan) {
+      var box = h('div', { 'class': 'plan-box' }, [h('p', { text: 'First steps (edit freely, nothing here is done yet)' })]);
+      n.plan.forEach(function (step, i) {
+        var inp2 = h('input', { type: 'text', value: step, maxlength: '100', 'aria-label': 'First step ' + (i + 1) });
+        inp2.addEventListener('input', function () { n.plan[i] = inp2.value; });
+        box.appendChild(h('div', { 'class': 'row' }, [inp2,
+          h('button', { 'class': 'btn', type: 'button', 'aria-label': 'Remove step ' + (i + 1), text: '✕',
+            onclick: function () { n.plan.splice(i, 1); sync(n); } })]));
+      });
+      box.appendChild(h('button', { 'class': 'btn', type: 'button', text: '+ Add a step',
+        onclick: function () { n.plan.push(''); sync(n); var ins = els[n.id].card.querySelectorAll('.plan-box input'); ins[ins.length - 1].focus(); } }));
+      card.appendChild(box);
+    }
+    var acts = h('div', { 'class': 'card-actions' });
+    if (n.status === 'picked' || n.status === 'working' || n.status === 'blocked') {
+      acts.appendChild(h('button', { 'class': 'btn danger', type: 'button', text: 'Stop', onclick: function () { stop(n); } }));
+    }
+    acts.appendChild(h('button', { 'class': 'btn quiet', type: 'button', text: 'Remove note', onclick: function () { removeNote(n); } }));
+    card.appendChild(acts);
+    return card;
+  }
+  function sig(n) {
+    return [n.status, n.trail.length, n.circle, n.plan ? n.plan.length : -1].join('|');
+  }
+  function sync(n) {
+    var e = els[n.id];
+    if (!e) return;
+    syncSticky(n, e.sticky);
+    var s = sig(n);
+    if (s !== e.sig) {
+      var fresh = cardFor(n);
+      e.card.replaceWith(fresh);
+      e.card = fresh; e.sig = s;
+    }
+  }
+  function render() {
+    // rebuild structure; keep stickies/cards for surviving notes
+    var keep = {};
+    notes.forEach(function (n) { keep[n.id] = true; });
+    Object.keys(els).forEach(function (id) {
+      if (!keep[id]) { els[id].sticky.remove(); els[id].card.remove(); delete els[id]; }
+    });
+    cardsEl.querySelectorAll('.empty-list').forEach(function (x) { x.remove(); });
+    notes.forEach(function (n) {
+      if (!els[n.id]) {
+        els[n.id] = { sticky: stickyFor(n), card: cardFor(n), sig: sig(n) };
+        board.appendChild(els[n.id].sticky);
+        cardsEl.appendChild(els[n.id].card);
+      }
+      syncSticky(n, els[n.id].sticky);
+    });
+    emptyBoard.hidden = notes.length > 0;
+    if (!notes.length) {
+      cardsEl.appendChild(h('div', { 'class': 'empty-list', text: 'No notes yet. Tap inside a circle on the board, or use the buttons at the top. The helper’s steps will show up here.' }));
+    }
+  }
+  function focusCard(n) {
+    var c = els[n.id].card;
+    c.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash');
+  }
+
+  /* ---------- dragging ---------- */
+  function attachDrag(s, n) {
+    var start = null;
+    s.addEventListener('click', function (e) { e.stopPropagation(); });
+    s.addEventListener('pointerdown', function (e) {
+      if (e.button !== undefined && e.button > 0) return;
+      e.stopPropagation();
+      var r = board.getBoundingClientRect();
+      start = { px: e.clientX, py: e.clientY, ox: n.x, oy: n.y, r: r, moved: false, id: e.pointerId };
+      s.setPointerCapture(e.pointerId);
+    });
+    s.addEventListener('pointermove', function (e) {
+      if (!start || e.pointerId !== start.id) return;
+      var dx = e.clientX - start.px, dy = e.clientY - start.py;
+      if (!start.moved && Math.hypot(dx, dy) < 6) return;
+      start.moved = true;
+      s.classList.add('dragging');
+      var p = clampPos(start.ox + dx / start.r.width, start.oy + dy / start.r.height);
+      n.x = p.x; n.y = p.y;
+      s.style.left = n.x * 100 + '%'; s.style.top = n.y * 100 + '%';
+    });
+    function end(e, cancelled) {
+      if (!start || e.pointerId !== start.id) return;
+      var st = start; start = null;
+      s.classList.remove('dragging');
+      if (!st.moved) { if (!cancelled) focusCard(n); return; }
+      var target = cancelled ? null : circleAt(n.x, n.y);
+      if (!target) { n.x = st.ox; n.y = st.oy; }       // dropped outside every circle: snap back
+      else if (target !== n.circle) {
+        // Only the label changes. The helper is deliberately NOT restarted.
+        log(n, 'Moved from “' + CIRCLES[n.circle].name + '” to “' + CIRCLES[target].name + '”. Same job, no new work started.');
+        n.circle = target;
+      }
+      var e2 = els[n.id]; e2.sig = ''; sync(n);
+    }
+    s.addEventListener('pointerup', function (e) { end(e, false); });
+    s.addEventListener('pointercancel', function (e) { end(e, true); });
+  }
+
+  /* ---------- dialog ---------- */
+  var dlg = document.getElementById('dlg');
+  var form = document.getElementById('form');
+  var txt = document.getElementById('noteText');
+  var formErr = document.getElementById('formErr');
+  var pending = null;
+
+  function openDialog(circle, pos) {
+    pending = { circle: circle, pos: pos };
+    txt.value = ''; formErr.textContent = '';
+    form.elements.circle.value = circle;
+    form.elements.repeat.value = 'once';
+    if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
+    txt.focus();
+  }
+  function closeDialog() { if (dlg.close) dlg.close(); else dlg.removeAttribute('open'); pending = null; }
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = txt.value.trim();
+    if (!v) { formErr.textContent = 'Please write something on the note first.'; txt.focus(); return; }
+    var circle = form.elements.circle.value;
+    var pos = circle === pending.circle ? pending.pos : anchor(circle, notes.length);
+    addNote(v, circle, form.elements.repeat.value === 'repeat', pos);
+    closeDialog();
+  });
+  txt.addEventListener('input', function () { formErr.textContent = ''; });
+  document.getElementById('cancel').addEventListener('click', closeDialog);
+  dlg.addEventListener('click', function (e) { if (e.target === dlg) closeDialog(); });
+
+  board.addEventListener('click', function (e) {
+    var r = board.getBoundingClientRect();
+    var fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+    var c = circleAt(fx, fy);
+    if (c) openDialog(c, clampPos(fx, fy));
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-add]'), function (b) {
+    b.addEventListener('click', function () { var c = b.dataset.add; openDialog(c, anchor(c, notes.length)); });
+  });
+  document.getElementById('reset').addEventListener('click', function () { loadStarters(); });
+  document.getElementById('clear').addEventListener('click', function () {
+    notes.forEach(function (n) { n.token++; }); notes = []; render();
+  });
+
+  loadStarters();
+})();
+</script>
+</body>
+</html>
