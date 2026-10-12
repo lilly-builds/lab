@@ -32,7 +32,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0 # Full history, or pushes from a shallow merge carry claude.yml and GitHub rejects them
 
       - name: Run Claude Code
         id: claude
