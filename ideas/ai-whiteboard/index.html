@@ -46,9 +46,37 @@
   @media (min-width: 900px) { #bar a.tpl { width: auto; padding: 0 16px; border-radius: 24px; } #bar a.tpl .lbl { display: inline; } }
   #bar button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
   #bar button:disabled { opacity: .3; cursor: default; }
-  #magic.busy svg { animation: pulse 1.4s ease-in-out infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .25; transform: scale(.85); } }
-  @media (prefers-reduced-motion: reduce) { #magic.busy svg { animation: none; opacity: .4; } }
+  #magic svg .tip { opacity: 0; }
+  #magic.busy svg { animation: spin 12s linear infinite; transform-origin: 50% 50%; }
+  #magic.busy svg .star { transform-origin: 10px 12px; animation: breathe 1.6s ease-in-out infinite; }
+  #magic.busy svg .tip { stroke-width: 2.4; animation: shimmer 1.6s ease-in-out infinite; }
+  #magic.busy svg .tip:nth-of-type(4) { animation-delay: .4s; }
+  #magic.busy svg .tip:nth-of-type(5) { animation-delay: .8s; }
+  #magic.busy svg .tip:nth-of-type(6) { animation-delay: 1.2s; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+  @keyframes shimmer { 0%, 100% { opacity: 0; } 25% { opacity: 1; } 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    #magic.busy svg, #magic.busy svg .star, #magic.busy svg .tip { animation: none; }
+    #magic.busy svg .star { fill: currentColor; }
+  }
+
+  #edge { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; display: none; }
+  #edge rect { fill: none; stroke: #000; stroke-width: 1; opacity: .3; vector-effect: non-scaling-stroke; stroke-dasharray: 12 88; animation: lap 3s linear infinite; }
+  @keyframes lap { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -100; } }
+  body.busy #edge { display: block; }
+  @media (prefers-reduced-motion: reduce) { body.busy #edge { display: none; } }
+
+  #status { height: 20px; padding: 0 12px 0 0; font: 300 11px/20px var(--mono); font-variant-caps: all-small-caps; letter-spacing: .08em; white-space: nowrap; overflow: hidden; }
+  #status span { display: block; opacity: 0; transition: opacity .2s ease; }
+  #status span.on { opacity: 1; }
+  #stopBtn { width: 44px; height: 44px; display: none; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
+  #stopBtn svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.2; fill: none; }
+  #stopBtn svg rect.in { fill: currentColor; }
+  #panel.busy #stopBtn { display: flex; }
+  #panel.busy .gear { display: none; }
+  #panel.busy #makeReal { visibility: hidden; }
+  #panel input:disabled { opacity: .5; }
 
   #panel, #xpanel { display: none; width: min(420px, 100%); background: var(--paper); border: 1px solid var(--ink); padding: 4px 4px 4px 12px; margin: 0; }
   #panel.open, #xpanel.open { display: block; }
@@ -130,6 +158,7 @@
 </head>
 <body>
 <canvas id="board"></canvas>
+<svg id="edge" aria-hidden="true"><rect x="0" y="0" width="100%" height="100%" pathLength="100"/></svg>
 <div id="embeds"></div>
 <textarea id="noteEdit" aria-label="Note" maxlength="400"></textarea>
 <textarea id="textEdit" aria-label="Text" maxlength="2000" rows="1" spellcheck="false" autocorrect="off" wrap="soft"></textarea>
@@ -156,10 +185,12 @@
   <form id="panel" autocomplete="off">
     <div class="row">
       <input id="ask" type="text" placeholder="Ask anything about the board" aria-label="Ask anything about the board" enterkeyhint="send" autocomplete="off">
+      <button type="button" id="stopBtn" aria-label="Stop"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><rect class="in" x="9" y="9" width="6" height="6"/></svg></button>
       <button type="button" class="gear" id="gear" aria-label="Settings" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg>
       </button>
     </div>
+    <div id="status" aria-live="polite"></div>
     <div class="row2"><button type="button" class="mini" id="makeReal">Make it real</button></div>
   </form>
   <form id="xpanel" autocomplete="off" novalidate>
@@ -182,7 +213,7 @@
     <button type="button" id="undo" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 8h-3"/></svg></button>
     <a id="tplLink" class="tpl" href="../templates/" aria-label="Templates"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="6" height="6"/><rect x="13.5" y="4.5" width="6" height="6"/><rect x="4.5" y="13.5" width="6" height="6"/><rect x="13.5" y="13.5" width="6" height="6"/></svg><span class="lbl">Templates</span></a>
     <button type="button" id="share" aria-label="Share as template"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></svg></button>
-    <button type="button" id="magic" aria-label="Ask AI" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M10 4c.7 5 2.5 7.3 7 8-4.5.7-6.3 3-7 8-.7-5-2.5-7.3-7-8 4.5-.7 6.3-3 7-8z"/><path d="M19 3v4M17 5h4"/></svg></button>
+    <button type="button" id="magic" aria-label="Ask AI" aria-expanded="false"><svg viewBox="0 0 24 24"><path class="star" d="M10 4c.7 5 2.5 7.3 7 8-4.5.7-6.3 3-7 8-.7-5-2.5-7.3-7-8 4.5-.7 6.3-3 7-8z"/><path d="M19 3v4M17 5h4"/><path class="tip" d="M10 4v.01"/><path class="tip" d="M17 12v.01"/><path class="tip" d="M10 20v.01"/><path class="tip" d="M3 12v.01"/></svg></button>
   </div>
 </div>
 
@@ -349,7 +380,7 @@
   var KEY_SCENE = 'aiwb.scene', KEY_VIEW = 'aiwb.view', KEY_PROVIDER = 'aiwb.provider';
   var OLD_KEY = 'aiwb.key', OLD_MODEL = 'aiwb.model';
   var cv = document.getElementById('board'), ctx = cv.getContext('2d');
-  var els = [], view = { x: 0, y: 0 }, tool = 'pen', undoStack = [], editing = null, busy = false, selId = null;
+  var els = [], view = { x: 0, y: 0 }, tool = 'pen', undoStack = [], editing = null, busy = false, fade = null, selId = null;
   var cur = { strokeColor: '#1e1e1e', fill: 'none', strokeWidth: 2, dashed: false, noteFill: '#bfd7ff', size: 24 };
   var imgCache = {}, NOTE = 120, nextId = 1, editNew = false;
   var dpr = 1, W = 0, H = 0;
@@ -621,7 +652,12 @@
   function draw() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
-    els.forEach(function (el) { drawEl(ctx, el, view.x, view.y); });
+    var fp = fade ? Math.min(1, (performance.now() - fade.t0) / 250) : 1;
+    els.forEach(function (el) {
+      if (fade && fade.ids[el.id]) { ctx.save(); ctx.globalAlpha = fp; drawEl(ctx, el, view.x, view.y); ctx.restore(); }
+      else drawEl(ctx, el, view.x, view.y);
+    });
+    if (fade) { if (fp < 1) requestAnimationFrame(draw); else fade = null; }
     var s = selEl();
     if (s && editing !== s.id) drawSel(ctx, s);
     renderProps();
@@ -920,7 +956,7 @@
     var tag = document.activeElement && document.activeElement.tagName, typing = tag === 'TEXTAREA' || tag === 'INPUT';
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && selEl()) { e.preventDefault(); deleteSel(); }
-    if (e.key === 'Escape') closePanel();
+    if (e.key === 'Escape') { if (busy) cancelSend(); else closePanel(); }
     if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 't') { e.preventDefault(); commitEdit(); setTool('text'); }
   });
   /* Templates is a plain link; flush the board first so nothing is lost on the way out */
@@ -1079,26 +1115,72 @@
     els.forEach(function (el) { drawEl(g, el, view.x, view.y); });
     try { return c.toDataURL('image/png').split(',')[1]; } catch (e) { return null; }
   }
+  var PHRASES = ['Looking at your board', 'Thinking', 'Drawing'];
+  var statusEl = document.getElementById('status'), stopBtn = document.getElementById('stopBtn'), curAbort = null, phraseTimer = null, phraseSwap = null, timeoutTimer = null, timedOut = false;
+  function showPhrase(i) {
+    var sp = statusEl.firstChild;
+    if (!sp) { sp = document.createElement('span'); statusEl.appendChild(sp); }
+    sp.textContent = PHRASES[i]; sp.classList.add('on');
+  }
+  function startBusy() {
+    busy = true; timedOut = false;
+    magic.classList.add('busy'); panel.classList.add('busy'); document.body.classList.add('busy');
+    panel.setAttribute('aria-busy', 'true');
+    ask.disabled = true;
+    var i = 0;
+    showPhrase(0);
+    phraseTimer = setInterval(function () {
+      i = (i + 1) % PHRASES.length;
+      var sp = statusEl.firstChild;
+      if (sp) sp.classList.remove('on');
+      clearTimeout(phraseSwap);
+      phraseSwap = setTimeout(function () { showPhrase(i); }, 200);
+    }, 2500);
+  }
+  function endBusy() {
+    busy = false; curAbort = null;
+    clearInterval(phraseTimer); clearTimeout(phraseSwap); clearTimeout(timeoutTimer);
+    statusEl.textContent = '';
+    magic.classList.remove('busy'); panel.classList.remove('busy'); document.body.classList.remove('busy');
+    panel.removeAttribute('aria-busy');
+    ask.disabled = false;
+  }
+  function cancelSend() { if (busy && curAbort) curAbort.abort(); }
+  stopBtn.addEventListener('click', function () { cancelSend(); ask.focus(); });
   async function send() {
     var q = ask.value.trim();
     if (!q || busy) return;
     var key = getKey(PROVIDER);
     if (!key) { openModal({ opener: magic, resume: true }); return; }
     var prov = providers[PROVIDER];
-    busy = true; magic.classList.add('busy');
+    var ac = new AbortController();
+    curAbort = ac;
+    startBusy();
+    timeoutTimer = setTimeout(function () { timedOut = true; ac.abort(); }, 60000);
     try {
+      /* let the animation paint before the heavy snapshot work */
+      await new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); });
+      if (ac.signal.aborted) return;
       var text = q + '\n\nBoard JSON:\n' + JSON.stringify(sceneForModel());
-      var reply = await prov.complete({ system: SYSTEM, text: text, imagePng: boardPng(), model: getModel(PROVIDER), key: key, signal: undefined });
+      var reply = await prov.complete({ system: SYSTEM, text: text, imagePng: boardPng(), model: getModel(PROVIDER), key: key, signal: ac.signal });
+      if (ac.signal.aborted) return;
       var parsed = parseReply(reply);
       if (!parsed) { showErr('Could not read the reply'); return; }
       applyReply(parsed);
       ask.value = ''; closePanel();
     } catch (err) {
+      if (ac.signal.aborted) return;
       if (err && (err.status === 401 || err.status === 403)) openModal({ opener: magic, resume: true, replace: true, message: "That key didn't work." });
       else if (err instanceof TypeError) showErr('Network error');
       else showErr(String((err && err.message) || 'Something went wrong').slice(0, 120));
     } finally {
-      busy = false; magic.classList.remove('busy');
+      var wasTimeout = timedOut, cancelled = ac.signal.aborted;
+      endBusy();
+      if (cancelled) {
+        ask.value = q;
+        if (wasTimeout) showErr('No response. Try again.');
+        else if (panel.classList.contains('open')) ask.focus();
+      }
     }
   }
 
@@ -1186,7 +1268,12 @@
       var p = freeSpot(n.w); n.x = p.x; n.y = p.y;
       els.push(n);
     }
-    save(); draw();
+    save();
+    if (!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+      fade = { t0: performance.now(), ids: {} };
+      for (var k = els.length - add.length - (say ? 1 : 0); k < els.length; k++) fade.ids[els[k].id] = true;
+    }
+    draw();
   }
 
   /* ---------- share: download the board as a template file ---------- */
