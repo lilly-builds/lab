@@ -162,6 +162,19 @@
   #cdlg .cnt { margin: -6px 0 12px; text-align: right; font: 300 12px/1 var(--mono); }
   #cdlg .cnt:empty { display: none; }
   #cdlg .btn.solid { margin-top: 12px; }
+  #iscrim { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(255,255,255,.88); }
+  #iscrim[hidden], #ipop[hidden] { display: none; }
+  #idlg { width: min(360px, 100%); background: var(--paper); border: 1px solid var(--ink); border-radius: 0; padding: 28px 24px 24px; }
+  #idlg h2 { margin: 0 0 12px; font: 300 24px/1.15 var(--serif); }
+  #idlg p { margin: 0 0 20px; font: 300 14px/1.4 var(--mono); }
+  #idlg .irow { display: flex; gap: 12px; flex-wrap: wrap; }
+  #idlg .btn { flex: 1 1 120px; width: auto; }
+  #ipop { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(88px + env(safe-area-inset-bottom)); z-index: 40; width: min(340px, calc(100% - 24px)); background: var(--paper); border: 1px solid var(--ink); border-radius: 0; padding: 14px 52px 14px 14px; }
+  #ipop p { margin: 0; font: 300 13px/1.4 var(--mono); }
+  #iClose { position: absolute; top: 0; right: 0; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+  #iClose svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; }
+  #iLink { display: block; box-sizing: border-box; width: 100%; margin-top: 10px; min-height: 40px; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); padding: 0 8px; font: 300 13px/1.4 var(--mono); outline: 0; }
+  #ipop .btn { margin-top: 10px; min-height: 40px; font: 300 14px/1 var(--mono); }
   #cMsg { margin: 12px 0 0; font: 300 14px/1.4 var(--mono); }
   #cMsg:empty { display: none; }
   #cDone p { margin: 0 0 24px; font: 300 19px/1.4 var(--serif); }
@@ -225,6 +238,7 @@
     <a id="tplLink" class="tpl" href="../templates/" aria-label="Templates"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="6" height="6"/><rect x="13.5" y="4.5" width="6" height="6"/><rect x="4.5" y="13.5" width="6" height="6"/><rect x="13.5" y="13.5" width="6" height="6"/></svg><span class="lbl">Templates</span></a>
     <button type="button" id="share" aria-label="Share as template"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></svg></button>
     <button type="button" id="community" aria-label="Add to community templates" hidden><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M4.5 12h15M12 4.5v15"/><path d="M16 14.5v3M14.5 16h3"/></svg></button>
+    <button type="button" id="invite" aria-label="Invite a friend"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><circle cx="10" cy="12" r="3"/><circle cx="14" cy="12" r="3"/></svg></button>
     <button type="button" id="magic" aria-label="Ask AI" aria-expanded="false"><svg viewBox="0 0 24 24"><path class="star" d="M10 4c.7 5 2.5 7.3 7 8-4.5.7-6.3 3-7 8-.7-5-2.5-7.3-7-8 4.5-.7 6.3-3 7-8z"/><path d="M19 3v4M17 5h4"/><path class="tip" d="M10 4v.01"/><path class="tip" d="M17 12v.01"/><path class="tip" d="M10 20v.01"/><path class="tip" d="M3 12v.01"/></svg></button>
   </div>
 </div>
@@ -250,6 +264,24 @@
       </div>
       <p id="state" role="status" aria-live="polite"></p>
     </form>
+  </div>
+</div>
+
+<div id="ipop" role="status" aria-live="polite" hidden>
+  <button type="button" id="iClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+  <p id="iMsg"></p>
+  <input id="iLink" type="text" readonly aria-label="Invite link" spellcheck="false" hidden>
+  <button type="button" class="btn" id="iShare" hidden>Share</button>
+</div>
+
+<div id="iscrim" hidden>
+  <div id="idlg" role="dialog" aria-modal="true" aria-labelledby="iTitle">
+    <h2 id="iTitle">Open your friend's board?</h2>
+    <p>Your current board stays saved.</p>
+    <div class="irow">
+      <button type="button" class="btn solid" id="iOpen">Open</button>
+      <button type="button" class="btn" id="iKeep">Keep mine</button>
+    </div>
   </div>
 </div>
 
@@ -1447,6 +1479,12 @@
       tpl = loadEls(tpl);
       if (!tpl.length) return;
       if (els.length) lsSet(KEY_SCENE + '.prev.' + Date.now(), JSON.stringify(els));
+      adoptBoard(tpl);
+    }).catch(function () {});
+    if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
+  }
+  function adoptBoard(tpl) {
+    {
       els = tpl; selId = null; nextId = 1; undoStack = []; syncUndo();
       els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
       els.forEach(function (e) { if (!e.id) e.id = newId(); });
@@ -1454,8 +1492,112 @@
       els.forEach(function (e) { var b = bbox(e); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); });
       view = { x: Math.round((x0 + x1) / 2 - W / 2), y: Math.round((y0 + y1) / 2 - H / 2) };
       save(); saveView(); draw();
-    }).catch(function () {});
-    if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
+    }
+  }
+
+  /* ---------- invite a friend: the board travels in the URL hash, nothing is sent anywhere ---------- */
+  var invBtn = document.getElementById('invite'), iPop = document.getElementById('ipop'), iMsg = document.getElementById('iMsg');
+  var iLink = document.getElementById('iLink'), iShare = document.getElementById('iShare'), iScrim = document.getElementById('iscrim');
+  var LINK_MAX = 6000, HASH_MAX = 200000, inviteBusy = false, inviteUrl = '';
+  function closePop() { iPop.hidden = true; iLink.hidden = true; iShare.hidden = true; }
+  function showPop(msg, link, canShare) {
+    iMsg.textContent = msg;
+    iLink.hidden = !link; iShare.hidden = !canShare;
+    if (link) iLink.value = link;
+    iPop.hidden = false;
+    if (link) { iLink.focus(); iLink.select(); }
+  }
+  async function buildInvite() {
+    for (var pass = 0; pass < 2; pass++) {
+      var link = location.origin + location.pathname + '#board=' + await encodePayload(snapshot(pass === 1));
+      if (link.length <= LINK_MAX) return link;
+    }
+    return '';
+  }
+  invBtn.addEventListener('click', async function () {
+    if (inviteBusy) return;
+    commitEdit(); save();
+    inviteBusy = true;
+    var link = '';
+    try { link = await buildInvite(); } catch (err) { link = ''; }
+    inviteBusy = false;
+    if (!link) { showPop('This board is too big for a link. Try fewer elements.'); return; }
+    inviteUrl = link;
+    if (navigator.share && window.matchMedia && matchMedia('(pointer: coarse)').matches) {
+      showPop('Invite a friend. Anyone with the link opens this board.', '', true);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
+      showPop('Link copied. Anyone with it opens this board.');
+    } catch (err) {
+      showPop('Copy this link. Anyone with it opens this board.', link);
+    }
+  });
+  iShare.addEventListener('click', function () {
+    navigator.share({ url: inviteUrl }).then(closePop, function (err) {
+      if (err && err.name === 'AbortError') return;
+      showPop('Copy this link. Anyone with it opens this board.', inviteUrl);
+    });
+  });
+  document.getElementById('iClose').addEventListener('click', function () { closePop(); invBtn.focus(); });
+  iPop.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closePop(); invBtn.focus(); } });
+
+  function b64urlBytes(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var bin = atob(s), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  async function decodeBoard(enc) {
+    if (!enc || enc.length > HASH_MAX || /[^A-Za-z0-9_-]/.test(enc)) return null;
+    var bytes = b64urlBytes(enc);
+    if (bytes.length > 1 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+      if (typeof DecompressionStream !== 'function') return null;
+      var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+      bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+    var list = JSON.parse(new TextDecoder().decode(bytes));
+    if (!Array.isArray(list)) return null;
+    list = loadEls(list.slice(0, EL_MAX));
+    return list.length ? list : null;
+  }
+  function askOpenFriend() {
+    return new Promise(function (resolve) {
+      var open = document.getElementById('iOpen'), keep = document.getElementById('iKeep');
+      function done(v) {
+        iScrim.hidden = true; dock.inert = false;
+        document.removeEventListener('keydown', onKey, true);
+        resolve(v);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); done(false); }
+        else if (e.key === 'Tab') {
+          e.preventDefault();
+          (document.activeElement === open ? keep : open).focus();
+        }
+      }
+      open.onclick = function () { done(true); };
+      keep.onclick = function () { done(false); };
+      document.addEventListener('keydown', onKey, true);
+      iScrim.hidden = false; dock.inert = true;
+      open.focus();
+    });
+  }
+  async function loadFromHash() {
+    var h = location.hash;
+    if (h.indexOf('#board=') !== 0) return;
+    var enc = h.slice(7);
+    if (window.history && history.replaceState) history.replaceState(null, '', location.pathname + location.search);
+    var list = null;
+    try { list = await decodeBoard(enc); } catch (err) { list = null; }
+    if (!list) return;
+    if (els.length) {
+      if (!(await askOpenFriend())) return;
+      lsSet('aiwb.backup.' + Date.now(), JSON.stringify(els));
+    }
+    adoptBoard(list);
   }
 
   /* ---------- embed frames (DOM, synced from els on every draw) ---------- */
@@ -1686,6 +1828,7 @@
   pollTick();
   var tplId = new URLSearchParams(location.search).get('template');
   if (tplId) loadTemplate(tplId);
+  else loadFromHash();
 })();
 </script>
 </body>
