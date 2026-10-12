@@ -31,8 +31,9 @@
     transform-origin: center; transform-box: fill-box; transform: rotate(-90deg); animation: draw 1.6s cubic-bezier(.5,0,.2,1) forwards; }
   svg.rings circle:nth-child(2) { animation-delay: .7s; }
   svg.rings circle:nth-child(3) { animation-delay: 1.4s; }
-  @keyframes draw { to { stroke-dashoffset: 0; } }
-  @media (prefers-reduced-motion: reduce) { svg.rings circle { animation: none; stroke-dashoffset: 0; } }
+  /* Final keyframe drops the dash pattern so the closed loop has no seam at its start/end point. */
+  @keyframes draw { 0% { stroke-dasharray: 1; stroke-dashoffset: 1; } 99.9% { stroke-dasharray: 1; stroke-dashoffset: 0; } 100% { stroke-dasharray: none; stroke-dashoffset: 0; } }
+  @media (prefers-reduced-motion: reduce) { svg.rings circle { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; } }
 
   /* Labels sit inside their circles, clear of every outline. Keep the circle
      positions here in step with the SVG circles and the CIRCLES table below. */
@@ -42,15 +43,15 @@
   .label.have { left: 22%; top: 68%; }
   .label.want { left: 78%; top: 68%; }
 
-  .sticky { position: absolute; width: clamp(92px, 24%, 150px); min-height: 64px; padding: 6px 8px; background: var(--note); border: 1px solid var(--ink);
+  .sticky { position: absolute; width: clamp(92px, 24%, 150px); aspect-ratio: 1 / 1; box-sizing: border-box; padding: 6px 8px; background: var(--note); border: 1px solid var(--ink);
     transform: translate(-50%, -50%); display: flex; flex-direction: column; justify-content: space-between; gap: 4px; z-index: 2;
     cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; font-size: 15px; line-height: 1.2; }
   .sticky.dragging { cursor: grabbing; z-index: 10; }
-  .sticky .txt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; padding-right: 14px; }
+  .sticky .txt { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; padding-right: 14px; }
   .sticky .x { position: absolute; top: -10px; right: -10px; width: 32px; height: 32px; border-radius: 50%; background: var(--paper); border: 1px solid var(--ink);
     font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center; }
-  .sticky input { width: 100%; min-height: 44px; border: 0; border-bottom: 1px solid var(--ink); background: transparent; font-size: 16px; padding: 0; border-radius: 0; }
-  .sticky input:focus-visible { outline: 0; }
+  .sticky input { width: 100%; min-height: 44px; border: 0; background: transparent; font-size: 16px; padding: 0; border-radius: 0; box-shadow: none; }
+  .sticky input:focus, .sticky input:focus-visible { outline: 0; box-shadow: none; }
 </style>
 </head>
 <body>
@@ -104,7 +105,7 @@
   }
   function clampPos(fx, fy) {
     var W = board.clientWidth || 300, sw = clamp(0.24 * W, 92, 150);
-    return { x: clamp(fx, sw / 2 / W, 1 - sw / 2 / W), y: clamp(fy, 40 / W, 1 - 40 / W) };
+    return { x: clamp(fx, sw / 2 / W, 1 - sw / 2 / W), y: clamp(fy, sw / 2 / W, 1 - sw / 2 / W) };
   }
   function anchor(circle, i) {
     var c = CIRCLES[circle], a = (i || 0) * 2.4;
