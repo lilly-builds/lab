@@ -1434,11 +1434,15 @@
 
   /* ---------- ?template=<id>: start from a template ---------- */
   function loadTemplate(id) {
-    fetch('../templates/templates.json').then(function (r) { return r.json(); }).then(function (list) {
+    (id === 'pending' ? Promise.resolve().then(function () {
+      var raw = sessionStorage.getItem('aiwb.pendingTemplate');
+      sessionStorage.removeItem('aiwb.pendingTemplate');
+      return raw ? JSON.parse(raw) : null;
+    }) : fetch('../templates/templates.json').then(function (r) { return r.json(); }).then(function (list) {
       var t = (Array.isArray(list) ? list : []).filter(function (x) { return x && x.id === id && typeof x.file === 'string' && /^[\w.-]+\.json$/.test(x.file); })[0];
       if (!t) return null;
       return fetch('../templates/' + t.file).then(function (r) { return r.json(); });
-    }).then(function (tpl) {
+    })).then(function (tpl) {
       if (!Array.isArray(tpl)) return;
       tpl = loadEls(tpl);
       if (!tpl.length) return;
