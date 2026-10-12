@@ -34,13 +34,13 @@
   @keyframes draw { to { stroke-dashoffset: 0; } }
   @media (prefers-reduced-motion: reduce) { svg.rings circle { animation: none; stroke-dashoffset: 0; } }
 
-  /* Labels are centred well inside each circle (0.13 of the board below the
-     circle's top-centre region), so the outline never reaches the text. */
+  /* Labels sit inside their circles, clear of every outline. Keep the circle
+     positions here in step with the SVG circles and the CIRCLES table below. */
   .label { position: absolute; min-height: 44px; min-width: 44px; padding: 0 10px; font-size: clamp(16px, 3.4vw, 26px); letter-spacing: -.01em; white-space: nowrap; z-index: 3; transform: translate(-50%, -50%); }
   .label:hover { text-decoration: underline; text-underline-offset: 4px; }
-  .label.dream { left: 50%; top: 14%; }
-  .label.have { left: 25%; top: 60%; }
-  .label.want { left: 75%; top: 60%; }
+  .label.dream { left: 50%; top: 18%; }
+  .label.have { left: 22%; top: 68%; }
+  .label.want { left: 78%; top: 68%; }
 
   .sticky { position: absolute; width: clamp(92px, 24%, 150px); min-height: 64px; padding: 6px 8px; background: var(--note); border: 1px solid var(--ink);
     transform: translate(-50%, -50%); display: flex; flex-direction: column; justify-content: space-between; gap: 4px; z-index: 2;
@@ -59,9 +59,9 @@
 
   <div class="board" id="board">
     <svg class="rings" viewBox="0 0 100 100" aria-hidden="true">
-      <circle cx="50" cy="27" r="25" pathLength="1"/>
-      <circle cx="25" cy="73" r="25" pathLength="1"/>
-      <circle cx="75" cy="73" r="25" pathLength="1"/>
+      <circle cx="50" cy="26" r="21.5" pathLength="1"/>
+      <circle cx="22" cy="74" r="21.5" pathLength="1"/>
+      <circle cx="78" cy="74" r="21.5" pathLength="1"/>
     </svg>
     <button class="label dream" data-add="dream" type="button">Dream</button>
     <button class="label have" data-add="have" type="button">Have to do</button>
@@ -74,9 +74,9 @@
   'use strict';
 
   var CIRCLES = {
-    dream: { name: 'Dream',      cx: 0.50, cy: 0.27, r: 0.25 },
-    have:  { name: 'Have to do', cx: 0.25, cy: 0.73, r: 0.25 },
-    want:  { name: 'Want to do', cx: 0.75, cy: 0.73, r: 0.25 }
+    dream: { name: 'Dream',      cx: 0.50, cy: 0.26, r: 0.215 },
+    have:  { name: 'Have to do', cx: 0.22, cy: 0.74, r: 0.215 },
+    want:  { name: 'Want to do', cx: 0.78, cy: 0.74, r: 0.215 }
   };
 
   var board = document.getElementById('board');
