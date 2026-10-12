@@ -33,6 +33,7 @@
   #dock > * { pointer-events: auto; }
 
   #bar { display: flex; gap: 2px; background: var(--paper); }
+  @media (max-width: 340px) { #bar { gap: 0; } }
   #bar button { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
   #bar button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
   #bar button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
@@ -79,6 +80,7 @@
     <button type="button" data-tool="note" aria-label="Note" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/></svg></button>
     <button type="button" data-tool="move" aria-label="Move" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></button>
     <button type="button" id="undo" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 8h-3"/></svg></button>
+    <button type="button" id="share" aria-label="Share as template"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></svg></button>
     <button type="button" id="magic" aria-label="Ask AI" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M10 4c.7 5 2.5 7.3 7 8-4.5.7-6.3 3-7 8-.7-5-2.5-7.3-7-8 4.5-.7 6.3-3 7-8z"/><path d="M19 3v4M17 5h4"/></svg></button>
   </div>
 </div>
@@ -546,7 +548,40 @@
     save(); draw();
   }
 
+  /* ---------- share: download the board as a template file ---------- */
+  document.getElementById('share').addEventListener('click', function () {
+    commitEdit();
+    var blob = new Blob([JSON.stringify(els, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'template.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  });
+
+  /* ---------- ?template=<id>: start from a template ---------- */
+  function loadTemplate(id) {
+    fetch('../templates/templates.json').then(function (r) { return r.json(); }).then(function (list) {
+      var t = (Array.isArray(list) ? list : []).filter(function (x) { return x && x.id === id && typeof x.file === 'string' && /^[\w.-]+\.json$/.test(x.file); })[0];
+      if (!t) return null;
+      return fetch('../templates/' + t.file).then(function (r) { return r.json(); });
+    }).then(function (tpl) {
+      if (!Array.isArray(tpl)) return;
+      tpl = tpl.filter(function (e) { return e && typeof e === 'object' && e.type; });
+      if (!tpl.length) return;
+      if (els.length) lsSet(KEY_SCENE + '.prev.' + Date.now(), JSON.stringify(els));
+      els = tpl; nextId = 1; undoStack = []; syncUndo();
+      els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
+      var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      els.forEach(function (e) { var b = bbox(e); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); });
+      view = { x: Math.round((x0 + x1) / 2 - W / 2), y: Math.round((y0 + y1) / 2 - H / 2) };
+      save(); saveView(); draw();
+    }).catch(function () {});
+    if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
+  }
+
   resize();
+  var tplId = new URLSearchParams(location.search).get('template');
+  if (tplId) loadTemplate(tplId);
 })();
 </script>
 </body>

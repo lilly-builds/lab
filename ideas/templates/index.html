@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Templates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300&family=Newsreader:opsz,wght@6..72,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #000;
+    --paper: #fff;
+    --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+    --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; overflow-x: hidden; }
+  body { background: var(--paper); color: var(--ink); font: 300 17px/1.45 var(--serif); min-height: 100vh; }
+  a { color: inherit; text-decoration: none; }
+  :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+
+  .app { max-width: 1040px; margin: 0 auto; padding: 24px 12px 56px; }
+  h1 { font: italic 300 clamp(26px, 6vw, 38px)/1.2 var(--serif); margin: 10px 0 28px; text-align: center; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 32px 24px; }
+  .card { display: block; min-height: 44px; }
+  .card canvas { display: block; width: 100%; aspect-ratio: 4 / 3; }
+  .card .title { display: block; margin-top: 8px; font-size: 20px; }
+  .card .author { display: block; font: 300 14px/1.4 var(--mono); }
+  .card:hover .title { text-decoration: underline; text-underline-offset: 4px; }
+
+  .add { display: flex; justify-content: center; margin-top: 48px; }
+  .add a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; font: 300 14px/1 var(--mono); }
+  .add a:hover { text-decoration: underline; text-underline-offset: 4px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Templates</h1>
+  <div class="grid" id="grid"></div>
+  <div class="add"><a id="add" href="#" rel="noopener">Add yours</a></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONT = '300 16px "Newsreader", "Iowan Old Style", Georgia, serif';
+  var FONT_BIG = '300 22px "Newsreader", "Iowan Old Style", Georgia, serif';
+  var probe = document.createElement('canvas').getContext('2d');
+
+  var issueTitle = 'Template: ';
+  var issueBody = 'Template name:\n\nYour name:\n\nPaste the template JSON from the share button below.\n\n```json\n\n```\n';
+  document.getElementById('add').href = 'https://github.com/lilly-builds/lab/issues/new?title=' + encodeURIComponent(issueTitle) + '&body=' + encodeURIComponent(issueBody);
+
+  /* ---------- the whiteboard's element format ---------- */
+  function wrap(g, text, maxW, font) {
+    g.font = font;
+    var out = [];
+    String(text || '').split('\n').forEach(function (para) {
+      var words = para.split(/\s+/).filter(Boolean), line = '';
+      if (!words.length) { out.push(''); return; }
+      words.forEach(function (w) {
+        var t = line ? line + ' ' + w : w;
+        if (line && g.measureText(t).width > maxW) { out.push(line); line = w; } else line = t;
+      });
+      out.push(line);
+    });
+    return out;
+  }
+  function textBox(el) {
+    var lines = wrap(probe, el.text, 280, FONT_BIG), w = 0;
+    lines.forEach(function (l) { w = Math.max(w, probe.measureText(l).width); });
+    return { lines: lines, w: Math.max(20, w), h: Math.max(1, lines.length) * 28 };
+  }
+  function bbox(el) {
+    if (el.type === 'pen') {
+      var a = 1e9, b = 1e9, c = -1e9, d = -1e9;
+      el.pts.forEach(function (p) { a = Math.min(a, p[0]); b = Math.min(b, p[1]); c = Math.max(c, p[0]); d = Math.max(d, p[1]); });
+      return { x: el.x + a, y: el.y + b, w: c - a, h: d - b };
+    }
+    if (el.type === 'text') { var t = textBox(el); return { x: el.x, y: el.y, w: t.w, h: t.h }; }
+    if (el.type === 'line' || el.type === 'arrow') return { x: Math.min(el.x, el.x + el.w), y: Math.min(el.y, el.y + el.h), w: Math.abs(el.w), h: Math.abs(el.h) };
+    return { x: el.x, y: el.y, w: el.w, h: el.h };
+  }
+  function label(g, el, cx, cy, maxW) {
+    if (!el.text) return;
+    g.setLineDash([]); g.fillStyle = '#000'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    var ls = wrap(g, el.text, Math.max(30, maxW), FONT);
+    g.font = FONT;
+    ls.forEach(function (l, i) { g.fillText(l, cx, cy + (i - (ls.length - 1) / 2) * 20); });
+    g.textAlign = 'left';
+  }
+  function drawEl(g, el, onImage) {
+    g.save();
+    g.lineWidth = el.type === 'pen' ? 2.2 : 1.5;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = el.ai ? '#555' : '#000'; g.fillStyle = g.strokeStyle;
+    if (el.ai && el.type !== 'pen') g.setLineDash([7, 5]);
+    var x = el.x, y = el.y;
+    if (el.type === 'pen') {
+      var p = el.pts;
+      g.beginPath();
+      if (p.length === 1) { g.arc(x + p[0][0], y + p[0][1], 1.4, 0, Math.PI * 2); g.closePath(); g.fill(); }
+      else {
+        g.moveTo(x + p[0][0], y + p[0][1]);
+        for (var i = 1; i < p.length - 1; i++) g.quadraticCurveTo(x + p[i][0], y + p[i][1], x + (p[i][0] + p[i + 1][0]) / 2, y + (p[i][1] + p[i + 1][1]) / 2);
+        g.lineTo(x + p[p.length - 1][0], y + p[p.length - 1][1]);
+        g.stroke();
+      }
+    } else if (el.type === 'note') {
+      g.fillStyle = '#bfd7ff'; g.fillRect(x, y, el.w, el.h);
+      g.lineWidth = 1; g.setLineDash(el.ai ? [4, 3] : []);
+      g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
+      g.setLineDash([]);
+      g.fillStyle = '#000'; g.textBaseline = 'top'; g.font = FONT;
+      var ls = wrap(g, el.text, el.w - 16, FONT), max = Math.floor((el.h - 16) / 20);
+      ls.slice(0, max).forEach(function (l, i) { g.fillText(l, x + 8, y + 8 + i * 20); });
+    } else if (el.type === 'text') {
+      var t = textBox(el);
+      g.font = FONT_BIG; g.textBaseline = 'top';
+      t.lines.forEach(function (l, i) { g.fillText(l, x, y + i * 28 + 3); });
+    } else if (el.type === 'rect') {
+      g.strokeRect(x, y, el.w, el.h); label(g, el, x + el.w / 2, y + el.h / 2, el.w - 12);
+    } else if (el.type === 'ellipse') {
+      g.beginPath(); g.ellipse(x + el.w / 2, y + el.h / 2, Math.abs(el.w / 2), Math.abs(el.h / 2), 0, 0, Math.PI * 2); g.closePath(); g.stroke();
+      label(g, el, x + el.w / 2, y + el.h / 2, el.w * 0.7);
+    } else if (el.type === 'line' || el.type === 'arrow') {
+      var x2 = x + el.w, y2 = y + el.h;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
+      if (el.type === 'arrow') {
+        var a = Math.atan2(el.h, el.w), hl = 12;
+        g.setLineDash([]);
+        g.beginPath(); g.moveTo(x2 - hl * Math.cos(a - 0.45), y2 - hl * Math.sin(a - 0.45)); g.lineTo(x2, y2); g.lineTo(x2 - hl * Math.cos(a + 0.45), y2 - hl * Math.sin(a + 0.45)); g.stroke();
+      }
+    } else if (el.type === 'image' && /^https?:\/\//i.test(el.url || '')) {
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function () { onImage(img, el); };
+      img.src = el.url;
+    }
+    g.restore();
+  }
+
+  /* ---------- preview ---------- */
+  function preview(cv, els) {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var W = cv.clientWidth || 260, H = cv.clientHeight || 195;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    var g = cv.getContext('2d');
+    var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    els.forEach(function (el) {
+      var b = bbox(el);
+      x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
+    });
+    if (x1 < x0) return;
+    var pad = 12, k = Math.min((W - pad * 2) / Math.max(1, x1 - x0), (H - pad * 2) / Math.max(1, y1 - y0));
+    var tx = (W - (x1 - x0) * k) / 2 - x0 * k, ty = (H - (y1 - y0) * k) / 2 - y0 * k;
+    function setup() { g.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty); }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    setup();
+    els.forEach(function (el) {
+      drawEl(g, el, function (img, e) { setup(); g.drawImage(img, e.x, e.y, e.w, e.h); });
+    });
+  }
+
+  /* ---------- gallery ---------- */
+  var grid = document.getElementById('grid');
+  function card(t) {
+    var a = document.createElement('a');
+    a.className = 'card';
+    a.href = '../ai-whiteboard/?template=' + encodeURIComponent(t.id);
+    var cv = document.createElement('canvas');
+    cv.setAttribute('role', 'img');
+    cv.setAttribute('aria-label', t.title);
+    var title = document.createElement('span'); title.className = 'title'; title.textContent = t.title;
+    var author = document.createElement('span'); author.className = 'author'; author.textContent = t.author || '';
+    a.appendChild(cv); a.appendChild(title); a.appendChild(author);
+    grid.appendChild(a);
+    fetch(t.file).then(function (r) { return r.json(); }).then(function (els) {
+      if (!Array.isArray(els)) return;
+      els = els.filter(function (e) { return e && typeof e === 'object' && e.type; });
+      var go = function () { preview(cv, els); };
+      go();
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(go);
+      var timer;
+      window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(go, 100); });
+    }).catch(function () {});
+  }
+  fetch('templates.json').then(function (r) { return r.json(); }).then(function (list) {
+    if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && t.file) card(t); });
+  }).catch(function () {});
+})();
+</script>
+</body>
+</html>

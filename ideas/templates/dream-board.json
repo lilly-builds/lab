@@ -1,0 +1,5 @@
+[
+  { "id": "e1", "type": "ellipse", "x": 240, "y": 40, "w": 300, "h": 300, "text": "Dream" },
+  { "id": "e2", "type": "ellipse", "x": 20, "y": 370, "w": 300, "h": 300, "text": "Have to do" },
+  { "id": "e3", "type": "ellipse", "x": 460, "y": 370, "w": 300, "h": 300, "text": "Want to do" }
+]
