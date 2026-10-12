@@ -18,9 +18,13 @@ jobs:
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
+    # One run per issue/PR at a time so two Ship steps can't race each other
+    concurrency:
+      group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions:
-      contents: read
-      pull-requests: read
+      contents: write # Ship step merges Claude's work to main
+      pull-requests: write
       issues: read
       id-token: write
       actions: read # Required for Claude to read CI results on PRs
@@ -46,5 +50,36 @@ jobs:
           # Optional: Add claude_args to customize behavior and configuration
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-          claude_args: '--allowedTools "Bash(gh pr merge:*),Bash(gh pr view:*)"'
+          # claude_args: '--allowed-tools Bash(gh pr *)'
+
+      # No AI here: once Claude finishes, merge what it built so it goes live.
+      # Issue runs: open a PR from each claude/issue-N-* branch and merge it.
+      # PR comment runs: merge the PR if it's an open claude/* branch.
+      - name: Ship to main
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          IS_PR: ${{ github.event.issue.pull_request != null || github.event.pull_request != null }}
+          NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          if [ "$IS_PR" = "true" ]; then
+            head=$(gh pr view "$NUMBER" -R "$REPO" --json headRefName,state,isCrossRepository -q 'select(.state == "OPEN" and .isCrossRepository == false) | .headRefName')
+            case "$head" in
+              claude/*) gh pr merge "$NUMBER" -R "$REPO" --merge --delete-branch ;;
+              *) echo "PR #$NUMBER is not an open claude/* PR from this repo, nothing to ship" ;;
+            esac
+            exit 0
+          fi
+          title=$(gh issue view "$NUMBER" -R "$REPO" --json title -q '.title' | sed 's/@claude *//')
+          for branch in $(gh api "repos/$REPO/branches" --paginate -q ".[].name | select(startswith(\"claude/issue-$NUMBER-\"))"); do
+            ahead=$(gh api "repos/$REPO/compare/main...$branch" -q '.ahead_by')
+            [ "$ahead" -gt 0 ] || continue
+            pr=$(gh pr list -R "$REPO" --head "$branch" --state open --json number,isCrossRepository -q '[.[] | select(.isCrossRepository == false)][0].number // empty')
+            if [ -z "$pr" ]; then
+              pr=$(gh pr create -R "$REPO" --base main --head "$branch" --title "$title" --body "Closes #$NUMBER" | grep -o '[0-9]*$')
+            fi
+            gh pr merge "$pr" -R "$REPO" --merge --delete-branch
+          done
 
