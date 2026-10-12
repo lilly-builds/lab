@@ -16,6 +16,7 @@
     --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); }
   body { color: var(--ink); font: 300 17px/1.4 var(--serif); }
   button, input, textarea { font: inherit; color: inherit; }
@@ -32,8 +33,8 @@
   #dock { position: fixed; left: 0; right: 0; bottom: 0; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; z-index: 10; }
   #dock > * { pointer-events: auto; }
 
-  #bar { display: flex; gap: 2px; background: var(--paper); }
-  @media (max-width: 340px) { #bar { gap: 0; } }
+  #bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; background: var(--paper); max-width: 100%; }
+  @media (max-width: 360px) { #bar { gap: 0; } }
   #bar button { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
   #bar button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
   #bar button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
@@ -47,14 +48,47 @@
   #panel .row { display: flex; align-items: center; }
   #panel input { flex: 1; min-width: 0; min-height: 44px; border: 0; border-radius: 0; background: transparent; font: 300 16px/1.4 var(--serif); padding: 0; outline: 0; box-shadow: none; }
   #panel input:focus, #panel input:focus-visible { outline: 0; box-shadow: none; }
-  #panel input.mono { font-family: var(--mono); font-weight: 300; }
   #panel .gear { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 50%; flex: none; }
   #panel .gear svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
-  #cfg { display: none; }
-  #cfg.open { display: block; }
 
   #err { font: 300 14px/1.4 var(--mono); opacity: 0; transition: opacity .8s ease; text-align: center; max-width: min(420px, 100%); background: var(--paper); pointer-events: none !important; }
   #err.show { opacity: 1; transition: none; }
+
+  /* style bar: shown for a selection or an armed shape tool */
+  #props { display: flex; flex-direction: column; align-items: center; background: var(--paper); max-width: 100%; }
+  #props .grp { display: flex; flex-wrap: wrap; justify-content: center; }
+  #props .chip { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+  #props .chip i { display: block; width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
+  #props .chip i.none { background: linear-gradient(to top right, transparent calc(50% - .5px), #000 50%, transparent calc(50% + .5px)), #fff; }
+  #props .chip[aria-pressed="true"] i { outline: 1px solid var(--ink); outline-offset: 3px; }
+  #props .tool { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+  #props .tool svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-linecap: butt; }
+  #props .tool[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+  /* connect modal */
+  #scrim { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(255,255,255,.88); }
+  #dlg { position: relative; width: min(440px, 100%); max-height: 100%; overflow-y: auto; background: var(--paper); border: 1px solid var(--ink); border-radius: 0; padding: 44px 32px 32px; }
+  @media (max-width: 400px) { #dlg { padding: 40px 20px 24px; } }
+  #dlg h2 { margin: 0 0 28px; font: 300 28px/1.15 var(--serif); padding-right: 36px; }
+  #dlgClose { position: absolute; top: 2px; right: 2px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+  #dlgClose svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; }
+  #provList { margin: 0 0 24px; }
+  .prov { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 44px; text-align: left; font: 300 19px/1.3 var(--serif); }
+  .prov .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .prov[aria-checked="true"] .dot { background: var(--ink); }
+  .prov .hint { margin-left: auto; font: 300 14px/1 var(--mono); }
+  .field { display: flex; align-items: center; border: 1px solid var(--ink); margin: 0 0 12px; background: var(--paper); }
+  .field:focus-within { outline: 1px solid var(--ink); outline-offset: 3px; }
+  .field input { flex: 1; min-width: 0; min-height: 48px; border: 0; border-radius: 0; background: transparent; padding: 0 12px; font: 300 16px/1.4 var(--mono); outline: 0; box-shadow: none; }
+  .field button { min-width: 56px; min-height: 48px; padding: 0 12px; font: 300 14px/1 var(--mono); }
+  .trust { margin: 16px 0 24px; font: 300 17px/1.4 var(--serif); }
+  .btn { min-height: 48px; padding: 0 24px; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); font: 300 17px/1 var(--serif); }
+  .btn.solid { background: var(--ink); color: var(--paper); width: 100%; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  #manageRow { display: flex; flex-wrap: wrap; gap: 8px; }
+  #manageRow .btn { flex: 1 1 140px; }
+  #state { margin: 16px 0 0; font: 300 14px/1.4 var(--mono); }
+  #state:empty { display: none; }
 </style>
 </head>
 <body>
@@ -63,25 +97,62 @@
 
 <div id="dock">
   <div id="err" role="status" aria-live="polite"></div>
+  <div id="props" role="group" aria-label="Style" hidden>
+    <div class="grp" id="pStroke" role="group" aria-label="Color"></div>
+    <div class="grp" id="pFill" role="group" aria-label="Fill"></div>
+    <div class="grp" id="pNote" role="group" aria-label="Note color"></div>
+    <div class="grp" id="pMisc">
+      <button type="button" class="tool" data-w="1" aria-label="Thin"><svg viewBox="0 0 24 24"><path d="M4 12h16" stroke-width="1"/></svg></button>
+      <button type="button" class="tool" data-w="2" aria-label="Regular"><svg viewBox="0 0 24 24"><path d="M4 12h16" stroke-width="2"/></svg></button>
+      <button type="button" class="tool" data-w="4" aria-label="Bold"><svg viewBox="0 0 24 24"><path d="M4 12h16" stroke-width="4"/></svg></button>
+      <button type="button" class="tool" id="dashBtn" aria-label="Dashed" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M3 12h4M10 12h4M17 12h4" stroke-width="2"/></svg></button>
+      <button type="button" class="tool" id="delBtn" aria-label="Delete"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-width="1.2" stroke-linecap="round"/></svg></button>
+    </div>
+  </div>
   <form id="panel" autocomplete="off">
     <div class="row">
       <input id="ask" type="text" placeholder="Ask anything about the board" aria-label="Ask anything about the board" enterkeyhint="send" autocomplete="off">
-      <button type="button" class="gear" id="gear" aria-label="Settings" aria-expanded="false">
+      <button type="button" class="gear" id="gear" aria-label="Settings" aria-haspopup="dialog">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></svg>
       </button>
-    </div>
-    <div id="cfg">
-      <div class="row"><input id="key" class="mono" type="password" placeholder="API key" aria-label="API key" autocomplete="off" spellcheck="false"></div>
-      <div class="row"><input id="model" class="mono" type="text" placeholder="Model" aria-label="Model id" autocomplete="off" spellcheck="false"></div>
     </div>
   </form>
   <div id="bar" role="toolbar" aria-label="Tools">
     <button type="button" data-tool="pen" aria-label="Pen" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 0a2 2 0 0 1 0 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg></button>
-    <button type="button" data-tool="note" aria-label="Note" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/></svg></button>
-    <button type="button" data-tool="move" aria-label="Move" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></button>
+    <button type="button" data-tool="note" aria-label="Note" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M8 9.5h8M8 13h5"/></svg></button>
+    <button type="button" data-tool="rect" aria-label="Rectangle" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4" y="6.5" width="16" height="11"/></svg></button>
+    <button type="button" data-tool="diamond" aria-label="Diamond" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3.5l8.5 8.5-8.5 8.5L3.5 12z"/></svg></button>
+    <button type="button" data-tool="ellipse" aria-label="Ellipse" aria-pressed="false"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8.5" ry="6"/></svg></button>
+    <button type="button" data-tool="line" aria-label="Line" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19L19 5"/></svg></button>
+    <button type="button" data-tool="arrow" aria-label="Arrow" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19L19 5M10 5h9v9"/></svg></button>
+    <button type="button" data-tool="move" aria-label="Select and move" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></button>
     <button type="button" id="undo" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 8h-3"/></svg></button>
     <button type="button" id="share" aria-label="Share as template"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></svg></button>
     <button type="button" id="magic" aria-label="Ask AI" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M10 4c.7 5 2.5 7.3 7 8-4.5.7-6.3 3-7 8-.7-5-2.5-7.3-7-8 4.5-.7 6.3-3 7-8z"/><path d="M19 3v4M17 5h4"/></svg></button>
+  </div>
+</div>
+
+<div id="scrim" hidden>
+  <div id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+    <button type="button" id="dlgClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+    <h2 id="dlgTitle">Connect your AI tools</h2>
+    <div id="provList" role="radiogroup" aria-label="Provider"></div>
+    <form id="keyForm" autocomplete="off" novalidate>
+      <div class="field" id="keyField">
+        <input id="key" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="sk-ant-..." aria-label="API key">
+        <button type="button" id="reveal" aria-pressed="false" aria-label="Show key">Show</button>
+      </div>
+      <div class="field" id="modelField">
+        <input id="model" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Model id">
+      </div>
+      <p class="trust">Your key stays on this device.</p>
+      <button type="submit" class="btn solid" id="connectBtn">Connect</button>
+      <div id="manageRow">
+        <button type="button" class="btn" id="replaceBtn">Replace key</button>
+        <button type="button" class="btn" id="disconnectBtn">Disconnect</button>
+      </div>
+      <p id="state" role="status" aria-live="polite"></p>
+    </form>
   </div>
 </div>
 
@@ -90,39 +161,69 @@
   'use strict';
 
   /* ---------- providers: add another model by writing one more object ---------- */
+  /* label, keyHint and placeholder feed the connect modal; verify() checks a key with one tiny real request */
   var providers = {
     anthropic: {
       id: 'anthropic',
       label: 'Anthropic',
+      keyHint: 'sk-ant-',
+      placeholder: 'sk-ant-...',
       defaults: { model: 'claude-sonnet-5' },
-      complete: async function (o) {
-        var content = [];
-        if (o.imagePng) content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: o.imagePng } });
-        content.push({ type: 'text', text: o.text });
+      post: async function (key, body, signal) {
         var res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
-          signal: o.signal,
+          signal: signal,
           headers: {
-            'x-api-key': o.key,
+            'x-api-key': key,
             'anthropic-version': '2023-06-01',
             'content-type': 'application/json',
             'anthropic-dangerous-direct-browser-access': 'true'
           },
-          body: JSON.stringify({ model: o.model || this.defaults.model, max_tokens: 2048, system: o.system, messages: [{ role: 'user', content: content }] })
+          body: JSON.stringify(body)
         });
         var data = null;
         try { data = await res.json(); } catch (e) {}
-        if (!res.ok) {
-          var err = new Error((data && data.error && data.error.message) || ('Request failed (' + res.status + ')'));
-          err.status = res.status;
+        return { res: res, data: data };
+      },
+      /* true: key accepted, false: key rejected, throws: could not check */
+      verify: async function (key, signal) {
+        var r = await this.post(key, { model: this.defaults.model, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }, signal);
+        if (r.res.ok) return true;
+        if (r.res.status === 401 || r.res.status === 403) return false;
+        /* 400/404/413/429 are answered after authentication, so the key itself is good */
+        if ([400, 404, 413, 429].indexOf(r.res.status) >= 0) return true;
+        throw new Error('status ' + r.res.status);
+      },
+      complete: async function (o) {
+        var content = [];
+        if (o.imagePng) content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: o.imagePng } });
+        content.push({ type: 'text', text: o.text });
+        var r = await this.post(o.key, { model: o.model || this.defaults.model, max_tokens: 2048, system: o.system, messages: [{ role: 'user', content: content }] }, o.signal);
+        if (!r.res.ok) {
+          var err = new Error((r.data && r.data.error && r.data.error.message) || ('Request failed (' + r.res.status + ')'));
+          err.status = r.res.status;
           throw err;
         }
-        var blocks = (data && data.content) || [];
+        var blocks = (r.data && r.data.content) || [];
         return blocks.filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
       }
     }
   };
-  var PROVIDER = 'anthropic';
+
+  /* ---------- palette: the only colors the board accepts ---------- */
+  var STROKES = [['#1e1e1e', 'Black'], ['#e03131', 'Red'], ['#2f9e44', 'Green'], ['#1971c2', 'Blue'], ['#f08c00', 'Amber']];
+  var FILLS = [['none', 'No fill'], ['#ffc9c9', 'Red tint'], ['#b2f2bb', 'Green tint'], ['#a5d8ff', 'Blue tint'], ['#ffec99', 'Amber tint'], ['#ffffff', 'White']];
+  var NOTE_FILLS = [['#bfd7ff', 'Blue note'], ['#ffec99', 'Amber note'], ['#b2f2bb', 'Green note'], ['#ffc9c9', 'Red note']];
+  var WIDTHS = [1, 2, 4];
+  var SHAPES = ['rect', 'diamond', 'ellipse', 'line', 'arrow'];
+  function pick(v, list, d) {
+    if (typeof v !== 'string') return d;
+    v = v.toLowerCase();
+    for (var i = 0; i < list.length; i++) if (list[i][0] === v) return v;
+    return d;
+  }
+  function nearWidth(v) { v = Number(v); return isFinite(v) && v > 0 ? (v <= 1.5 ? 1 : v <= 3 ? 2 : 4) : undefined; }
+  function isClosed(t) { return t === 'rect' || t === 'diamond' || t === 'ellipse'; }
 
   var SYSTEM = [
     'You are a collaborator on a shared whiteboard. You get a PNG of the visible board and the board as JSON (element array, board coordinates; "view" is the visible region the PNG shows).',
@@ -130,21 +231,46 @@
     'Element types you may add:',
     '{"type":"note","x":0,"y":0,"text":"..."} square sticky note, x,y is top-left, keep text under 120 characters.',
     '{"type":"text","x":0,"y":0,"text":"..."} plain label, x,y is top-left.',
-    '{"type":"rect","x":0,"y":0,"width":0,"height":0} and {"type":"ellipse", same fields}, optional "text" label.',
+    '{"type":"rect","x":0,"y":0,"width":0,"height":0}, {"type":"ellipse", same fields} and {"type":"diamond", same fields}, optional "text" label.',
     '{"type":"line","x1":0,"y1":0,"x2":0,"y2":0} and {"type":"arrow", same fields}.',
     '{"type":"image","x":0,"y":0,"width":0,"height":0,"url":"https://..."} only with an image URL the user gave you.',
+    'Optional style fields on any element except image, using ONLY these values:',
+    '"strokeColor": "#1e1e1e" black, "#e03131" red, "#2f9e44" green, "#1971c2" blue, "#f08c00" amber.',
+    '"fill" on rect, ellipse and diamond: "none", "#ffc9c9", "#b2f2bb", "#a5d8ff", "#ffec99" or "#ffffff". "fill" on note: "#bfd7ff", "#ffec99", "#b2f2bb" or "#ffc9c9".',
+    '"strokeWidth": 1 thin, 2 regular or 4 bold. "dashed": true or false.',
+    'Leave style out unless color helps meaning; use few colors. Existing elements may carry the same style fields.',
     'Use the same board coordinates as the JSON. Place new things in empty space near what the user drew, never on top of existing elements. Keep diagrams tidy and sparse: few elements, aligned, generous spacing. Notes are about 120 units wide. Answer questions with "say" and add nothing unless drawing helps.'
   ].join('\n');
 
   /* ---------- state ---------- */
-  var KEY_SCENE = 'aiwb.scene', KEY_VIEW = 'aiwb.view', KEY_API = 'aiwb.key', KEY_MODEL = 'aiwb.model';
+  var KEY_SCENE = 'aiwb.scene', KEY_VIEW = 'aiwb.view', KEY_PROVIDER = 'aiwb.provider';
+  var OLD_KEY = 'aiwb.key', OLD_MODEL = 'aiwb.model';
   var cv = document.getElementById('board'), ctx = cv.getContext('2d');
-  var els = [], view = { x: 0, y: 0 }, tool = 'pen', undoStack = [], editing = null, busy = false;
+  var els = [], view = { x: 0, y: 0 }, tool = 'pen', undoStack = [], editing = null, busy = false, selId = null;
+  var cur = { strokeColor: '#1e1e1e', fill: 'none', strokeWidth: 2, dashed: false, noteFill: '#bfd7ff' };
   var imgCache = {}, NOTE = 120, nextId = 1;
   var dpr = 1, W = 0, H = 0;
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+  /* provider credentials live in localStorage only, one entry per provider */
+  function kKey(id) { return 'aiwb.provider.' + id + '.key'; }
+  function kModel(id) { return 'aiwb.provider.' + id + '.model'; }
+  function getKey(id) { return (lsGet(kKey(id)) || '').trim(); }
+  function getModel(id) { return (lsGet(kModel(id)) || '').trim() || providers[id].defaults.model; }
+  function mask(k) { return k ? '••••' + k.slice(-4) : ''; }
+  var PROVIDER = providers[lsGet(KEY_PROVIDER)] ? lsGet(KEY_PROVIDER) : 'anthropic';
+
+  /* silently move a key saved by the previous version of this page */
+  (function migrate() {
+    var old = lsGet(OLD_KEY), oldModel = lsGet(OLD_MODEL);
+    if (old && old.trim() && !getKey('anthropic')) lsSet(kKey('anthropic'), old.trim());
+    if (oldModel && oldModel.trim() && !lsGet(kModel('anthropic'))) lsSet(kModel('anthropic'), oldModel.trim());
+    if (old !== null) lsDel(OLD_KEY);
+    if (oldModel !== null) lsDel(OLD_MODEL);
+  })();
 
   try { var s = JSON.parse(lsGet(KEY_SCENE) || '[]'); if (Array.isArray(s)) els = s.filter(function (e) { return e && typeof e === 'object' && e.type; }); } catch (e) {}
   try { var vv = JSON.parse(lsGet(KEY_VIEW) || 'null'); if (vv && isFinite(vv.x) && isFinite(vv.y)) view = { x: +vv.x, y: +vv.y }; } catch (e) {}
@@ -155,6 +281,11 @@
   function snap() { undoStack.push(JSON.stringify(els)); if (undoStack.length > 60) undoStack.shift(); syncUndo(); }
   function syncUndo() { document.getElementById('undo').disabled = !undoStack.length; }
   function newId() { return 'e' + (nextId++); }
+  function selEl() {
+    if (!selId) return null;
+    for (var i = 0; i < els.length; i++) if (els[i].id === selId) return els[i];
+    selId = null; return null;
+  }
 
   /* ---------- text layout ---------- */
   var FONT = '300 16px "Newsreader", "Iowan Old Style", Georgia, serif';
@@ -214,6 +345,18 @@
   }
   function topAt(px, py) { for (var i = els.length - 1; i >= 0; i--) if (hit(els[i], px, py)) return els[i]; return null; }
 
+  /* resize handles: corners for boxes, both ends for lines and arrows */
+  function handles(el) {
+    if (el.type === 'line' || el.type === 'arrow') return [{ x: el.x, y: el.y }, { x: el.x + el.w, y: el.y + el.h }];
+    if (isClosed(el.type) || el.type === 'image') return [{ x: el.x, y: el.y }, { x: el.x + el.w, y: el.y }, { x: el.x + el.w, y: el.y + el.h }, { x: el.x, y: el.y + el.h }];
+    return [];
+  }
+  function handleAt(el, px, py) {
+    var hs = handles(el);
+    for (var i = 0; i < hs.length; i++) if (Math.hypot(px - hs[i].x, py - hs[i].y) < 16) return i;
+    return -1;
+  }
+
   /* ---------- rendering ---------- */
   function getImage(el) {
     var c = imgCache[el.url];
@@ -230,19 +373,29 @@
     img.src = el.url;
     return null;
   }
+  function elWidth(el) { return WIDTHS.indexOf(el.strokeWidth) >= 0 ? el.strokeWidth : (el.type === 'pen' ? 2.2 : 1.5); }
+  function elDashed(el) { return el.type === 'pen' ? false : (el.dashed != null ? !!el.dashed : !!el.ai); }
+  function shapePath(g, el, x, y) {
+    g.beginPath();
+    if (el.type === 'rect') g.rect(x, y, el.w, el.h);
+    else if (el.type === 'diamond') { g.moveTo(x + el.w / 2, y); g.lineTo(x + el.w, y + el.h / 2); g.lineTo(x + el.w / 2, y + el.h); g.lineTo(x, y + el.h / 2); g.closePath(); }
+    else { g.ellipse(x + el.w / 2, y + el.h / 2, Math.abs(el.w / 2), Math.abs(el.h / 2), 0, 0, Math.PI * 2); g.closePath(); }
+  }
   function drawEl(g, el, ox, oy) {
     var ai = !!el.ai;
+    var col = pick(el.strokeColor, STROKES, ai ? '#555' : '#000');
+    var lw = elWidth(el);
     g.save();
-    g.lineWidth = el.type === 'pen' ? 2.2 : 1.5;
+    g.lineWidth = lw;
     g.lineCap = 'round'; g.lineJoin = 'round';
-    g.strokeStyle = ai ? '#555' : '#000';
-    g.fillStyle = ai ? '#555' : '#000';
-    if (ai && el.type !== 'pen') g.setLineDash([7, 5]);
+    g.strokeStyle = col;
+    g.fillStyle = col;
+    if (elDashed(el)) { var k = Math.max(1, lw / 2); g.setLineDash([7 * k, 5 * k]); }
     var x = el.x - ox, y = el.y - oy;
     if (el.type === 'pen') {
       var p = el.pts;
       g.beginPath();
-      if (p.length === 1) { g.arc(x + p[0][0], y + p[0][1], 1.4, 0, Math.PI * 2); g.closePath(); g.fill(); }
+      if (p.length === 1) { g.arc(x + p[0][0], y + p[0][1], Math.max(1.4, lw / 2), 0, Math.PI * 2); g.closePath(); g.fill(); }
       else {
         g.moveTo(x + p[0][0], y + p[0][1]);
         for (var i = 1; i < p.length - 1; i++) g.quadraticCurveTo(x + p[i][0], y + p[i][1], x + (p[i][0] + p[i + 1][0]) / 2, y + (p[i][1] + p[i + 1][1]) / 2);
@@ -250,7 +403,8 @@
         g.stroke();
       }
     } else if (el.type === 'note') {
-      g.fillStyle = '#bfd7ff'; g.fillRect(x, y, el.w, el.h);
+      g.setLineDash([]);
+      g.fillStyle = pick(el.fill, NOTE_FILLS, '#bfd7ff'); g.fillRect(x, y, el.w, el.h);
       g.lineWidth = 1; g.strokeStyle = ai ? '#555' : '#000';
       g.setLineDash(ai ? [4, 3] : []);
       g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
@@ -264,16 +418,17 @@
       var t = textBox(el);
       g.font = FONT_BIG; g.textBaseline = 'top';
       t.lines.forEach(function (l, i) { g.fillText(l, x, y + i * 28 + 3); });
-    } else if (el.type === 'rect') {
-      g.strokeRect(x, y, el.w, el.h); label(g, el, x + el.w / 2, y + el.h / 2, el.w - 12);
-    } else if (el.type === 'ellipse') {
-      g.beginPath(); g.ellipse(x + el.w / 2, y + el.h / 2, Math.abs(el.w / 2), Math.abs(el.h / 2), 0, 0, Math.PI * 2); g.closePath(); g.stroke();
-      label(g, el, x + el.w / 2, y + el.h / 2, el.w * 0.7);
+    } else if (isClosed(el.type)) {
+      shapePath(g, el, x, y);
+      var f = pick(el.fill, FILLS, 'none');
+      if (f !== 'none') { g.fillStyle = f; g.fill(); }
+      g.stroke();
+      label(g, el, x + el.w / 2, y + el.h / 2, el.type === 'rect' ? el.w - 12 : el.w * (el.type === 'diamond' ? 0.5 : 0.7));
     } else if (el.type === 'line' || el.type === 'arrow') {
       var x2 = x + el.w, y2 = y + el.h;
       g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
       if (el.type === 'arrow') {
-        var a = Math.atan2(el.h, el.w), hl = 12;
+        var a = Math.atan2(el.h, el.w), hl = 12 + lw * 2;
         g.setLineDash([]);
         g.beginPath(); g.moveTo(x2 - hl * Math.cos(a - 0.45), y2 - hl * Math.sin(a - 0.45)); g.lineTo(x2, y2); g.lineTo(x2 - hl * Math.cos(a + 0.45), y2 - hl * Math.sin(a + 0.45)); g.stroke();
       }
@@ -291,10 +446,22 @@
     ls.forEach(function (l, i) { g.fillText(l, cx, cy + (i - (ls.length - 1) / 2) * 20); });
     g.textAlign = 'left';
   }
+  function drawSel(g, el) {
+    var b = bbox(el), x = b.x - view.x, y = b.y - view.y;
+    g.save();
+    g.lineWidth = 1; g.strokeStyle = '#000'; g.setLineDash([4, 3]);
+    g.strokeRect(x - 5.5, y - 5.5, b.w + 11, b.h + 11);
+    g.setLineDash([]); g.fillStyle = '#fff';
+    handles(el).forEach(function (h) { g.fillRect(h.x - view.x - 4.5, h.y - view.y - 4.5, 9, 9); g.strokeRect(h.x - view.x - 4.5, h.y - view.y - 4.5, 9, 9); });
+    g.restore();
+  }
   function draw() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
     els.forEach(function (el) { drawEl(ctx, el, view.x, view.y); });
+    var s = selEl();
+    if (s && editing !== s.id) drawSel(ctx, s);
+    renderProps();
   }
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -306,12 +473,72 @@
   window.addEventListener('resize', resize);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
 
+  /* ---------- style bar ---------- */
+  var propsEl = document.getElementById('props'), pStroke = document.getElementById('pStroke'), pFill = document.getElementById('pFill'), pNote = document.getElementById('pNote');
+  var pMisc = document.getElementById('pMisc'), dashBtn = document.getElementById('dashBtn'), delBtn = document.getElementById('delBtn');
+  var widthBtns = pMisc.querySelectorAll('[data-w]'), propsSig = '';
+  function makeChips(parent, list, onPick) {
+    list.forEach(function (c) {
+      var b = document.createElement('button'), i = document.createElement('i');
+      b.type = 'button'; b.className = 'chip'; b.setAttribute('aria-label', c[1]); b.setAttribute('aria-pressed', 'false'); b.dataset.val = c[0];
+      if (c[0] === 'none') i.className = 'none'; else i.style.background = c[0];
+      b.appendChild(i);
+      b.addEventListener('click', function () { onPick(c[0]); });
+      parent.appendChild(b);
+    });
+  }
+  makeChips(pStroke, STROKES, function (v) { setStyle('strokeColor', v); });
+  makeChips(pFill, FILLS, function (v) { setStyle('fill', v); });
+  makeChips(pNote, NOTE_FILLS, function (v) { setStyle('fill', v); });
+  widthBtns.forEach(function (b) { b.addEventListener('click', function () { setStyle('strokeWidth', Number(b.dataset.w)); }); });
+  dashBtn.addEventListener('click', function () { var s = selEl(); setStyle('dashed', !(s ? elDashed(s) : cur.dashed)); });
+  delBtn.addEventListener('click', deleteSel);
+
+  function setStyle(prop, val) {
+    var s = selEl();
+    if (s) { snap(); s[prop] = val; save(); }
+    if (prop === 'fill' && (!s ? false : s.type === 'note')) cur.noteFill = val;
+    else cur[prop] = val;
+    draw();
+  }
+  function deleteSel() {
+    var s = selEl();
+    if (!s) return;
+    snap(); els = els.filter(function (e) { return e !== s; }); selId = null; save(); draw();
+  }
+  function markPressed(group, val) {
+    group.querySelectorAll('.chip').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.val === val)); });
+  }
+  function renderProps() {
+    var s = selEl(), t = s ? s.type : (SHAPES.indexOf(tool) >= 0 ? tool : null);
+    var closed = isClosed(t), stroked = closed || t === 'line' || t === 'arrow' || t === 'pen' || t === 'text';
+    var src = s || cur;
+    var stroke = pick(src.strokeColor, STROKES, s && !src.strokeColor ? '#1e1e1e' : cur.strokeColor);
+    var fill = t === 'note' ? pick(src.fill, NOTE_FILLS, '#bfd7ff') : pick(src.fill, FILLS, 'none');
+    var width = s ? (nearWidth(elWidth(s)) || 2) : cur.strokeWidth;
+    var dashed = s ? elDashed(s) : !!cur.dashed;
+    var sig = [t, s && s.id, stroke, fill, width, dashed].join('|');
+    if (sig === propsSig) return;
+    propsSig = sig;
+    propsEl.hidden = !t;
+    pStroke.hidden = !stroked;
+    pFill.hidden = !closed;
+    pNote.hidden = t !== 'note';
+    var lineish = closed || t === 'line' || t === 'arrow';
+    widthBtns.forEach(function (b) { b.hidden = !(stroked && t !== 'text'); b.setAttribute('aria-pressed', String(Number(b.dataset.w) === width)); });
+    dashBtn.hidden = !lineish; dashBtn.setAttribute('aria-pressed', String(dashed));
+    delBtn.hidden = !s;
+    pMisc.hidden = (widthBtns[0].hidden && dashBtn.hidden && delBtn.hidden);
+    markPressed(pStroke, stroke); markPressed(pFill, fill); markPressed(pNote, fill);
+  }
+
   /* ---------- note editor ---------- */
   var ta = document.getElementById('noteEdit');
   function placeEditor() {
     var el = els.filter(function (e) { return e.id === editing; })[0];
     if (!el) return;
     ta.style.left = (el.x - view.x) + 'px'; ta.style.top = (el.y - view.y) + 'px'; ta.style.width = el.w + 'px'; ta.style.height = el.h + 'px';
+    ta.style.background = pick(el.fill, NOTE_FILLS, '#bfd7ff');
   }
   function editNote(el) {
     commitEdit();
@@ -337,6 +564,12 @@
   /* ---------- pointer interaction ---------- */
   var drag = null;
   function pt(e) { return { x: e.clientX + view.x, y: e.clientY + view.y }; }
+  function styled(el) {
+    el.strokeColor = cur.strokeColor; el.strokeWidth = cur.strokeWidth;
+    if (isClosed(el.type)) { el.fill = cur.fill; el.dashed = cur.dashed; }
+    else if (el.type === 'line' || el.type === 'arrow') el.dashed = cur.dashed;
+    return el;
+  }
   cv.addEventListener('pointerdown', function (e) {
     if (!e.isPrimary || drag) return;
     closePanel();
@@ -345,17 +578,28 @@
     cv.setPointerCapture(e.pointerId);
     if (tool === 'pen') {
       snap();
-      var el = { id: newId(), type: 'pen', x: p.x, y: p.y, pts: [[0, 0]] };
+      var el = styled({ id: newId(), type: 'pen', x: p.x, y: p.y, pts: [[0, 0]] });
       els.push(el); drag = { kind: 'pen', el: el };
     } else if (tool === 'note') {
       snap();
-      var n = { id: newId(), type: 'note', x: p.x - NOTE / 2, y: p.y - NOTE / 2, w: NOTE, h: NOTE, text: '' };
+      var n = { id: newId(), type: 'note', x: p.x - NOTE / 2, y: p.y - NOTE / 2, w: NOTE, h: NOTE, text: '', fill: cur.noteFill };
       els.push(n); drag = { kind: 'none' };
       setTimeout(function () { editNote(n); }, 0);
+    } else if (SHAPES.indexOf(tool) >= 0) {
+      snap();
+      var sh = styled({ id: newId(), type: tool, x: p.x, y: p.y, w: 0, h: 0 });
+      els.push(sh); drag = { kind: 'shape', el: sh, sx: p.x, sy: p.y };
     } else {
-      var t = topAt(p.x, p.y);
-      if (t) { snap(); drag = { kind: 'move', el: t, sx: e.clientX, sy: e.clientY, ox: t.x, oy: t.y, moved: false }; }
-      else drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y };
+      var sel = selEl(), hi = sel ? handleAt(sel, p.x, p.y) : -1;
+      if (hi >= 0) {
+        snap();
+        var hs = handles(sel), anchor = hs[(hi + 2) % 4] || hs[0];
+        drag = { kind: 'handle', el: sel, i: hi, ax: anchor.x, ay: anchor.y, ex: sel.x + sel.w, ey: sel.y + sel.h };
+      } else {
+        var t = topAt(p.x, p.y);
+        if (t) { snap(); selId = t.id; drag = { kind: 'move', el: t, sx: e.clientX, sy: e.clientY, ox: t.x, oy: t.y, moved: false }; }
+        else { selId = null; drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }; }
+      }
     }
     draw();
   });
@@ -365,6 +609,20 @@
     if (drag.kind === 'pen') {
       var el = drag.el, last = el.pts[el.pts.length - 1], q = [p.x - el.x, p.y - el.y];
       if (Math.hypot(q[0] - last[0], q[1] - last[1]) >= 1.5) { el.pts.push(q); draw(); }
+    } else if (drag.kind === 'shape') {
+      var s = drag.el;
+      if (isClosed(s.type)) { s.x = Math.min(drag.sx, p.x); s.y = Math.min(drag.sy, p.y); s.w = Math.abs(p.x - drag.sx); s.h = Math.abs(p.y - drag.sy); }
+      else { s.w = p.x - drag.sx; s.h = p.y - drag.sy; }
+      draw();
+    } else if (drag.kind === 'handle') {
+      var h = drag.el;
+      if (h.type === 'line' || h.type === 'arrow') {
+        if (drag.i === 0) { h.x = p.x; h.y = p.y; h.w = drag.ex - p.x; h.h = drag.ey - p.y; }
+        else { h.w = p.x - h.x; h.h = p.y - h.y; }
+      } else {
+        h.x = Math.min(drag.ax, p.x); h.y = Math.min(drag.ay, p.y); h.w = Math.max(8, Math.abs(p.x - drag.ax)); h.h = Math.max(8, Math.abs(p.y - drag.ay));
+      }
+      draw();
     } else if (drag.kind === 'move') {
       var dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
       if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
@@ -380,6 +638,10 @@
       if (!d.moved) { undoStack.pop(); syncUndo(); if (d.el.type === 'note') editNote(d.el); }
       else save();
     } else if (d.kind === 'pan') saveView();
+    else if (d.kind === 'shape') {
+      if (Math.hypot(d.el.w, d.el.h) < 6) { els = els.filter(function (x) { return x !== d.el; }); undoStack.pop(); syncUndo(); }
+      else { setTool('move'); selId = d.el.id; save(); }
+    }
     else save();
     draw();
   }
@@ -389,9 +651,10 @@
   /* ---------- toolbar ---------- */
   var toolBtns = document.querySelectorAll('[data-tool]');
   function setTool(t) {
-    tool = t;
+    tool = t; selId = null;
     toolBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.tool === t)); });
     cv.classList.toggle('move', t === 'move');
+    draw();
   }
   toolBtns.forEach(function (b) { b.addEventListener('click', function () { commitEdit(); setTool(b.dataset.tool); }); });
   function undo() {
@@ -401,30 +664,28 @@
   }
   document.getElementById('undo').addEventListener('click', undo);
   document.addEventListener('keydown', function (e) {
-    var tag = document.activeElement && document.activeElement.tagName;
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && tag !== 'TEXTAREA' && tag !== 'INPUT') { e.preventDefault(); undo(); }
+    if (modalOpen) return;
+    var tag = document.activeElement && document.activeElement.tagName, typing = tag === 'TEXTAREA' || tag === 'INPUT';
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && selEl()) { e.preventDefault(); deleteSel(); }
     if (e.key === 'Escape') closePanel();
   });
   syncUndo();
 
-  /* ---------- magic panel + settings ---------- */
-  var panel = document.getElementById('panel'), ask = document.getElementById('ask'), cfg = document.getElementById('cfg');
-  var keyIn = document.getElementById('key'), modelIn = document.getElementById('model'), magic = document.getElementById('magic'), gear = document.getElementById('gear');
-  keyIn.value = lsGet(KEY_API) || '';
-  modelIn.value = lsGet(KEY_MODEL) || '';
-  modelIn.placeholder = providers[PROVIDER].defaults.model;
-  keyIn.addEventListener('input', function () { lsSet(KEY_API, keyIn.value.trim()); });
-  modelIn.addEventListener('input', function () { lsSet(KEY_MODEL, modelIn.value.trim()); });
-  function openPanel(withCfg) {
+  /* ---------- ask panel ---------- */
+  var panel = document.getElementById('panel'), ask = document.getElementById('ask'), magic = document.getElementById('magic'), gear = document.getElementById('gear');
+  function openPanel() {
     commitEdit();
     panel.classList.add('open'); magic.setAttribute('aria-expanded', 'true');
-    setCfg(!!withCfg);
-    (withCfg ? keyIn : ask).focus();
+    ask.focus();
   }
   function closePanel() { panel.classList.remove('open'); magic.setAttribute('aria-expanded', 'false'); }
-  function setCfg(on) { cfg.classList.toggle('open', on); gear.setAttribute('aria-expanded', String(on)); }
-  magic.addEventListener('click', function () { panel.classList.contains('open') ? closePanel() : openPanel(!keyIn.value.trim()); });
-  gear.addEventListener('click', function () { var on = !cfg.classList.contains('open'); setCfg(on); (on ? keyIn : ask).focus(); });
+  magic.addEventListener('click', function () {
+    if (panel.classList.contains('open')) closePanel();
+    else if (!getKey(PROVIDER)) { commitEdit(); openModal({ opener: magic, resume: true }); }
+    else openPanel();
+  });
+  gear.addEventListener('click', function () { openModal({ opener: gear }); });
 
   var errEl = document.getElementById('err'), errTimer = null;
   function showErr(msg) {
@@ -433,14 +694,100 @@
     errTimer = setTimeout(function () { errEl.classList.remove('show'); }, 3500);
   }
 
-  panel.addEventListener('submit', function (e) {
+  panel.addEventListener('submit', function (e) { e.preventDefault(); send(); });
+
+  /* ---------- connect modal: the only place a key is ever asked for ---------- */
+  var dock = document.getElementById('dock'), scrim = document.getElementById('scrim'), dlg = document.getElementById('dlg');
+  var provList = document.getElementById('provList'), keyForm = document.getElementById('keyForm'), keyField = document.getElementById('keyField');
+  var keyIn = document.getElementById('key'), reveal = document.getElementById('reveal'), modelField = document.getElementById('modelField'), modelIn = document.getElementById('model');
+  var connectBtn = document.getElementById('connectBtn'), manageRow = document.getElementById('manageRow'), replaceBtn = document.getElementById('replaceBtn'), disconnectBtn = document.getElementById('disconnectBtn');
+  var stateEl = document.getElementById('state');
+  var modalOpen = false, replacing = false, resumeSend = false, opener = null, checking = null;
+
+  function setState(msg) { stateEl.textContent = msg || ''; }
+  function setReveal(on) {
+    keyIn.type = on ? 'text' : 'password';
+    reveal.textContent = on ? 'Hide' : 'Show';
+    reveal.setAttribute('aria-pressed', String(on)); reveal.setAttribute('aria-label', on ? 'Hide key' : 'Show key');
+  }
+  function renderModal() {
+    provList.textContent = '';
+    Object.keys(providers).forEach(function (id) {
+      var p = providers[id], b = document.createElement('button'), dot = document.createElement('span'), name = document.createElement('span'), hint = document.createElement('span');
+      b.type = 'button'; b.className = 'prov'; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(id === PROVIDER));
+      dot.className = 'dot'; name.textContent = p.label; hint.className = 'hint';
+      hint.textContent = getKey(id) ? mask(getKey(id)) : p.keyHint;
+      b.appendChild(dot); b.appendChild(name); b.appendChild(hint);
+      b.addEventListener('click', function () {
+        if (id === PROVIDER) return;
+        PROVIDER = id; lsSet(KEY_PROVIDER, id); replacing = false; keyIn.value = ''; setState(''); renderModal();
+      });
+      provList.appendChild(b);
+    });
+    var p = providers[PROVIDER], connected = !!getKey(PROVIDER), managed = connected && !replacing;
+    keyField.hidden = managed; connectBtn.hidden = managed; modelField.hidden = !connected; manageRow.hidden = !managed;
+    keyIn.placeholder = p.placeholder; keyIn.setAttribute('aria-label', p.label + ' API key');
+    modelIn.placeholder = p.defaults.model; modelIn.value = getModel(PROVIDER);
+  }
+  function openModal(o) {
+    o = o || {};
+    opener = o.opener || magic; replacing = !!o.replace; resumeSend = !!o.resume;
+    keyIn.value = ''; setReveal(false); renderModal(); setState(o.message);
+    scrim.hidden = false; dock.inert = true; modalOpen = true;
+    (keyField.hidden ? replaceBtn : keyIn).focus();
+  }
+  function closeModal() {
+    if (!modalOpen) return;
+    if (checking) { checking.abort(); checking = null; }
+    modalOpen = false; scrim.hidden = true; dock.inert = false;
+    keyIn.value = ''; setReveal(false); setState('');
+    (opener || magic).focus();
+  }
+  document.getElementById('dlgClose').addEventListener('click', closeModal);
+  scrim.addEventListener('pointerdown', function (e) { if (e.target === scrim) closeModal(); });
+  reveal.addEventListener('click', function () { setReveal(keyIn.type === 'password'); keyIn.focus(); });
+  modelIn.addEventListener('input', function () {
+    var v = modelIn.value.trim();
+    if (v) lsSet(kModel(PROVIDER), v); else lsDel(kModel(PROVIDER));
+  });
+  replaceBtn.addEventListener('click', function () { replacing = true; setState(''); renderModal(); keyIn.focus(); });
+  disconnectBtn.addEventListener('click', function () {
+    lsDel(kKey(PROVIDER)); replacing = false; keyIn.value = ''; setState(''); renderModal(); keyIn.focus();
+  });
+  dlg.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeModal(); return; }
+    if (e.key !== 'Tab') return;
+    var f = Array.prototype.filter.call(dlg.querySelectorAll('button, input'), function (n) { return !n.disabled && n.offsetParent !== null; });
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && (document.activeElement === first || !dlg.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || !dlg.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+  });
+  document.addEventListener('keydown', function (e) { if (modalOpen && e.key === 'Escape') closeModal(); }, true);
+
+  keyForm.addEventListener('submit', async function (e) {
     e.preventDefault();
-    if (document.activeElement === keyIn || document.activeElement === modelIn) {
-      lsSet(KEY_API, keyIn.value.trim()); lsSet(KEY_MODEL, modelIn.value.trim());
-      if (keyIn.value.trim()) { setCfg(false); ask.focus(); }
-      return;
+    if (keyField.hidden || checking) return;
+    var key = keyIn.value.trim();
+    if (!key) { keyIn.focus(); return; }
+    if (/\s/.test(key)) { setState("That key didn't work."); return; }
+    var prov = providers[PROVIDER], id = PROVIDER, ac = new AbortController();
+    checking = ac; connectBtn.disabled = true; setState('Checking…');
+    try {
+      var ok = await prov.verify(key, ac.signal);
+      if (ac.signal.aborted) return;
+      if (!ok) { setState("That key didn't work."); return; }
+      lsSet(kKey(id), key);
+      if (getKey(id) !== key) { setState("Couldn't save on this device."); return; }
+      var go = resumeSend;
+      closeModal();
+      if (go) { if (ask.value.trim()) { openPanel(); send(); } else openPanel(); }
+    } catch (err) {
+      if (!ac.signal.aborted) setState("Couldn't check that key. Try again.");
+    } finally {
+      if (checking === ac) checking = null;
+      connectBtn.disabled = false;
     }
-    send();
   });
 
   /* ---------- sending ---------- */
@@ -452,6 +799,10 @@
       else { o.x = Math.round(b.x); o.y = Math.round(b.y); o.width = Math.round(b.w); o.height = Math.round(b.h); }
       if (el.text) o.text = el.text;
       if (el.url) o.url = el.url;
+      if (el.strokeColor) o.strokeColor = el.strokeColor;
+      if (el.fill && el.fill !== 'none') o.fill = el.fill;
+      if (el.strokeWidth) o.strokeWidth = el.strokeWidth;
+      if (el.dashed != null) o.dashed = !!el.dashed;
       if (el.ai) o.byAI = true;
       return o;
     });
@@ -469,19 +820,19 @@
   async function send() {
     var q = ask.value.trim();
     if (!q || busy) return;
-    var key = keyIn.value.trim();
-    if (!key) { setCfg(true); keyIn.focus(); return; }
+    var key = getKey(PROVIDER);
+    if (!key) { openModal({ opener: magic, resume: true }); return; }
     var prov = providers[PROVIDER];
     busy = true; magic.classList.add('busy');
     try {
       var text = q + '\n\nBoard JSON:\n' + JSON.stringify(sceneForModel());
-      var reply = await prov.complete({ system: SYSTEM, text: text, imagePng: boardPng(), model: modelIn.value.trim() || prov.defaults.model, key: key, signal: undefined });
+      var reply = await prov.complete({ system: SYSTEM, text: text, imagePng: boardPng(), model: getModel(PROVIDER), key: key, signal: undefined });
       var parsed = parseReply(reply);
       if (!parsed) { showErr('Could not read the reply'); return; }
       applyReply(parsed);
       ask.value = ''; closePanel();
     } catch (err) {
-      if (err && (err.status === 401 || err.status === 403)) showErr('Bad API key');
+      if (err && (err.status === 401 || err.status === 403)) openModal({ opener: magic, resume: true, replace: true, message: "That key didn't work." });
       else if (err instanceof TypeError) showErr('Network error');
       else showErr(String((err && err.message) || 'Something went wrong').slice(0, 120));
     } finally {
@@ -499,12 +850,24 @@
   }
   function num(v, d) { v = Number(v); return isFinite(v) ? Math.max(-20000, Math.min(20000, v)) : d; }
   function str(v, n) { return typeof v === 'string' ? v.slice(0, n) : ''; }
+  /* copy only palette values; anything else is dropped */
+  function applyStyle(a, el) {
+    var t = el.type;
+    if (t === 'image') return;
+    var c = pick(a.strokeColor, STROKES, null);
+    if (c && t !== 'note') el.strokeColor = c;
+    if (t === 'note') { var nf = pick(a.fill, NOTE_FILLS, null); if (nf) el.fill = nf; }
+    else if (isClosed(t)) { var f = pick(a.fill === null || a.fill === 'transparent' ? 'none' : a.fill, FILLS, null); if (f) el.fill = f; }
+    var w = t === 'note' || t === 'text' ? undefined : nearWidth(a.strokeWidth);
+    if (w) el.strokeWidth = w;
+    if (typeof a.dashed === 'boolean' && (isClosed(t) || t === 'line' || t === 'arrow')) el.dashed = a.dashed;
+  }
   function sanitize(a) {
     if (!a || typeof a !== 'object') return null;
     var t = a.type, el = { id: newId(), type: t, ai: true };
     if (t === 'note') { el.x = num(a.x, view.x + 40); el.y = num(a.y, view.y + 40); el.text = str(a.text, 400); if (!el.text) return null; fitNote(el); }
     else if (t === 'text') { el.x = num(a.x, 0); el.y = num(a.y, 0); el.text = str(a.text, 400); if (!el.text) return null; }
-    else if (t === 'rect' || t === 'ellipse') {
+    else if (isClosed(t)) {
       el.x = num(a.x, 0); el.y = num(a.y, 0);
       el.w = Math.abs(num(a.width != null ? a.width : a.w, 120)) || 120;
       el.h = Math.abs(num(a.height != null ? a.height : a.h, 80)) || 80;
@@ -521,6 +884,7 @@
       el.w = Math.abs(num(a.width, 200)) || 200; el.h = Math.abs(num(a.height, 200)) || 200;
     }
     else return null;
+    applyStyle(a, el);
     return el;
   }
   function freeSpot(size) {
@@ -569,7 +933,7 @@
       tpl = tpl.filter(function (e) { return e && typeof e === 'object' && e.type; });
       if (!tpl.length) return;
       if (els.length) lsSet(KEY_SCENE + '.prev.' + Date.now(), JSON.stringify(els));
-      els = tpl; nextId = 1; undoStack = []; syncUndo();
+      els = tpl; selId = null; nextId = 1; undoStack = []; syncUndo();
       els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
       var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       els.forEach(function (e) { var b = bbox(e); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); });
