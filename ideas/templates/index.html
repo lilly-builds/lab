@@ -6,22 +6,22 @@
 <title>Templates</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300&family=Newsreader:opsz,wght@6..72,300&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
 <style>
   :root {
     --ink: #000;
     --paper: #fff;
-    --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
-    --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --serif: "Special Elite", "Courier New", monospace;
+    --mono: "Special Elite", "Courier New", monospace;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; overflow-x: hidden; }
-  body { background: var(--paper); color: var(--ink); font: 300 17px/1.45 var(--serif); min-height: 100vh; }
+  body { background: var(--paper); color: var(--ink); font: 400 17px/1.45 var(--serif); font-synthesis: none; min-height: 100vh; }
   a { color: inherit; text-decoration: none; }
   :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
 
   .app { max-width: 1040px; margin: 0 auto; padding: 24px 12px 56px; }
-  h1 { font: italic 300 clamp(26px, 6vw, 38px)/1.2 var(--serif); margin: 10px 0 28px; text-align: center; }
+  h1 { font: 400 clamp(26px, 6vw, 38px)/1.2 var(--serif); margin: 10px 0 28px; text-align: center; }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 32px 24px; }
   .card { display: block; min-height: 44px; }
@@ -31,7 +31,7 @@
   .card:hover .title { text-decoration: underline; text-underline-offset: 4px; }
 
   .section { margin-top: 56px; }
-  h2 { font: italic 300 clamp(22px, 5vw, 28px)/1.2 var(--serif); margin: 0 0 24px; text-align: center; }
+  h2 { font: 400 clamp(22px, 5vw, 28px)/1.2 var(--serif); margin: 0 0 24px; text-align: center; }
   .note { margin: 0; text-align: center; font: 300 14px/1.4 var(--mono); }
   .note a { text-decoration: underline; text-underline-offset: 4px; }
   .story { display: block; width: 100%; margin: 10px 0 0; padding: 0; border: 0; background: none; color: inherit; text-align: left; font: 300 14px/1.4 var(--serif); cursor: pointer; }
@@ -66,8 +66,9 @@
 (function () {
   'use strict';
 
-  var FONT = '300 16px "Newsreader", "Iowan Old Style", Georgia, serif';
-  var FONT_BIG = '300 22px "Newsreader", "Iowan Old Style", Georgia, serif';
+  var FAMILY = '"Special Elite", "Courier New", monospace';
+  var FONT = '400 16px ' + FAMILY;
+  var FONT_BIG = '400 22px ' + FAMILY;
   var probe = document.createElement('canvas').getContext('2d');
 
   var issueTitle = 'Template: ';
@@ -134,9 +135,15 @@
       g.lineWidth = 1; g.setLineDash(el.ai ? [4, 3] : []);
       g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
       g.setLineDash([]);
-      g.fillStyle = '#000'; g.textBaseline = 'top'; g.font = FONT;
-      var ls = wrap(g, el.text, el.w - 16, FONT), max = Math.floor((el.h - 16) / 20);
-      ls.slice(0, max).forEach(function (l, i) { g.fillText(l, x + 8, y + 8 + i * 20); });
+      /* same note fit as the whiteboard: 16px, shrinking to 12px when the square is too small */
+      var nf, nlh, ls;
+      for (var fs = 16; fs >= 12; fs--) {
+        nf = '400 ' + fs + 'px ' + FAMILY; nlh = Math.round(fs * 1.25);
+        ls = wrap(g, el.text, el.w - 16, nf);
+        if (ls.length * nlh <= el.h - 16) break;
+      }
+      g.fillStyle = '#000'; g.textBaseline = 'top'; g.font = nf;
+      ls.slice(0, Math.floor((el.h - 16) / nlh)).forEach(function (l, i) { g.fillText(l, x + 8, y + i * nlh + 8); });
     } else if (el.type === 'text') {
       var t = textBox(el);
       g.font = FONT_BIG; g.textBaseline = 'top';
@@ -204,7 +211,7 @@
       els = els.filter(function (e) { return e && typeof e === 'object' && e.type; });
       var go = function () { preview(cv, els); };
       go();
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(go);
+      if (document.fonts && document.fonts.load) document.fonts.load('16px "Special Elite"').then(go, go);
       var timer;
       window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(go, 100); });
     }).catch(function () {});
@@ -333,7 +340,7 @@
     var els = previewEls(t.elements);
     var go = function () { preview(cv, els); };
     go();
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(go);
+    if (document.fonts && document.fonts.load) document.fonts.load('16px "Special Elite"').then(go, go);
     var timer;
     window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(go, 100); });
   }
