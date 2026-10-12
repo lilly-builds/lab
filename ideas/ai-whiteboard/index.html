@@ -25,18 +25,25 @@
 
   canvas#board { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; cursor: crosshair; }
   canvas#board.move { cursor: grab; }
+  canvas#board.txt { cursor: text; }
 
   textarea#noteEdit { position: fixed; display: none; margin: 0; padding: 8px; resize: none; overflow: hidden; border: 1px solid var(--ink); border-radius: 0;
     background: var(--note); font: 300 16px/20px var(--serif); outline: 0; box-shadow: none; aspect-ratio: 1 / 1; z-index: 5; }
   textarea#noteEdit:focus, textarea#noteEdit:focus-visible { outline: 0; box-shadow: none; }
+  textarea#textEdit { position: fixed; display: none; margin: 0; padding: 0; resize: none; overflow: hidden; border: 0; border-radius: 0; background: transparent;
+    font: 300 24px/31px var(--serif); text-decoration: none; box-shadow: none; outline: 1px solid var(--ink); outline-offset: 4px; z-index: 5; }
+  textarea#textEdit:focus, textarea#textEdit:focus-visible { outline: 1px solid var(--ink); outline-offset: 4px; }
 
   #dock { position: fixed; left: 0; right: 0; bottom: 0; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; z-index: 10; }
   #dock > * { pointer-events: auto; }
 
   #bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; background: var(--paper); max-width: 100%; }
   @media (max-width: 360px) { #bar { gap: 0; } }
-  #bar button { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-  #bar button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  #bar button, #bar a.tpl { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  #bar button svg, #bar a.tpl svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  #bar a.tpl { gap: 8px; color: inherit; text-decoration: none; }
+  #bar a.tpl .lbl { display: none; font: 300 12px/1 var(--mono); letter-spacing: .04em; white-space: nowrap; }
+  @media (min-width: 900px) { #bar a.tpl { width: auto; padding: 0 16px; border-radius: 24px; } #bar a.tpl .lbl { display: inline; } }
   #bar button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
   #bar button:disabled { opacity: .3; cursor: default; }
   #magic.busy svg { animation: pulse 1.4s ease-in-out infinite; }
@@ -66,6 +73,7 @@
   #props .chip[aria-pressed="true"] i { outline: 1px solid var(--ink); outline-offset: 3px; }
   #props .tool { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
   #props .tool svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-linecap: butt; }
+  #props .tool.sz { font: 300 13px/1 var(--mono); }
   #props .tool[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 
   /* embedded frames: DOM layer above the canvas, pointers pass through except on the bar buttons */
@@ -124,12 +132,18 @@
 <canvas id="board"></canvas>
 <div id="embeds"></div>
 <textarea id="noteEdit" aria-label="Note" maxlength="400"></textarea>
+<textarea id="textEdit" aria-label="Text" maxlength="2000" rows="1" spellcheck="false" autocorrect="off" wrap="soft"></textarea>
 
 <div id="dock">
   <div id="err" role="status" aria-live="polite"></div>
   <div id="props" role="group" aria-label="Style" hidden>
     <div class="grp" id="pStroke" role="group" aria-label="Color"></div>
     <div class="grp" id="pFill" role="group" aria-label="Fill"></div>
+    <div class="grp" id="pSize" role="group" aria-label="Text size" hidden>
+      <button type="button" class="tool sz" data-size="16" aria-label="Small" aria-pressed="false">S</button>
+      <button type="button" class="tool sz" data-size="24" aria-label="Medium" aria-pressed="false">M</button>
+      <button type="button" class="tool sz" data-size="40" aria-label="Large" aria-pressed="false">L</button>
+    </div>
     <div class="grp" id="pNote" role="group" aria-label="Note color"></div>
     <div class="grp" id="pMisc">
       <button type="button" class="tool" data-w="1" aria-label="Thin"><svg viewBox="0 0 24 24"><path d="M4 12h16" stroke-width="1"/></svg></button>
@@ -157,6 +171,7 @@
   <div id="bar"role="toolbar" aria-label="Tools">
     <button type="button" data-tool="pen" aria-label="Pen" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 0a2 2 0 0 1 0 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg></button>
     <button type="button" data-tool="note" aria-label="Note" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M8 9.5h8M8 13h5"/></svg></button>
+    <button type="button" data-tool="text" aria-label="Text" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M8.5 9.5V8h7v1.5M12 8v8M10.5 16h3"/></svg></button>
     <button type="button" data-tool="rect" aria-label="Rectangle" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4" y="6.5" width="16" height="11"/></svg></button>
     <button type="button" data-tool="diamond" aria-label="Diamond" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3.5l8.5 8.5-8.5 8.5L3.5 12z"/></svg></button>
     <button type="button" data-tool="ellipse" aria-label="Ellipse" aria-pressed="false"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8.5" ry="6"/></svg></button>
@@ -165,6 +180,7 @@
     <button type="button" id="embedBtn" aria-label="Embed a page" aria-expanded="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M13.5 19.5v-6h6"/></svg></button>
     <button type="button" data-tool="move"aria-label="Select and move" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></button>
     <button type="button" id="undo" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 8h-3"/></svg></button>
+    <a id="tplLink" class="tpl" href="../templates/" aria-label="Templates"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="6" height="6"/><rect x="13.5" y="4.5" width="6" height="6"/><rect x="4.5" y="13.5" width="6" height="6"/><rect x="13.5" y="13.5" width="6" height="6"/></svg><span class="lbl">Templates</span></a>
     <button type="button" id="share" aria-label="Share as template"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></svg></button>
     <button type="button" id="magic" aria-label="Ask AI" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M10 4c.7 5 2.5 7.3 7 8-4.5.7-6.3 3-7 8-.7-5-2.5-7.3-7-8 4.5-.7 6.3-3 7-8z"/><path d="M19 3v4M17 5h4"/></svg></button>
   </div>
@@ -316,13 +332,13 @@
     'Reply with ONLY one JSON object, no prose, no code fences: {"say": "optional short text reply", "add": [elements]}.',
     'Element types you may add:',
     '{"type":"note","x":0,"y":0,"text":"..."} square sticky note, x,y is top-left, keep text under 120 characters.',
-    '{"type":"text","x":0,"y":0,"text":"..."} plain label, x,y is top-left.',
+    '{"type":"text","x":0,"y":0,"text":"...","size":24} plain label, x,y is top-left, up to 2000 characters. Optional "size" 10 to 120 (16 small, 24 medium, 40 large) and "w" wrap width.',
     '{"type":"rect","x":0,"y":0,"width":0,"height":0}, {"type":"ellipse", same fields} and {"type":"diamond", same fields}, optional "text" label.',
     '{"type":"line","x1":0,"y1":0,"x2":0,"y2":0} and {"type":"arrow", same fields}.',
     '{"type":"image","x":0,"y":0,"width":0,"height":0,"url":"https://..."} only with an image URL the user gave you.',
     '{"type":"embed","x":0,"y":0,"width":360,"height":280,"url":"https://lilly-builds.github.io/lab/...","text":"title"} a live page, only for URLs under https://lilly-builds.github.io/lab/.',
     'Optional style fields on any element except image, using ONLY these values:',
-    '"strokeColor": "#1e1e1e" black, "#e03131" red, "#2f9e44" green, "#1971c2" blue, "#f08c00" amber.',
+    '"strokeColor": "#1e1e1e" black, "#e03131" red, "#2f9e44" green, "#1971c2" blue, "#f08c00" amber. Text elements take the same values as "color".',
     '"fill" on rect, ellipse and diamond: "none", "#ffc9c9", "#b2f2bb", "#a5d8ff", "#ffec99" or "#ffffff". "fill" on note: "#bfd7ff", "#ffec99", "#b2f2bb" or "#ffc9c9".',
     '"strokeWidth": 1 thin, 2 regular or 4 bold. "dashed": true or false.',
     'Leave style out unless color helps meaning; use few colors. Existing elements may carry the same style fields.',
@@ -334,8 +350,8 @@
   var OLD_KEY = 'aiwb.key', OLD_MODEL = 'aiwb.model';
   var cv = document.getElementById('board'), ctx = cv.getContext('2d');
   var els = [], view = { x: 0, y: 0 }, tool = 'pen', undoStack = [], editing = null, busy = false, selId = null;
-  var cur = { strokeColor: '#1e1e1e', fill: 'none', strokeWidth: 2, dashed: false, noteFill: '#bfd7ff' };
-  var imgCache = {}, NOTE = 120, nextId = 1;
+  var cur = { strokeColor: '#1e1e1e', fill: 'none', strokeWidth: 2, dashed: false, noteFill: '#bfd7ff', size: 24 };
+  var imgCache = {}, NOTE = 120, nextId = 1, editNew = false;
   var dpr = 1, W = 0, H = 0;
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -380,12 +396,26 @@
     if (o.pending === true && url.indexOf(PAGES) === 0) { el.pending = true; el.since = Math.min(Date.now(), Number(o.since) || Date.now()); }
     return el;
   }
-  /* keep every non-embed as is; embeds are rebuilt from known fields and capped */
+  function clampSize(v) { v = Number(v); return isFinite(v) ? Math.max(10, Math.min(120, Math.round(v))) : 24; }
+  function cleanText(o) {
+    var text = str(o.text, 2000);
+    if (!text.trim()) return null;
+    var el = {
+      id: typeof o.id === 'string' && /^[\w-]{1,24}$/.test(o.id) ? o.id : null,
+      type: 'text', x: num(o.x, 0), y: num(o.y, 0), text: text, size: clampSize(o.size),
+      color: pick(o.color, STROKES, null) || pick(o.strokeColor, STROKES, '#1e1e1e'),
+      w: Math.max(40, Math.min(2000, Math.abs(num(o.w, 280))))
+    };
+    if (o.ai === true) el.ai = true;
+    return el;
+  }
+  /* keep every other element as is; embeds are rebuilt from known fields and capped */
   function loadEls(arr) {
     var out = [], n = 0;
     arr.forEach(function (e) {
       if (!e || typeof e !== 'object' || !e.type) return;
       if (e.type === 'embed') { if (n >= EMB_MAX) return; e = cleanEmbed(e); if (!e) return; n++; }
+      else if (e.type === 'text') { e = cleanText(e); if (!e) return; }
       out.push(e);
     });
     return out;
@@ -410,7 +440,6 @@
 
   /* ---------- text layout ---------- */
   var FONT = '300 16px "Newsreader", "Iowan Old Style", Georgia, serif';
-  var FONT_BIG = '300 22px "Newsreader", "Iowan Old Style", Georgia, serif';
   function wrap(text, maxW, font) {
     ctx.font = font;
     var out = [];
@@ -430,10 +459,12 @@
     while (s < 280 && wrap(el.text, s - 16, FONT).length * 20 > s - 16) s += 20;
     el.w = el.h = s;
   }
+  function textLH(el) { return Math.round(el.size * 1.3); }
   function textBox(el) {
-    var lines = wrap(el.text, 280, FONT_BIG);
+    var font = '300 ' + el.size + 'px "Newsreader", "Iowan Old Style", Georgia, serif', lh = textLH(el);
+    var lines = wrap(el.text, el.w, font);
     var w = 0; lines.forEach(function (l) { w = Math.max(w, ctx.measureText(l).width); });
-    return { lines: lines, w: Math.max(20, w), h: Math.max(1, lines.length) * 28 };
+    return { lines: lines, font: font, lh: lh, w: Math.max(24, w), h: Math.max(1, lines.length) * lh };
   }
 
   /* ---------- geometry ---------- */
@@ -469,6 +500,7 @@
   /* resize handles: corners for boxes, both ends for lines and arrows */
   function handles(el) {
     if (el.type === 'line' || el.type === 'arrow') return [{ x: el.x, y: el.y }, { x: el.x + el.w, y: el.y + el.h }];
+    if (el.type === 'text') { var tb = bbox(el); return [{ x: tb.x, y: tb.y }, { x: tb.x + tb.w, y: tb.y }, { x: tb.x + tb.w, y: tb.y + tb.h }, { x: tb.x, y: tb.y + tb.h }]; }
     if (isClosed(el.type) || el.type === 'image' || el.type === 'embed') return [{ x: el.x, y: el.y }, { x: el.x + el.w, y: el.y }, { x: el.x + el.w, y: el.y + el.h }, { x: el.x, y: el.y + el.h }];
     return [];
   }
@@ -536,9 +568,12 @@
         ls.slice(0, max).forEach(function (l, i) { g.fillText(l, x + 8, y + 8 + i * 20); });
       }
     } else if (el.type === 'text') {
-      var t = textBox(el);
-      g.font = FONT_BIG; g.textBaseline = 'top';
-      t.lines.forEach(function (l, i) { g.fillText(l, x, y + i * 28 + 3); });
+      if (editing !== el.id) {
+        var t = textBox(el);
+        g.font = t.font; g.textBaseline = 'middle'; g.textAlign = 'left';
+        g.fillStyle = pick(el.color, STROKES, pick(el.strokeColor, STROKES, '#1e1e1e'));
+        t.lines.forEach(function (l, i) { g.fillText(l, x, y + i * t.lh + t.lh / 2); });
+      }
     } else if (isClosed(el.type)) {
       shapePath(g, el, x, y);
       var f = pick(el.fill, FILLS, 'none');
@@ -604,7 +639,7 @@
 
   /* ---------- style bar ---------- */
   var propsEl = document.getElementById('props'), pStroke = document.getElementById('pStroke'), pFill = document.getElementById('pFill'), pNote = document.getElementById('pNote');
-  var pMisc = document.getElementById('pMisc'), dashBtn = document.getElementById('dashBtn'), delBtn = document.getElementById('delBtn');
+  var pSize = document.getElementById('pSize'), sizeBtns = pSize.querySelectorAll('[data-size]'), pMisc = document.getElementById('pMisc'), dashBtn = document.getElementById('dashBtn'), delBtn = document.getElementById('delBtn');
   var widthBtns = pMisc.querySelectorAll('[data-w]'), propsSig = '';
   function makeChips(parent, list, onPick) {
     list.forEach(function (c) {
@@ -620,12 +655,17 @@
   makeChips(pFill, FILLS, function (v) { setStyle('fill', v); });
   makeChips(pNote, NOTE_FILLS, function (v) { setStyle('fill', v); });
   widthBtns.forEach(function (b) { b.addEventListener('click', function () { setStyle('strokeWidth', Number(b.dataset.w)); }); });
+  sizeBtns.forEach(function (b) { b.addEventListener('click', function () { setStyle('size', Number(b.dataset.size)); }); });
   dashBtn.addEventListener('click', function () { var s = selEl(); setStyle('dashed', !(s ? elDashed(s) : cur.dashed)); });
   delBtn.addEventListener('click', deleteSel);
 
   function setStyle(prop, val) {
     var s = selEl();
-    if (s) { snap(); s[prop] = val; save(); }
+    if (s) {
+      snap();
+      if (s.type === 'text' && prop === 'strokeColor') { s.color = val; delete s.strokeColor; } else s[prop] = val;
+      save();
+    }
     if (prop === 'fill' && (!s ? false : s.type === 'note')) cur.noteFill = val;
     else cur[prop] = val;
     draw();
@@ -639,20 +679,23 @@
     group.querySelectorAll('.chip').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.val === val)); });
   }
   function renderProps() {
-    var s = selEl(), t = s ? s.type : (SHAPES.indexOf(tool) >= 0 ? tool : null);
+    var s = selEl(), t = s ? s.type : (SHAPES.indexOf(tool) >= 0 ? tool : tool === 'text' ? 'text' : null);
     var closed = isClosed(t), stroked = closed || t === 'line' || t === 'arrow' || t === 'pen' || t === 'text';
     var src = s || cur;
-    var stroke = pick(src.strokeColor, STROKES, s && !src.strokeColor ? '#1e1e1e' : cur.strokeColor);
+    var stroke = t === 'text' && s ? pick(s.color, STROKES, '#1e1e1e') : pick(src.strokeColor, STROKES, s && !src.strokeColor ? '#1e1e1e' : cur.strokeColor);
+    var size = t === 'text' ? (s ? s.size : cur.size) : 0;
     var fill = t === 'note' ? pick(src.fill, NOTE_FILLS, '#bfd7ff') : pick(src.fill, FILLS, 'none');
     var width = s ? (nearWidth(elWidth(s)) || 2) : cur.strokeWidth;
     var dashed = s ? elDashed(s) : !!cur.dashed;
-    var sig = [t, s && s.id, stroke, fill, width, dashed].join('|');
+    var sig = [t, s && s.id, stroke, fill, width, dashed, size].join('|');
     if (sig === propsSig) return;
     propsSig = sig;
     propsEl.hidden = !t;
     pStroke.hidden = !stroked;
     pFill.hidden = !closed;
     pNote.hidden = t !== 'note';
+    pSize.hidden = t !== 'text';
+    sizeBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(Number(b.dataset.size) === size)); });
     var lineish = closed || t === 'line' || t === 'arrow';
     widthBtns.forEach(function (b) { b.hidden = !(stroked && t !== 'text'); b.setAttribute('aria-pressed', String(Number(b.dataset.w) === width)); });
     dashBtn.hidden = !lineish; dashBtn.setAttribute('aria-pressed', String(dashed));
@@ -663,9 +706,18 @@
 
   /* ---------- note editor ---------- */
   var ta = document.getElementById('noteEdit');
+  var tx = document.getElementById('textEdit');
   function placeEditor() {
     var el = els.filter(function (e) { return e.id === editing; })[0];
     if (!el) return;
+    if (el.type === 'text') {
+      var st = tx.style;
+      st.left = (el.x - view.x) + 'px'; st.top = (el.y - view.y) + 'px'; st.width = el.w + 'px';
+      st.fontSize = el.size + 'px'; st.lineHeight = textLH(el) + 'px';
+      st.color = pick(el.color, STROKES, '#1e1e1e');
+      st.height = 'auto'; st.height = Math.max(textLH(el), tx.scrollHeight) + 'px';
+      return;
+    }
     ta.style.left = (el.x - view.x) + 'px'; ta.style.top = (el.y - view.y) + 'px'; ta.style.width = el.w + 'px'; ta.style.height = el.h + 'px';
     ta.style.background = pick(el.fill, NOTE_FILLS, '#bfd7ff');
   }
@@ -674,12 +726,47 @@
     editing = el.id; ta.value = el.text || ''; ta.style.display = 'block'; placeEditor(); draw();
     ta.focus();
   }
+  /* the on-screen keyboard shrinks the visual viewport; pan the board so the edited text stays visible */
+  function keepInView() {
+    if (!editing || tx.style.display !== 'block') return;
+    var vv = window.visualViewport, top = vv ? vv.offsetTop : 0, bottom = top + (vv ? vv.height : H) - 16;
+    var r = tx.getBoundingClientRect(), dy = 0;
+    if (r.bottom > bottom) dy = r.bottom - bottom;
+    if (r.top - dy < top + 12) dy = r.top - top - 12;
+    if (!dy) return;
+    view.y += dy; saveView(); draw(); placeEditor();
+  }
+  function editText(el, isNew) {
+    commitEdit();
+    if (!isNew) snap();
+    editing = el.id; editNew = !!isNew;
+    tx.value = el.text || ''; tx.style.display = 'block'; placeEditor(); draw();
+    tx.focus();
+    tx.setSelectionRange(tx.value.length, tx.value.length);
+    setTimeout(keepInView, 60); setTimeout(keepInView, 350);
+  }
+  tx.addEventListener('input', function () { placeEditor(); keepInView(); });
+  tx.addEventListener('blur', commitEdit);
+  tx.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); tx.blur(); } });
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', keepInView); window.visualViewport.addEventListener('scroll', keepInView); }
   function commitEdit() {
     if (!editing) return;
     var id = editing; editing = null;
-    ta.style.display = 'none';
+    ta.style.display = 'none'; tx.style.display = 'none';
     var el = els.filter(function (e) { return e.id === id; })[0];
-    if (el) {
+    if (el && el.type === 'text') {
+      var v = tx.value.trim().slice(0, 2000), isNew = editNew;
+      editNew = false;
+      if (!v) {
+        els = els.filter(function (e) { return e !== el; }); if (selId === id) selId = null;
+        if (isNew) { undoStack.pop(); syncUndo(); }
+      } else if (v === el.text && !isNew) { undoStack.pop(); syncUndo(); }
+      else {
+        el.text = v;
+        if (tool === 'text') { setTool('move'); selId = id; }
+      }
+      save();
+    } else if (el) {
       var v = ta.value.trim();
       if (!v) { els = els.filter(function (e) { return e !== el; }); }
       else if (v !== el.text) { snap(); el.text = v; fitNote(el); }
@@ -703,7 +790,8 @@
     if (!e.isPrimary || drag) return;
     closePanel();
     var p = pt(e);
-    if (editing) ta.blur();
+    var wasEditing = !!editing;
+    if (editing) commitEdit();
     cv.setPointerCapture(e.pointerId);
     if (tool === 'pen') {
       snap();
@@ -714,6 +802,16 @@
       var n = { id: newId(), type: 'note', x: p.x - NOTE / 2, y: p.y - NOTE / 2, w: NOTE, h: NOTE, text: '', fill: cur.noteFill };
       els.push(n); drag = { kind: 'none' };
       setTimeout(function () { editNote(n); }, 0);
+    } else if (tool === 'text') {
+      var ex = topAt(p.x, p.y);
+      if (wasEditing) drag = { kind: 'none' };
+      else if (ex && ex.type === 'text') drag = { kind: 'text', el: ex, isNew: false };
+      else {
+        snap();
+        var tw = Math.max(120, Math.min(280, W - 32));
+        var tn = { id: newId(), type: 'text', x: Math.max(view.x + 8, Math.min(p.x, view.x + W - 8 - tw)), y: p.y, text: '', size: cur.size, color: cur.strokeColor, w: tw };
+        els.push(tn); drag = { kind: 'text', el: tn, isNew: true };
+      }
     } else if (SHAPES.indexOf(tool) >= 0) {
       snap();
       var sh = styled({ id: newId(), type: tool, x: p.x, y: p.y, w: 0, h: 0 });
@@ -724,6 +822,7 @@
         snap();
         var hs = handles(sel), anchor = hs[(hi + 2) % 4] || hs[0];
         drag = { kind: 'handle', el: sel, i: hi, ax: anchor.x, ay: anchor.y, ex: sel.x + sel.w, ey: sel.y + sel.h };
+        if (sel.type === 'text') { var b0 = bbox(sel); drag.w0 = b0.w; drag.h0 = b0.h; drag.size0 = sel.size; drag.ew0 = sel.w; }
       } else {
         var t = topAt(p.x, p.y);
         if (t) { snap(); selId = t.id; drag = { kind: 'move', el: t, sx: e.clientX, sy: e.clientY, ox: t.x, oy: t.y, moved: false }; }
@@ -745,7 +844,14 @@
       draw();
     } else if (drag.kind === 'handle') {
       var h = drag.el;
-      if (h.type === 'line' || h.type === 'arrow') {
+      if (h.type === 'text') {
+        /* corner drag scales the font and wrap width together, never distorts */
+        var k = Math.max(Math.abs(p.x - drag.ax) / drag.w0, Math.abs(p.y - drag.ay) / drag.h0);
+        h.size = clampSize(drag.size0 * k);
+        h.w = Math.max(40, Math.min(2000, drag.ew0 * h.size / drag.size0));
+        var nb = bbox(h), right = drag.i === 0 || drag.i === 3, bottom = drag.i === 0 || drag.i === 1;
+        h.x = right ? drag.ax - nb.w : drag.ax; h.y = bottom ? drag.ay - nb.h : drag.ay;
+      } else if (h.type === 'line' || h.type === 'arrow') {
         if (drag.i === 0) { h.x = p.x; h.y = p.y; h.w = drag.ex - p.x; h.h = drag.ey - p.y; }
         else { h.w = p.x - h.x; h.h = p.y - h.y; }
       } else {
@@ -769,6 +875,11 @@
       if (!d.moved) {
         undoStack.pop(); syncUndo();
         if (d.el.type === 'note') editNote(d.el);
+        else if (d.el.type === 'text') {
+          var nowT = Date.now();
+          if (lastTap.id === d.el.id && nowT - lastTap.t < 350) { lastTap = { id: null, t: 0 }; editText(d.el, false); }
+          else lastTap = { id: d.el.id, t: nowT };
+        }
         else if (d.el.type === 'embed') {
           var now = Date.now();
           if (lastTap.id === d.el.id && now - lastTap.t < 350 && !d.el.pending) { interactId = d.el.id; lastTap = { id: null, t: 0 }; }
@@ -776,7 +887,8 @@
         }
       }
       else save();
-    } else if (d.kind === 'pan') saveView();
+    } else if (d.kind === 'text') editText(d.el, d.isNew);
+    else if (d.kind === 'pan') saveView();
     else if (d.kind === 'shape') {
       if (Math.hypot(d.el.w, d.el.h) < 6) { els = els.filter(function (x) { return x !== d.el; }); undoStack.pop(); syncUndo(); }
       else { setTool('move'); selId = d.el.id; save(); }
@@ -793,6 +905,7 @@
     tool = t; selId = null;
     toolBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.tool === t)); });
     cv.classList.toggle('move', t === 'move');
+    cv.classList.toggle('txt', t === 'text');
     draw();
   }
   toolBtns.forEach(function (b) { b.addEventListener('click', function () { commitEdit(); setTool(b.dataset.tool); }); });
@@ -808,7 +921,10 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && selEl()) { e.preventDefault(); deleteSel(); }
     if (e.key === 'Escape') closePanel();
+    if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 't') { e.preventDefault(); commitEdit(); setTool('text'); }
   });
+  /* Templates is a plain link; flush the board first so nothing is lost on the way out */
+  document.getElementById('tplLink').addEventListener('click', function () { commitEdit(); save(); saveView(); });
   syncUndo();
 
   /* ---------- ask panel ---------- */
@@ -944,6 +1060,7 @@
       if (el.text) o.text = el.text;
       else if (el.type === 'embed' && el.title) o.text = el.title;
       if (el.url) o.url = el.url;
+      if (el.type === 'text') { o.size = el.size; o.color = el.color; }
       if (el.strokeColor) o.strokeColor = el.strokeColor;
       if (el.fill && el.fill !== 'none') o.fill = el.fill;
       if (el.strokeWidth) o.strokeWidth = el.strokeWidth;
@@ -1011,7 +1128,12 @@
     if (!a || typeof a !== 'object') return null;
     var t = a.type, el = { id: newId(), type: t, ai: true };
     if (t === 'note') { el.x = num(a.x, view.x + 40); el.y = num(a.y, view.y + 40); el.text = str(a.text, 400); if (!el.text) return null; fitNote(el); }
-    else if (t === 'text') { el.x = num(a.x, 0); el.y = num(a.y, 0); el.text = str(a.text, 400); if (!el.text) return null; }
+    else if (t === 'text') {
+      var te = cleanText({ x: a.x, y: a.y, text: a.text, size: a.size, color: a.color != null ? a.color : a.strokeColor, w: a.w != null ? a.w : a.width });
+      if (!te) return null;
+      te.id = newId(); te.ai = true;
+      return te;
+    }
     else if (isClosed(t)) {
       el.x = num(a.x, 0); el.y = num(a.y, 0);
       el.w = Math.abs(num(a.width != null ? a.width : a.w, 120)) || 120;
