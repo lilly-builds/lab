@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lilly's idea map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #000; --paper: #fff; --f: "Special Elite", "Courier New", monospace; }
+  * { box-sizing: border-box; border-radius: 0; box-shadow: none; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--f); font-weight: normal; font-style: normal; }
+  body { padding: 20px 16px 60px; }
+  h1, h2 { font-weight: normal; margin: 0; }
+  h1 { font-size: 28px; letter-spacing: 0.5px; }
+  .sub { font-size: 13px; margin: 6px 0 14px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; margin-bottom: 18px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .label { font-size: 12px; margin-right: 2px; }
+  .tag { display: inline-block; font-family: var(--f); font-size: 11px; line-height: 1; padding: 3px 6px; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); }
+  .tag.SHIPPED { background: var(--ink); color: var(--paper); }
+  .tag.BUILDING { border-width: 2px; padding: 2px 5px; }
+  .tag.QUEUED { border: 1px solid var(--ink); }
+  .tag.IDEA { border: 1px dashed var(--ink); }
+  button.tog { font-family: var(--f); font-size: 12px; font-weight: normal; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 5px 9px; cursor: pointer; }
+  button.tog[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  #map { position: relative; }
+  #lines { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: visible; }
+  #lines line { stroke: var(--ink); stroke-width: 1; }
+  #lines line.dim { opacity: 0.12; }
+  #lines text { font-family: var(--f); font-size: 10px; fill: var(--ink); }
+  #lines text.dim { opacity: 0.12; }
+  #clusters { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 40px 48px; align-items: start; }
+  .cluster { border: 1px solid var(--ink); background: transparent; padding: 12px; }
+  .cluster h2 { font-size: 15px; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--ink); }
+  .notes { display: flex; flex-direction: column; gap: 14px; }
+  .note { position: relative; border: 1px solid var(--ink); background: var(--paper); padding: 8px 9px; font-size: 14px; line-height: 1.3; cursor: pointer; }
+  .note .tag { margin-top: 7px; }
+  .note .nt { font-size: 11px; margin-top: 6px; }
+  .note .lk { display: none; font-size: 11px; margin-top: 6px; }
+  .note.sel { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .dim { opacity: 0.25; }
+  .hide { display: none !important; }
+  .cluster.hide { display: none !important; }
+  @media (max-width: 699px) {
+    #lines { display: none; }
+    .note .lk { display: block; }
+    #clusters { grid-template-columns: 1fr; gap: 24px; }
+  }
+</style>
+</head>
+<body>
+<h1>Lilly's idea map</h1>
+<div class="sub">Ideas grouped into clusters. Lines are threads between related notes. Tap a note to follow its threads.</div>
+<div class="bar">
+  <div class="row" id="legend"><span class="label">Legend</span></div>
+  <div class="row" id="filters"><span class="label">Show only</span></div>
+</div>
+<div id="map">
+  <svg id="lines" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div id="clusters"></div>
+</div>
+
+<script>
+// ===== DATA BLOCK: the only part future edits touch =====
+// To add an idea: add one line to IDEAS (and a THREAD if it relates to another idea).
+// status is exactly one of: SHIPPED, BUILDING, QUEUED, IDEA.
+// Unknown cluster or status ends up under "Loose" so nothing is dropped.
+var CLUSTERS = [
+  {id: "core", title: "Core loop"},
+  {id: "canvas", title: "Canvas"},
+  {id: "gallery", title: "Gallery and community"},
+  {id: "share", title: "Share and publish"},
+  {id: "vision", title: "Vision"},
+  {id: "plan", title: "Plan"}
+];
+var IDEAS = [
+  {id: "input", cluster: "core", text: "One input box", status: "BUILDING"},
+  {id: "router", cluster: "core", text: "One router picks the right tool", status: "BUILDING", note: "issue 57"},
+  {id: "makereal", cluster: "core", text: "Make it real builds in the browser", status: "SHIPPED"},
+  {id: "drawback", cluster: "core", text: "Draw-back AI on the board", status: "SHIPPED"},
+  {id: "editask", cluster: "core", text: "Edit what is on the board by asking", status: "BUILDING"},
+
+  {id: "shapes", cluster: "canvas", text: "Shapes and circles", status: "SHIPPED"},
+  {id: "eraser", cluster: "canvas", text: "Eraser", status: "SHIPPED"},
+  {id: "spatial", cluster: "canvas", text: "Spatial awareness: AI sees zones", status: "SHIPPED"},
+  {id: "texttool", cluster: "canvas", text: "Text tool", status: "SHIPPED"},
+  {id: "bare", cluster: "canvas", text: "Bare images, no frame", status: "QUEUED"},
+  {id: "loading", cluster: "canvas", text: "Loading state", status: "SHIPPED"},
+
+  {id: "gallery", cluster: "gallery", text: "Template gallery", status: "SHIPPED"},
+  {id: "cards", cluster: "gallery", text: "Index-card gallery cards", status: "SHIPPED"},
+  {id: "submit", cluster: "gallery", text: "Community submit, no PR or JSON", status: "SHIPPED"},
+  {id: "invite", cluster: "gallery", text: "Invite link", status: "SHIPPED"},
+  {id: "xhandle", cluster: "gallery", text: "X handle on community cards", status: "SHIPPED"},
+
+  {id: "embeds", cluster: "share", text: "Embeds: YouTube, Spotify, Maps", status: "SHIPPED"},
+  {id: "sitecards", cluster: "share", text: "Cards for sites that cannot embed", status: "SHIPPED"},
+  {id: "publish", cluster: "share", text: "Publish to a link (GitHub, owner only)", status: "SHIPPED"},
+  {id: "ownpage", cluster: "share", text: "Own page for an idea (future city)", status: "SHIPPED"},
+
+  {id: "fluid", cluster: "vision", text: "One fluid creative dreamspace", status: "IDEA"},
+  {id: "nomodes", cluster: "vision", text: "No modes, no tool names", status: "BUILDING"},
+  {id: "zeroadmin", cluster: "vision", text: "Zero admin: no GitHub step for users", status: "SHIPPED"},
+  {id: "myplan", cluster: "vision", text: "Use my plan instead of an API key", status: "IDEA", note: "needs a backend and a business decision"},
+  {id: "platformkey", cluster: "vision", text: "Platform key with a free allowance", status: "IDEA", note: "needs a small backend"},
+  {id: "testreal", cluster: "vision", text: "Test everything in a real browser", status: "IDEA"},
+
+  {id: "dreamboard", cluster: "plan", text: "Dreamspace plans itself (dream board)", status: "BUILDING", note: "issue 58"}
+];
+// [idA, idB, "short label?"]
+var THREADS = [
+  ["input", "router"],
+  ["router", "editask"],
+  ["router", "makereal"],
+  ["makereal", "publish"],
+  ["makereal", "zeroadmin"],
+  ["fluid", "input"],
+  ["fluid", "nomodes"],
+  ["nomodes", "router"],
+  ["platformkey", "myplan"],
+  ["platformkey", "zeroadmin"],
+  ["gallery", "submit"],
+  ["submit", "invite"],
+  ["cards", "gallery"],
+  ["xhandle", "submit"],
+  ["embeds", "sitecards"],
+  ["embeds", "bare"],
+  ["spatial", "editask"],
+  ["ownpage", "dreamboard"],
+  ["shapes", "eraser"],
+  ["texttool", "shapes"]
+];
+// ===== END DATA BLOCK =====
+
+var STATUSES = ["SHIPPED", "BUILDING", "QUEUED", "IDEA"];
+var NS = "http://www.w3.org/2000/svg";
+var clustersEl = document.getElementById("clusters");
+var linesEl = document.getElementById("lines");
+var mapEl = document.getElementById("map");
+var noteEls = {};     // id -> element
+var ideaById = {};
+var activeFilters = {};
+var selected = null;
+
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function mkTag(s) { return el("span", "tag " + s, s); }
+
+// legend + filters
+(function () {
+  var lg = document.getElementById("legend");
+  var fl = document.getElementById("filters");
+  STATUSES.forEach(function (s) {
+    lg.appendChild(mkTag(s));
+    var b = el("button", "tog", s);
+    b.type = "button";
+    b.setAttribute("aria-pressed", "false");
+    b.onclick = function (ev) {
+      ev.stopPropagation();
+      activeFilters[s] = !activeFilters[s];
+      b.setAttribute("aria-pressed", activeFilters[s] ? "true" : "false");
+      applyFilter();
+    };
+    fl.appendChild(b);
+  });
+})();
+
+function build() {
+  var known = {};
+  CLUSTERS.forEach(function (c) { known[c.id] = true; });
+  var groups = CLUSTERS.map(function (c) { return {id: c.id, title: c.title, ideas: []}; });
+  var byId = {};
+  groups.forEach(function (g) { byId[g.id] = g; });
+  var loose = {id: "__loose", title: "Loose", ideas: []};
+  IDEAS.forEach(function (i) {
+    ideaById[i.id] = i;
+    var okStatus = STATUSES.indexOf(i.status) >= 0;
+    if (known[i.cluster] && okStatus) byId[i.cluster].ideas.push(i);
+    else loose.ideas.push(i);
+  });
+  if (loose.ideas.length) groups.push(loose);
+
+  groups.forEach(function (g) {
+    if (!g.ideas.length && g !== loose) { /* keep empty declared clusters visible */ }
+    var box = el("section", "cluster");
+    box.appendChild(el("h2", null, g.title));
+    var list = el("div", "notes");
+    g.ideas.forEach(function (i) {
+      var n = el("div", "note");
+      n.dataset.id = i.id;
+      n.appendChild(el("div", "tx", i.text));
+      var st = STATUSES.indexOf(i.status) >= 0 ? i.status : "IDEA";
+      var tag = mkTag(st);
+      if (st !== i.status) tag.textContent = String(i.status || "IDEA");
+      n.appendChild(tag);
+      if (i.note) n.appendChild(el("div", "nt", i.note));
+      var linked = [];
+      THREADS.forEach(function (t) {
+        var o = t[0] === i.id ? t[1] : (t[1] === i.id ? t[0] : null);
+        if (o && IDEAS.some(function (x) { return x.id === o; })) {
+          var oi = IDEAS.filter(function (x) { return x.id === o; })[0];
+          linked.push(oi.text);
+        }
+      });
+      if (linked.length) n.appendChild(el("div", "lk", "linked: " + linked.join(", ")));
+      n.onclick = function (ev) { ev.stopPropagation(); select(i.id); };
+      noteEls[i.id] = n;
+      list.appendChild(n);
+    });
+    box.appendChild(list);
+    box._ideas = g.ideas;
+    clustersEl.appendChild(box);
+  });
+}
+
+function anyFilter() { return STATUSES.some(function (s) { return activeFilters[s]; }); }
+
+function applyFilter() {
+  var on = anyFilter();
+  IDEAS.forEach(function (i) {
+    var n = noteEls[i.id];
+    if (!n) return;
+    n.classList.toggle("hide", on && !activeFilters[i.status]);
+  });
+  Array.prototype.forEach.call(clustersEl.children, function (c) {
+    var any = Array.prototype.some.call(c.querySelectorAll(".note"), function (n) { return !n.classList.contains("hide"); });
+    c.classList.toggle("hide", on && !any);
+  });
+  if (selected && noteEls[selected].classList.contains("hide")) selected = null;
+  draw();
+}
+
+function select(id) {
+  selected = selected === id ? null : id;
+  draw();
+}
+
+function draw() {
+  while (linesEl.firstChild) linesEl.removeChild(linesEl.firstChild);
+  var base = mapEl.getBoundingClientRect();
+  var linkedSet = {};
+  if (selected) {
+    linkedSet[selected] = true;
+    THREADS.forEach(function (t) {
+      if (t[0] === selected) linkedSet[t[1]] = true;
+      if (t[1] === selected) linkedSet[t[0]] = true;
+    });
+  }
+  Object.keys(noteEls).forEach(function (id) {
+    var n = noteEls[id];
+    n.classList.toggle("sel", id === selected);
+    n.classList.toggle("dim", !!selected && !linkedSet[id]);
+  });
+  Array.prototype.forEach.call(clustersEl.children, function (c) {
+    var hasSel = selected && Array.prototype.some.call(c.querySelectorAll(".note"), function (n) { return linkedSet[n.dataset.id]; });
+    c.classList.toggle("dim", !!selected && !hasSel);
+  });
+  if (window.innerWidth < 700) return;
+
+  linesEl.setAttribute("width", base.width);
+  linesEl.setAttribute("height", base.height);
+  THREADS.forEach(function (t) {
+    var a = noteEls[t[0]], b = noteEls[t[1]];
+    if (!a || !b || a.classList.contains("hide") || b.classList.contains("hide")) return;
+    var ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    var p = edgePoints(ra, rb, base);
+    var hot = selected && (t[0] === selected || t[1] === selected);
+    var dim = selected && !hot;
+    var ln = document.createElementNS(NS, "line");
+    ln.setAttribute("x1", p[0]); ln.setAttribute("y1", p[1]);
+    ln.setAttribute("x2", p[2]); ln.setAttribute("y2", p[3]);
+    if (dim) ln.setAttribute("class", "dim");
+    if (hot) ln.setAttribute("stroke-width", 2);
+    linesEl.appendChild(ln);
+    if (t[2]) {
+      var tx = document.createElementNS(NS, "text");
+      tx.setAttribute("x", (p[0] + p[2]) / 2 + 3);
+      tx.setAttribute("y", (p[1] + p[3]) / 2 - 3);
+      if (dim) tx.setAttribute("class", "dim");
+      tx.textContent = t[2];
+      linesEl.appendChild(tx);
+    }
+  });
+}
+
+// pick facing edges: side-to-side when horizontally apart, otherwise top/bottom
+function edgePoints(a, b, base) {
+  var ox = base.left, oy = base.top;
+  var ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+  var bx = b.left + b.width / 2, by = b.top + b.height / 2;
+  var x1, y1, x2, y2;
+  if (a.right <= b.left || b.right <= a.left) {
+    if (ax < bx) { x1 = a.right; x2 = b.left; } else { x1 = a.left; x2 = b.right; }
+    y1 = ay; y2 = by;
+  } else {
+    if (ay < by) { y1 = a.bottom; y2 = b.top; } else { y1 = a.top; y2 = b.bottom; }
+    x1 = ax; x2 = bx;
+  }
+  return [x1 - ox, y1 - oy, x2 - ox, y2 - oy];
+}
+
+document.addEventListener("click", function () { if (selected) { selected = null; draw(); } });
+window.addEventListener("resize", draw);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
+window.addEventListener("load", draw);
+
+build();
+draw();
+</script>
+</body>
+</html>
