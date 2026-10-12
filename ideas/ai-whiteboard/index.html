@@ -26,6 +26,9 @@
   canvas#board { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; cursor: crosshair; }
   canvas#board.move { cursor: grab; }
   canvas#board.txt { cursor: text; }
+  canvas#board.erase { cursor: none; }
+  #eraseCur { position: fixed; left: 0; top: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px; box-sizing: border-box; border: 1px solid var(--ink); border-radius: 50%; pointer-events: none; z-index: 6; display: none; }
+  .emb.erasing { opacity: .3; }
 
   textarea#noteEdit { position: fixed; display: none; margin: 0; padding: 8px; resize: none; overflow: hidden; border: 1px solid var(--ink); border-radius: 0;
     background: var(--note); font: 300 16px/20px var(--serif); outline: 0; box-shadow: none; aspect-ratio: 1 / 1; z-index: 5; }
@@ -184,6 +187,7 @@
 <canvas id="board"></canvas>
 <svg id="edge" aria-hidden="true"><rect x="0" y="0" width="100%" height="100%" pathLength="100"/></svg>
 <div id="embeds"></div>
+<div id="eraseCur" aria-hidden="true"></div>
 <textarea id="noteEdit" aria-label="Note" maxlength="400"></textarea>
 <textarea id="textEdit" aria-label="Text" maxlength="2000" rows="1" spellcheck="false" autocorrect="off" wrap="soft"></textarea>
 
@@ -233,6 +237,7 @@
     <button type="button" data-tool="line" aria-label="Line" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19L19 5"/></svg></button>
     <button type="button" data-tool="arrow" aria-label="Arrow" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19L19 5M10 5h9v9"/></svg></button>
     <button type="button" id="embedBtn" aria-label="Embed a page" aria-expanded="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M13.5 19.5v-6h6"/></svg></button>
+    <button type="button" data-tool="erase" aria-label="Eraser" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/><path d="M4.5 12.5l8-8M4.5 19.5l15-15"/></svg></button>
     <button type="button" data-tool="move"aria-label="Select and move" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></button>
     <button type="button" id="undo" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 8h-3"/></svg></button>
     <a id="tplLink" class="tpl" href="../templates/" aria-label="Templates"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="6" height="6"/><rect x="13.5" y="4.5" width="6" height="6"/><rect x="4.5" y="13.5" width="6" height="6"/><rect x="13.5" y="13.5" width="6" height="6"/></svg><span class="lbl">Templates</span></a>
@@ -451,7 +456,7 @@
   var KEY_SCENE = 'aiwb.scene', KEY_VIEW = 'aiwb.view', KEY_PROVIDER = 'aiwb.provider';
   var OLD_KEY = 'aiwb.key', OLD_MODEL = 'aiwb.model';
   var cv = document.getElementById('board'), ctx = cv.getContext('2d');
-  var els = [], view = { x: 0, y: 0 }, tool = 'pen', undoStack = [], editing = null, busy = false, fade = null, selId = null;
+  var els = [], view = { x: 0, y: 0 }, tool = 'pen', undoStack = [], editing = null, busy = false, fade = null, selId = null, eraseIds = {};
   var cur = { strokeColor: '#1e1e1e', fill: 'none', strokeWidth: 2, dashed: false, noteFill: '#bfd7ff', size: 24 };
   var imgCache = {}, NOTE = 120, nextId = 1, editNew = false;
   var dpr = 1, W = 0, H = 0;
@@ -725,7 +730,8 @@
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
     var fp = fade ? Math.min(1, (performance.now() - fade.t0) / 250) : 1;
     els.forEach(function (el) {
-      if (fade && fade.ids[el.id]) { ctx.save(); ctx.globalAlpha = fp; drawEl(ctx, el, view.x, view.y); ctx.restore(); }
+      if (eraseIds[el.id]) { ctx.save(); ctx.globalAlpha = 0.3; drawEl(ctx, el, view.x, view.y); ctx.restore(); }
+      else if (fade && fade.ids[el.id]) { ctx.save(); ctx.globalAlpha = fp; drawEl(ctx, el, view.x, view.y); ctx.restore(); }
       else drawEl(ctx, el, view.x, view.y);
     });
     if (fade) { if (fp < 1) requestAnimationFrame(draw); else fade = null; }
@@ -900,7 +906,11 @@
     var wasEditing = !!editing;
     if (editing) commitEdit();
     cv.setPointerCapture(e.pointerId);
-    if (tool === 'pen') {
+    if (tool === 'erase') {
+      drag = { kind: 'erase', lx: p.x, ly: p.y };
+      eraseTo(p.x, p.y, p.x, p.y);
+      showEraseCur(e);
+    } else if (tool === 'pen') {
       snap();
       var el = styled({ id: newId(), type: 'pen', x: p.x, y: p.y, pts: [[0, 0]] });
       els.push(el); drag = { kind: 'pen', el: el };
@@ -938,10 +948,50 @@
     }
     draw();
   });
+  /* eraser: object eraser, hit-tested along the pointer path; removal happens once on release */
+  var ERASE_TOL = 8, eraseCur = document.getElementById('eraseCur');
+  function eraseHit(el, px, py) {
+    if (el.type === 'pen') {
+      for (var i = 0; i < el.pts.length; i++) {
+        var a = el.pts[i], b = el.pts[i + 1] || a;
+        if (distSeg(px, py, el.x + a[0], el.y + a[1], el.x + b[0], el.y + b[1]) < ERASE_TOL) return true;
+      }
+      return false;
+    }
+    return hit(el, px, py);
+  }
+  function eraseTo(x0, y0, x1, y1) {
+    var n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 4)), changed = false;
+    for (var k = 0; k <= n; k++) {
+      var px = x0 + (x1 - x0) * k / n, py = y0 + (y1 - y0) * k / n;
+      for (var i = 0; i < els.length; i++) if (!eraseIds[els[i].id] && eraseHit(els[i], px, py)) { eraseIds[els[i].id] = true; changed = true; }
+    }
+    if (changed) draw();
+  }
+  function showEraseCur(e) {
+    if (tool !== 'erase') { eraseCur.style.display = 'none'; return; }
+    eraseCur.style.display = 'block';
+    eraseCur.style.transform = 'translate(' + e.clientX + 'px,' + e.clientY + 'px)';
+  }
+  function endErase(remove) {
+    var ids = eraseIds, any = Object.keys(ids).length > 0;
+    eraseIds = {};
+    if (any && remove) {
+      snap();
+      els = els.filter(function (x) { return !ids[x.id]; });
+      if (selId && ids[selId]) selId = null;
+      save();
+    }
+    if (any) draw();
+  }
+  cv.addEventListener('pointermove', function (e) { if (tool === 'erase') showEraseCur(e); });
+  cv.addEventListener('pointerleave', function () { if (!drag) eraseCur.style.display = 'none'; });
   cv.addEventListener('pointermove', function (e) {
     if (!drag || !e.isPrimary) return;
     var p = pt(e);
-    if (drag.kind === 'pen') {
+    if (drag.kind === 'erase') {
+      eraseTo(drag.lx, drag.ly, p.x, p.y); drag.lx = p.x; drag.ly = p.y;
+    } else if (drag.kind === 'pen') {
       var el = drag.el, last = el.pts[el.pts.length - 1], q = [p.x - el.x, p.y - el.y];
       if (Math.hypot(q[0] - last[0], q[1] - last[1]) >= 1.5) { el.pts.push(q); draw(); }
     } else if (drag.kind === 'shape') {
@@ -978,6 +1028,11 @@
   function end(e) {
     if (!drag || (e && !e.isPrimary)) return;
     var d = drag; drag = null;
+    if (d.kind === 'erase') {
+      endErase(!(e && e.type === 'pointercancel'));
+      if (e && e.pointerType && e.pointerType !== 'mouse') eraseCur.style.display = 'none';
+      return;
+    }
     if (d.kind === 'move') {
       if (!d.moved) {
         undoStack.pop(); syncUndo();
@@ -1008,14 +1063,19 @@
 
   /* ---------- toolbar ---------- */
   var toolBtns = document.querySelectorAll('[data-tool]');
+  var prevTool = 'pen';
   function setTool(t) {
+    if (t === 'erase' && tool !== 'erase') prevTool = tool;
+    if (drag && drag.kind === 'erase') { drag = null; endErase(false); }
     tool = t; selId = null;
+    if (t !== 'erase') eraseCur.style.display = 'none';
+    cv.classList.toggle('erase', t === 'erase');
     toolBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.tool === t)); });
     cv.classList.toggle('move', t === 'move');
     cv.classList.toggle('txt', t === 'text');
     draw();
   }
-  toolBtns.forEach(function (b) { b.addEventListener('click', function () { commitEdit(); setTool(b.dataset.tool); }); });
+  toolBtns.forEach(function (b) { b.addEventListener('click', function () { commitEdit(); setTool(b.dataset.tool === 'erase' && tool === 'erase' ? prevTool : b.dataset.tool); }); });
   function undo() {
     commitEdit();
     if (!undoStack.length) return;
@@ -1027,7 +1087,8 @@
     var tag = document.activeElement && document.activeElement.tagName, typing = tag === 'TEXTAREA' || tag === 'INPUT';
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !typing && selEl()) { e.preventDefault(); deleteSel(); }
-    if (e.key === 'Escape') { if (busy) cancelSend(); else closePanel(); }
+    if (e.key === 'Escape') { if (busy) cancelSend(); else closePanel(); if (tool === 'erase') setTool(prevTool); }
+    if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'e') { e.preventDefault(); commitEdit(); setTool(tool === 'erase' ? prevTool : 'erase'); }
     if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 't') { e.preventDefault(); commitEdit(); setTool('text'); }
   });
   /* Templates is a plain link; flush the board first so nothing is lost on the way out */
@@ -1663,6 +1724,7 @@
     st.width = Math.round(el.w) + 'px'; st.height = Math.round(el.h) + 'px';
     var stalled = isStalled(el), sel = selId === el.id;
     n.root.classList.toggle('sel', sel);
+    n.root.classList.toggle('erasing', !!eraseIds[el.id]);
     n.root.classList.toggle('act', interactId === el.id && !el.pending);
     n.root.classList.toggle('stall', stalled);
     var t = stalled ? 'Not live yet.' : (el.title || '');
