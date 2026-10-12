@@ -11,7 +11,6 @@
   :root {
     --ink: #000;
     --paper: #fff;
-    --hair: rgba(0,0,0,.18);
     --note: #bfd7ff;
     --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
     --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -22,12 +21,9 @@
   button, input { font: inherit; color: inherit; }
   button { cursor: pointer; background: none; border: 0; padding: 0; }
   :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
   .app { max-width: 760px; margin: 0 auto; padding: 20px 12px 56px; }
-  .mono { font-family: var(--mono); font-weight: 300; font-size: 12px; letter-spacing: .02em; }
-  .sim { text-align: center; margin: 0 0 28px; }
-  .prompt { text-align: center; font-style: italic; font-size: 20px; margin: 10px 0 12px; font-size: clamp(26px, 6vw, 38px); }
+  .prompt { text-align: center; font-style: italic; margin: 10px 0 12px; font-size: clamp(26px, 6vw, 38px); }
 
   .board { position: relative; width: 100%; max-width: 720px; margin: 0 auto; aspect-ratio: 1 / 1; touch-action: manipulation; cursor: crosshair; }
   svg.rings { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -38,49 +34,27 @@
   @keyframes draw { to { stroke-dashoffset: 0; } }
   @media (prefers-reduced-motion: reduce) { svg.rings circle { animation: none; stroke-dashoffset: 0; } }
 
-  .label { position: absolute; min-height: 44px; min-width: 44px; padding: 0 10px; font-size: clamp(16px, 3.4vw, 26px); letter-spacing: -.01em; white-space: nowrap; z-index: 3; }
+  /* Labels are centred well inside each circle (0.13 of the board below the
+     circle's top-centre region), so the outline never reaches the text. */
+  .label { position: absolute; min-height: 44px; min-width: 44px; padding: 0 10px; font-size: clamp(16px, 3.4vw, 26px); letter-spacing: -.01em; white-space: nowrap; z-index: 3; transform: translate(-50%, -50%); }
   .label:hover { text-decoration: underline; text-underline-offset: 4px; }
-  .label { transform: translateX(-50%); }
-  .label.dream { left: 50%; top: 5%; }
-  .label.have { left: 25%; top: 51%; }
-  .label.want { left: 75%; top: 51%; }
+  .label.dream { left: 50%; top: 14%; }
+  .label.have { left: 25%; top: 60%; }
+  .label.want { left: 75%; top: 60%; }
 
   .sticky { position: absolute; width: clamp(92px, 24%, 150px); min-height: 64px; padding: 6px 8px; background: var(--note); border: 1px solid var(--ink);
     transform: translate(-50%, -50%); display: flex; flex-direction: column; justify-content: space-between; gap: 4px; z-index: 2;
     cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; font-size: 15px; line-height: 1.2; }
   .sticky.dragging { cursor: grabbing; z-index: 10; }
-  .sticky.stopped { opacity: .55; }
-  .sticky .txt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
-  .sticky .st { font-family: var(--mono); font-weight: 300; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+  .sticky .txt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; padding-right: 14px; }
+  .sticky .x { position: absolute; top: -10px; right: -10px; width: 32px; height: 32px; border-radius: 50%; background: var(--paper); border: 1px solid var(--ink);
+    font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center; }
   .sticky input { width: 100%; min-height: 44px; border: 0; border-bottom: 1px solid var(--ink); background: transparent; font-size: 16px; padding: 0; border-radius: 0; }
   .sticky input:focus-visible { outline: 0; }
-
-  .hint { margin: 10px 0 0; text-align: center; }
-  h2 { font-weight: 300; font-size: 22px; margin: 44px 0 0; padding-bottom: 8px; border-bottom: 1px solid var(--ink); }
-  .item { padding: 14px 0; border-bottom: 1px solid var(--hair); min-width: 0; }
-  .item.flash { animation: flash 1s; }
-  @keyframes flash { 0% { background: var(--note); } 100% { background: transparent; } }
-  .item .top { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; justify-content: space-between; }
-  .item .name { font-size: 19px; word-break: break-word; }
-  .item .meta { text-transform: uppercase; }
-  .item .last { margin: 2px 0 0; }
-  .trail { list-style: none; margin: 6px 0 0; padding: 0; }
-  .trail li { margin: 0 0 2px; }
-  .trail time { margin-right: 8px; }
-  .ask { margin: 10px 0 0; }
-  .ask label { display: block; margin-bottom: 4px; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .row input { flex: 1 1 160px; min-width: 0; min-height: 44px; border: 0; border-bottom: 1px solid var(--ink); background: transparent; border-radius: 0; padding: 0; font-size: 16px; }
-  .row input:focus-visible { outline: 0; border-bottom-width: 2px; }
-  .link { min-height: 44px; min-width: 44px; padding: 0 12px 0 0; text-decoration: underline; text-underline-offset: 4px; font-family: var(--mono); font-weight: 300; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-  .err { margin: 4px 0 0; min-height: 1.2em; }
-  .empty { padding: 18px 0; }
-  .tools { margin-top: 20px; display: flex; flex-wrap: wrap; }
 </style>
 </head>
 <body>
 <div class="app">
-  <p class="mono sim" role="note">Simulation: the helper is pretend. Nothing real is sent, booked or scheduled.</p>
   <p class="prompt">What’s on your mind?</p>
 
   <div class="board" id="board">
@@ -93,14 +67,6 @@
     <button class="label have" data-add="have" type="button">Have to do</button>
     <button class="label want" data-add="want" type="button">Want to do</button>
   </div>
-  <p class="mono hint">Tap inside a circle to add a note. Drag a note to another circle to move it.</p>
-
-  <h2>Helper</h2>
-  <div id="list" aria-live="polite"></div>
-  <div class="tools">
-    <button class="link" id="reset" type="button">Reset examples</button>
-    <button class="link" id="clear" type="button">Clear board</button>
-  </div>
 </div>
 
 <script>
@@ -112,28 +78,20 @@
     have:  { name: 'Have to do', cx: 0.25, cy: 0.73, r: 0.25 },
     want:  { name: 'Want to do', cx: 0.75, cy: 0.73, r: 0.25 }
   };
-  var STATUS = { picked: 'Picked up', working: 'Working', blocked: 'Needs one detail', scheduled: 'Scheduled',
-                 done: 'Done', plan: 'Steps drafted', stopped: 'Stopped' };
-  var SHORT = { blocked: 'Question', plan: 'Plan ready' };
-  var APPT = /dentist|doctor|appointment|haircut|vet\b|dermatolog|optician|checkup|check-up/i;
-  var REPEAT = /\b(every|daily|weekly|monthly|yearly)\b/i;
 
   var board = document.getElementById('board');
-  var list = document.getElementById('list');
-  var notes = [], nextId = 1, els = {};
+  var notes = [], nextId = 1;
 
   function h(tag, attrs, kids) {
     var e = document.createElement(tag);
     Object.keys(attrs || {}).forEach(function (k) {
       if (k === 'text') e.textContent = attrs[k];
-      else if (k.slice(0, 2) === 'on') e.addEventListener(k.slice(2), attrs[k]);
       else e.setAttribute(k, attrs[k]);
     });
     (kids || []).forEach(function (c) { if (c) e.appendChild(c); });
     return e;
   }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-  function clock(t) { return new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
 
   /* ---------- geometry ---------- */
   function circleAt(fx, fy) {
@@ -153,153 +111,25 @@
     return clampPos(c.cx + Math.cos(a) * 0.05, c.cy + 0.06 + Math.sin(a) * 0.05);
   }
 
-  /* ---------- simulated helper ---------- */
-  function log(n, text) { n.trail.push({ t: Date.now(), text: text }); }
-  function later(n, ms, fn) {
-    var tok = n.token;
-    setTimeout(function () { if (n.token !== tok || notes.indexOf(n) < 0) return; fn(); sync(n); }, ms);
-  }
-  function startHelper(n) {
-    n.token++;
-    n.status = 'picked';
-    log(n, 'Picked up: “' + n.text + '”.');
-    later(n, 1300, function () { n.status = 'working'; log(n, n.repeat ? 'Working out how to repeat this.' : 'Working on it.'); });
-    later(n, 3400, function () {
-      if (n.repeat) {
-        n.status = 'scheduled';
-        log(n, 'Pretend-scheduled as a repeat. Nothing real was scheduled.');
-      } else if (APPT.test(n.text)) {
-        n.status = 'blocked'; n.question = 'What days and times suit you best?';
-        log(n, 'Waiting on one detail: ' + n.question);
-      } else if (n.origin === 'dream') {
-        n.status = 'plan';
-        n.plan = ['Write one sentence about what this would look like.', 'Find one person or place that could help.', 'Pick a 15-minute first try this week.'];
-        log(n, 'Drafted a small first-step plan. Not done; the steps are yours to edit.');
-      } else {
-        n.status = 'done'; log(n, 'Finished (pretend). Nothing was sent or booked.');
-      }
-    });
-  }
-  function answer(n, text) {
-    log(n, 'You answered: “' + text + '”');
-    n.status = 'working'; n.question = null;
-    log(n, 'Thanks, carrying on.');
-    sync(n);
-    later(n, 2000, function () { n.status = 'done'; log(n, 'Drafted a booking request (pretend). Nothing was sent.'); });
-  }
-  function stop(n) {
-    n.token++; n.question = null; n.status = 'stopped';
-    log(n, 'Stopped by you. Nothing more will happen.');
-    sync(n);
-  }
-
   /* ---------- notes ---------- */
   function addNote(text, circle, pos) {
-    var n = { id: nextId++, text: text, circle: circle, origin: circle, repeat: REPEAT.test(text), x: pos.x, y: pos.y,
-              status: 'picked', trail: [], plan: null, question: null, token: 0 };
-    notes.push(n);
-    render();
-    startHelper(n);
-    sync(n);
-    return n;
-  }
-  function removeNote(n) { n.token++; notes.splice(notes.indexOf(n), 1); render(); }
-  function clearAll() { notes.forEach(function (n) { n.token++; }); notes = []; render(); }
-  function loadStarters() {
-    clearAll();
-    addNote('Dentist check-up', 'have', { x: 0.25, y: 0.67 });
-    addNote('Water the plants every Sunday', 'have', { x: 0.25, y: 0.83 });
-    addNote('Sunset hike and picnic', 'want', { x: 0.75, y: 0.72 });
-    addNote('Learn watercolors', 'dream', { x: 0.5, y: 0.3 });
-  }
-
-  /* ---------- rendering ---------- */
-  function stickyFor(n) {
-    var s = h('div', { 'class': 'sticky', tabindex: '0', role: 'button' });
-    attachDrag(s, n);
-    s.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusItem(n); } });
-    return s;
-  }
-  function syncSticky(n, s) {
-    s.className = 'sticky' + (n.status === 'stopped' ? ' stopped' : '') + (s.classList.contains('dragging') ? ' dragging' : '');
-    s.style.left = n.x * 100 + '%'; s.style.top = n.y * 100 + '%';
-    s.setAttribute('aria-label', n.text + ', ' + CIRCLES[n.circle].name + ', ' + STATUS[n.status] + '. Press Enter for details.');
-    s.textContent = '';
-    s.appendChild(h('span', { 'class': 'txt', text: n.text }));
-    s.appendChild(h('span', { 'class': 'st', text: SHORT[n.status] || STATUS[n.status] }));
-  }
-  function itemFor(n) {
-    var last = n.trail[n.trail.length - 1];
-    var it = h('article', { 'class': 'item', 'data-id': n.id }, [
-      h('div', { 'class': 'top' }, [
-        h('span', { 'class': 'name', text: n.text }),
-        h('span', { 'class': 'mono meta', text: CIRCLES[n.circle].name + ' · ' + STATUS[n.status] + (n.repeat ? ' · repeats' : '') })
-      ]),
-      h('p', { 'class': 'mono last', text: last ? clock(last.t) + '  ' + last.text : '' })
+    var n = { id: nextId++, text: text, circle: circle, x: pos.x, y: pos.y };
+    var s = h('div', { 'class': 'sticky', 'aria-label': text + ', ' + CIRCLES[circle].name }, [
+      h('span', { 'class': 'txt', text: text }),
+      h('button', { 'class': 'x', type: 'button', 'aria-label': 'Delete note: ' + text, text: '×' })
     ]);
-
-    if (n.status === 'blocked') {
-      var inp = h('input', { type: 'text', id: 'ans' + n.id, maxlength: '80', autocomplete: 'off', placeholder: 'e.g. Tuesday mornings' });
-      var err = h('p', { 'class': 'mono err', role: 'alert' });
-      var go = function () {
-        var v = inp.value.trim();
-        if (!v) { err.textContent = 'Type your answer first.'; inp.focus(); return; }
-        answer(n, v);
-      };
-      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
-      it.appendChild(h('div', { 'class': 'ask' }, [
-        h('label', { 'for': 'ans' + n.id, text: n.question }),
-        h('div', { 'class': 'row' }, [inp, h('button', { 'class': 'link', type: 'button', text: 'Answer', onclick: go })]),
-        err
-      ]));
-    }
-    if (n.plan) {
-      var box = h('div', { 'class': 'ask' }, [h('p', { 'class': 'mono', text: 'First steps. Edit freely; nothing here is done yet.' })]);
-      n.plan.forEach(function (step, i) {
-        var p = h('input', { type: 'text', value: step, maxlength: '100', 'aria-label': 'Step ' + (i + 1) });
-        p.addEventListener('input', function () { n.plan[i] = p.value; });
-        box.appendChild(h('div', { 'class': 'row' }, [p,
-          h('button', { 'class': 'link', type: 'button', 'aria-label': 'Remove step ' + (i + 1), text: 'Remove', onclick: function () { n.plan.splice(i, 1); sync(n); } })]));
-      });
-      box.appendChild(h('button', { 'class': 'link', type: 'button', text: 'Add a step',
-        onclick: function () { n.plan.push(''); sync(n); var ins = els[n.id].item.querySelectorAll('.ask input'); ins[ins.length - 1].focus(); } }));
-      it.appendChild(box);
-    }
-    var acts = h('div', { 'class': 'row' });
-    if (n.status === 'picked' || n.status === 'working' || n.status === 'blocked') {
-      acts.appendChild(h('button', { 'class': 'link', type: 'button', text: 'Stop', onclick: function () { stop(n); } }));
-    }
-    acts.appendChild(h('button', { 'class': 'link', type: 'button', text: 'Remove note', onclick: function () { removeNote(n); } }));
-    it.appendChild(acts);
-    return it;
-  }
-  function sig(n) { return [n.status, n.trail.length, n.circle, n.plan ? n.plan.length : -1].join('|'); }
-  function sync(n) {
-    var e = els[n.id];
-    if (!e) return;
-    syncSticky(n, e.sticky);
-    var s = sig(n);
-    if (s !== e.sig) { var fresh = itemFor(n); e.item.replaceWith(fresh); e.item = fresh; e.sig = s; }
-  }
-  function render() {
-    var keep = {};
-    notes.forEach(function (n) { keep[n.id] = true; });
-    Object.keys(els).forEach(function (id) { if (!keep[id]) { els[id].sticky.remove(); els[id].item.remove(); delete els[id]; } });
-    Array.prototype.forEach.call(list.querySelectorAll('.empty'), function (x) { x.remove(); });
-    notes.forEach(function (n) {
-      if (!els[n.id]) {
-        els[n.id] = { sticky: stickyFor(n), item: itemFor(n), sig: sig(n) };
-        board.appendChild(els[n.id].sticky);
-        list.appendChild(els[n.id].item);
-      }
-      syncSticky(n, els[n.id].sticky);
+    var x = s.querySelector('.x');
+    x.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+    x.addEventListener('click', function (e) {
+      e.stopPropagation();
+      s.remove();
+      notes.splice(notes.indexOf(n), 1);
     });
-    if (!notes.length) list.appendChild(h('p', { 'class': 'mono empty', text: 'Nothing yet. Tap inside a circle to add a note.' }));
-  }
-  function focusItem(n) {
-    var c = els[n.id].item;
-    c.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash');
+    s.style.left = n.x * 100 + '%'; s.style.top = n.y * 100 + '%';
+    attachDrag(s, n);
+    notes.push(n);
+    board.appendChild(s);
+    return n;
   }
 
   /* ---------- dragging ---------- */
@@ -326,15 +156,12 @@
       if (!start || e.pointerId !== start.id) return;
       var st = start; start = null;
       s.classList.remove('dragging');
-      if (!st.moved) { if (!cancelled) focusItem(n); return; }
+      if (!st.moved) return;
       var target = cancelled ? null : circleAt(n.x, n.y);
       if (!target) { n.x = st.ox; n.y = st.oy; }
-      else if (target !== n.circle) {
-        // Only the label changes; the helper is deliberately not restarted.
-        log(n, 'Moved from “' + CIRCLES[n.circle].name + '” to “' + CIRCLES[target].name + '”. Same job, nothing restarted.');
-        n.circle = target;
-      }
-      els[n.id].sig = ''; sync(n);
+      else n.circle = target;
+      s.style.left = n.x * 100 + '%'; s.style.top = n.y * 100 + '%';
+      s.setAttribute('aria-label', n.text + ', ' + CIRCLES[n.circle].name);
     }
     s.addEventListener('pointerup', function (e) { end(e, false); });
     s.addEventListener('pointercancel', function (e) { end(e, true); });
@@ -373,10 +200,6 @@
   Array.prototype.forEach.call(document.querySelectorAll('[data-add]'), function (b) {
     b.addEventListener('click', function (e) { e.stopPropagation(); var c = b.dataset.add; compose(c, anchor(c, notes.length)); });
   });
-  document.getElementById('reset').addEventListener('click', loadStarters);
-  document.getElementById('clear').addEventListener('click', clearAll);
-
-  loadStarters();
 })();
 </script>
 </body>
