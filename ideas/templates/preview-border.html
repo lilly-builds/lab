@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Templates: Simple border preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #000;
+    --paper: #fff;
+    --serif: "Special Elite", "Courier New", monospace;
+    --mono: "Special Elite", "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; overflow-x: hidden; }
+  body { background: var(--paper); color: var(--ink); font: 400 17px/1.45 var(--serif); font-synthesis: none; min-height: 100vh; }
+  a { color: inherit; text-decoration: none; }
+  :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+
+  .app { max-width: 1040px; margin: 0 auto; padding: 24px 16px 56px; }
+  h1 { font: 400 clamp(26px, 6vw, 38px)/1.2 var(--serif); margin: 10px 0 28px; text-align: center; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 32px 24px; }
+  .card { display: block; min-width: 0; min-height: 44px; padding: 14px; background: var(--paper); border: 2px solid var(--ink); border-radius: 0; box-shadow: none; transition: transform 150ms; }
+  .card:hover { transform: translateY(-2px); }
+  .card:focus-visible, .card:focus-within { outline: 2px solid var(--ink); outline-offset: 3px; }
+  .card canvas { display: block; width: 100%; aspect-ratio: 4 / 3; background: var(--paper); }
+  .card .title { display: block; margin-top: 12px; font-size: 20px; line-height: 1.25; overflow-wrap: anywhere; }
+  .card .author .xlink { color: inherit; text-transform: none; }
+  .card .author .xlink:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+  .card .author { display: block; margin-top: 2px; font: 400 13px/1.4 var(--mono); overflow-wrap: anywhere; }
+  @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
+
+  .section { margin-top: 56px; }
+  h2 { font: 400 clamp(22px, 5vw, 28px)/1.2 var(--serif); margin: 0 0 24px; text-align: center; }
+  .note { margin: 0; text-align: center; font: 300 14px/1.4 var(--mono); }
+  .note a { text-decoration: underline; text-underline-offset: 4px; }
+  .story { display: block; width: 100%; margin: 10px 0 0; padding: 0; border: 0; background: none; color: inherit; text-align: left; font: 300 14px/1.4 var(--serif); cursor: pointer; }
+  .story .q { display: block; font: 300 12px/1.4 var(--mono); margin-top: 6px; }
+  .story .a { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .story[aria-expanded="true"] .a { display: block; }
+  .use, .more { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; margin-top: 12px; padding: 0 16px; border: 1px solid var(--ink); border-radius: 0; background: #faf8f2; color: var(--ink); font: 300 14px/1 var(--mono); cursor: pointer; }
+  .more { background: var(--paper); }
+  .use:hover, .more:hover { background: var(--ink); color: var(--paper); }
+  .more-wrap { display: flex; justify-content: center; margin-top: 32px; }
+  .more-wrap .more { margin-top: 0; }
+  [hidden] { display: none !important; }
+
+  .add { display: flex; justify-content: center; margin-top: 48px; }
+  .add a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; font: 300 14px/1 var(--mono); }
+  .add a:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+  body { padding-top: 40px; }
+  .ptag { position: fixed; top: 8px; left: 8px; z-index: 10; display: flex; flex-wrap: wrap; gap: 0 12px; align-items: center; max-width: calc(100% - 16px); padding: 2px 8px; background: var(--paper); border: 1px solid var(--ink); font: 400 12px/1.4 var(--mono); }
+  .ptag a { display: inline-flex; align-items: center; min-height: 24px; text-decoration: underline; text-underline-offset: 3px; }
+</style>
+</head>
+<body>
+<nav class="ptag" aria-label="Preview"><span>Preview: Simple border</span><a href="./">Back to gallery</a></nav>
+<div class="app">
+  <h1>Templates</h1>
+  <div class="grid" id="grid"></div>
+  <section class="section" aria-labelledby="community-h">
+    <h2 id="community-h">Community</h2>
+    <p class="note" id="cnote" role="status">Loading community templates</p>
+    <div class="grid" id="cgrid"></div>
+    <div class="more-wrap" id="cmorewrap" hidden><button type="button" class="more" id="cmore">Show more</button></div>
+  </section>
+  <div class="add"><a id="add" href="#" rel="noopener">Add yours</a></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var FAMILY = '"Special Elite", "Courier New", monospace';
+  var FONT = '400 16px ' + FAMILY;
+  var FONT_BIG = '400 22px ' + FAMILY;
+  var probe = document.createElement('canvas').getContext('2d');
+
+  var issueTitle = 'Template: ';
+  var issueBody = 'Template name:\n\nYour name:\n\nPaste the template JSON from the share button below.\n\n```json\n\n```\n';
+  document.getElementById('add').href = 'https://github.com/lilly-builds/lab/issues/new?title=' + encodeURIComponent(issueTitle) + '&body=' + encodeURIComponent(issueBody);
+
+  /* ---------- the whiteboard's element format ---------- */
+  function wrap(g, text, maxW, font) {
+    g.font = font;
+    var out = [];
+    String(text || '').split('\n').forEach(function (para) {
+      var words = para.split(/\s+/).filter(Boolean), line = '';
+      if (!words.length) { out.push(''); return; }
+      words.forEach(function (w) {
+        var t = line ? line + ' ' + w : w;
+        if (line && g.measureText(t).width > maxW) { out.push(line); line = w; } else line = t;
+      });
+      out.push(line);
+    });
+    return out;
+  }
+  function textBox(el) {
+    var lines = wrap(probe, el.text, 280, FONT_BIG), w = 0;
+    lines.forEach(function (l) { w = Math.max(w, probe.measureText(l).width); });
+    return { lines: lines, w: Math.max(20, w), h: Math.max(1, lines.length) * 28 };
+  }
+  function bbox(el) {
+    if (el.type === 'pen') {
+      var a = 1e9, b = 1e9, c = -1e9, d = -1e9;
+      el.pts.forEach(function (p) { a = Math.min(a, p[0]); b = Math.min(b, p[1]); c = Math.max(c, p[0]); d = Math.max(d, p[1]); });
+      return { x: el.x + a, y: el.y + b, w: c - a, h: d - b };
+    }
+    if (el.type === 'text') { var t = textBox(el); return { x: el.x, y: el.y, w: t.w, h: t.h }; }
+    if (el.type === 'line' || el.type === 'arrow') return { x: Math.min(el.x, el.x + el.w), y: Math.min(el.y, el.y + el.h), w: Math.abs(el.w), h: Math.abs(el.h) };
+    return { x: el.x, y: el.y, w: el.w, h: el.h };
+  }
+  function label(g, el, cx, cy, maxW) {
+    if (!el.text) return;
+    g.setLineDash([]); g.fillStyle = '#000'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    var ls = wrap(g, el.text, Math.max(30, maxW), FONT);
+    g.font = FONT;
+    ls.forEach(function (l, i) { g.fillText(l, cx, cy + (i - (ls.length - 1) / 2) * 20); });
+    g.textAlign = 'left';
+  }
+  function drawEl(g, el, onImage) {
+    g.save();
+    g.lineWidth = el.type === 'pen' ? 2.2 : 1.5;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = el.ai ? '#555' : '#000'; g.fillStyle = g.strokeStyle;
+    if (el.ai && el.type !== 'pen') g.setLineDash([7, 5]);
+    var x = el.x, y = el.y;
+    if (el.type === 'pen') {
+      var p = el.pts;
+      g.beginPath();
+      if (p.length === 1) { g.arc(x + p[0][0], y + p[0][1], 1.4, 0, Math.PI * 2); g.closePath(); g.fill(); }
+      else {
+        g.moveTo(x + p[0][0], y + p[0][1]);
+        for (var i = 1; i < p.length - 1; i++) g.quadraticCurveTo(x + p[i][0], y + p[i][1], x + (p[i][0] + p[i + 1][0]) / 2, y + (p[i][1] + p[i + 1][1]) / 2);
+        g.lineTo(x + p[p.length - 1][0], y + p[p.length - 1][1]);
+        g.stroke();
+      }
+    } else if (el.type === 'note') {
+      g.fillStyle = '#bfd7ff'; g.fillRect(x, y, el.w, el.h);
+      g.lineWidth = 1; g.setLineDash(el.ai ? [4, 3] : []);
+      g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
+      g.setLineDash([]);
+      /* same note fit as the whiteboard: 16px, shrinking to 12px when the square is too small */
+      var nf, nlh, ls;
+      for (var fs = 16; fs >= 12; fs--) {
+        nf = '400 ' + fs + 'px ' + FAMILY; nlh = Math.round(fs * 1.25);
+        ls = wrap(g, el.text, el.w - 16, nf);
+        if (ls.length * nlh <= el.h - 16) break;
+      }
+      g.fillStyle = '#000'; g.textBaseline = 'top'; g.font = nf;
+      ls.slice(0, Math.floor((el.h - 16) / nlh)).forEach(function (l, i) { g.fillText(l, x + 8, y + i * nlh + 8); });
+    } else if (el.type === 'text') {
+      var t = textBox(el);
+      g.font = FONT_BIG; g.textBaseline = 'top';
+      t.lines.forEach(function (l, i) { g.fillText(l, x, y + i * 28 + 3); });
+    } else if (el.type === 'rect') {
+      g.strokeRect(x, y, el.w, el.h); label(g, el, x + el.w / 2, y + el.h / 2, el.w - 12);
+    } else if (el.type === 'ellipse') {
+      g.beginPath(); g.ellipse(x + el.w / 2, y + el.h / 2, Math.abs(el.w / 2), Math.abs(el.h / 2), 0, 0, Math.PI * 2); g.closePath(); g.stroke();
+      label(g, el, x + el.w / 2, y + el.h / 2, el.w * 0.7);
+    } else if (el.type === 'line' || el.type === 'arrow') {
+      var x2 = x + el.w, y2 = y + el.h;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
+      if (el.type === 'arrow') {
+        var a = Math.atan2(el.h, el.w), hl = 12;
+        g.setLineDash([]);
+        g.beginPath(); g.moveTo(x2 - hl * Math.cos(a - 0.45), y2 - hl * Math.sin(a - 0.45)); g.lineTo(x2, y2); g.lineTo(x2 - hl * Math.cos(a + 0.45), y2 - hl * Math.sin(a + 0.45)); g.stroke();
+      }
+    } else if (el.type === 'image' && /^https?:\/\//i.test(el.url || '')) {
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function () { onImage(img, el); };
+      img.src = el.url;
+    }
+    g.restore();
+  }
+
+  /* ---------- preview ---------- */
+  function preview(cv, els) {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var W = cv.clientWidth || 260, H = cv.clientHeight || 195;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    var g = cv.getContext('2d');
+    var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    els.forEach(function (el) {
+      var b = bbox(el);
+      x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
+    });
+    if (x1 < x0) return;
+    var pad = 12, k = Math.min((W - pad * 2) / Math.max(1, x1 - x0), (H - pad * 2) / Math.max(1, y1 - y0));
+    var tx = (W - (x1 - x0) * k) / 2 - x0 * k, ty = (H - (y1 - y0) * k) / 2 - y0 * k;
+    function setup() { g.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty); }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    setup();
+    els.forEach(function (el) {
+      drawEl(g, el, function (img, e) { setup(); g.drawImage(img, e.x, e.y, e.w, e.h); });
+    });
+  }
+
+  /* ---------- gallery ---------- */
+  var grid = document.getElementById('grid');
+  function card(t) {
+    var a = document.createElement('a');
+    a.className = 'card';
+    a.href = '../ai-whiteboard/?template=' + encodeURIComponent(t.id);
+    var cv = document.createElement('canvas');
+    cv.setAttribute('role', 'img');
+    cv.setAttribute('aria-label', t.title);
+    var title = document.createElement('span'); title.className = 'title'; title.textContent = t.title;
+    var author = document.createElement('span'); author.className = 'author'; author.textContent = t.author || '';
+    a.appendChild(cv); a.appendChild(title); a.appendChild(author);
+    grid.appendChild(a);
+    fetch(t.file).then(function (r) { return r.json(); }).then(function (els) {
+      if (!Array.isArray(els)) return;
+      els = els.filter(function (e) { return e && typeof e === 'object' && e.type; });
+      var go = function () { preview(cv, els); };
+      go();
+      if (document.fonts && document.fonts.load) document.fonts.load('16px "Special Elite"').then(go, go);
+      var timer;
+      window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(go, 100); });
+    }).catch(function () {});
+  }
+  fetch('templates.json').then(function (r) { return r.json(); }).then(function (list) {
+    if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && t.file) card(t); });
+  }).catch(function () {});
+
+  /* ---------- community templates (open issues in lilly-builds/lab) ---------- */
+  var API = 'https://api.github.com/repos/lilly-builds/lab/issues?state=open&per_page=100';
+  var CACHE_KEY = 'labtpl.community.v1', CACHE_MS = 5 * 60 * 1000, PAGE = 24;
+  var MARKER = /<!--\s*lab-template:v1:([A-Za-z0-9_-]+)\s*-->/;
+  var cgrid = document.getElementById('cgrid'), cnote = document.getElementById('cnote');
+  var cmoreWrap = document.getElementById('cmorewrap'), cmore = document.getElementById('cmore');
+  var community = [], shown = 0;
+
+  function b64urlBytes(str) {
+    var b = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (b.length % 4) b += '=';
+    var bin = atob(b), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function gunzip(bytes) {
+    var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Response(stream).arrayBuffer().then(function (buf) { return new Uint8Array(buf); });
+  }
+  function clean(v, max) { return typeof v === 'string' ? v.trim().slice(0, max) : null; }
+  function validate(d) {
+    if (!d || typeof d !== 'object' || d.v !== 1) return null;
+    var title = clean(d.title, 60), why = clean(d.why, 400), love = clean(d.love, 400), author = clean(d.author, 40);
+    if (!title || !why || !love || author === null) return null;
+    if (!Array.isArray(d.elements) || d.elements.length > 120) return null;
+    for (var i = 0; i < d.elements.length; i++) {
+      var e = d.elements[i];
+      if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
+    }
+    var x = typeof d.x === 'string' && /^[A-Za-z0-9_]{1,15}$/.test(d.x) ? d.x : '';
+    return { title: title, why: why, love: love, author: author, x: x, elements: d.elements };
+  }
+  function decode(issue) {
+    var m = MARKER.exec(issue.body || '');
+    if (!m) return Promise.resolve(null);
+    return Promise.resolve().then(function () {
+      var bytes = b64urlBytes(m[1]);
+      return bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzip(bytes) : bytes;
+    }).then(function (bytes) {
+      var d = validate(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+      if (d) d.created = String(issue.created_at || '');
+      return d;
+    }).catch(function () { return null; });
+  }
+  function loadCommunity() {
+    try {
+      var c = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
+      if (c && Array.isArray(c.items) && Date.now() - c.t < CACHE_MS) return Promise.resolve(c.items);
+    } catch (e) {}
+    return fetch(API, { headers: { Accept: 'application/vnd.github+json' } }).then(function (r) {
+      if (!r.ok) throw new Error('http ' + r.status);
+      return r.json();
+    }).then(function (list) {
+      if (!Array.isArray(list)) throw new Error('shape');
+      var issues = list.filter(function (i) {
+        return i && typeof i === 'object' && !i.pull_request && typeof i.title === 'string' && i.title.indexOf('Community template:') === 0 && typeof i.body === 'string';
+      });
+      return Promise.all(issues.map(decode));
+    }).then(function (items) {
+      items = items.filter(Boolean).sort(function (a, b) { return a.created < b.created ? 1 : a.created > b.created ? -1 : 0; });
+      try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), items: items })); } catch (e) {}
+      return items;
+    });
+  }
+
+  /* only plain drawable shapes reach the preview; images are never fetched here */
+  var SHAPES = { pen: 1, note: 1, text: 1, rect: 1, ellipse: 1, line: 1, arrow: 1 };
+  function num(v) { return typeof v === 'number' && isFinite(v); }
+  function previewEls(els) {
+    var out = [];
+    els.forEach(function (e) {
+      if (!SHAPES[e.type] || !num(e.x) || !num(e.y)) return;
+      var c = { type: e.type, x: e.x, y: e.y, ai: !!e.ai };
+      if (typeof e.text === 'string') c.text = e.text.slice(0, 500);
+      if (e.type === 'pen') {
+        if (!Array.isArray(e.pts) || !e.pts.length) return;
+        c.pts = [];
+        for (var i = 0; i < e.pts.length && i < 2000; i++) {
+          var p = e.pts[i];
+          if (!Array.isArray(p) || !num(p[0]) || !num(p[1])) return;
+          c.pts.push([p[0], p[1]]);
+        }
+      } else if (e.type !== 'text') {
+        if (!num(e.w) || !num(e.h)) return;
+        c.w = e.w; c.h = e.h;
+      }
+      out.push(c);
+    });
+    return out;
+  }
+
+  function communityCard(t) {
+    var box = document.createElement('div');
+    box.className = 'card';
+    var cv = document.createElement('canvas');
+    cv.setAttribute('role', 'img');
+    cv.setAttribute('aria-label', t.title);
+    var title = document.createElement('span'); title.className = 'title'; title.textContent = t.title;
+    var author = document.createElement('span'); author.className = 'author'; author.textContent = t.author && t.author.toLowerCase() !== 'anonymous' ? 'by ' + t.author : (t.x ? '' : 'by anonymous');
+    if (t.x && /^[A-Za-z0-9_]{1,15}$/.test(t.x)) {
+      var xl = document.createElement('a');
+      xl.className = 'xlink'; xl.textContent = '@' + t.x;
+      xl.href = 'https://x.com/' + t.x; xl.target = '_blank'; xl.rel = 'noopener noreferrer nofollow';
+      xl.setAttribute('aria-label', 'Open @' + t.x + ' on X');
+      if (author.textContent) author.appendChild(document.createTextNode(' '));
+      author.appendChild(xl);
+    }
+    var story = document.createElement('button');
+    story.type = 'button'; story.className = 'story'; story.setAttribute('aria-expanded', 'false');
+    [['Why I made it', t.why], ['Why I love it', t.love]].forEach(function (qa) {
+      var q = document.createElement('span'); q.className = 'q'; q.textContent = qa[0];
+      var a = document.createElement('span'); a.className = 'a'; a.textContent = qa[1];
+      story.appendChild(q); story.appendChild(a);
+    });
+    story.addEventListener('click', function () {
+      story.setAttribute('aria-expanded', story.getAttribute('aria-expanded') === 'true' ? 'false' : 'true');
+    });
+    var use = document.createElement('button');
+    use.type = 'button'; use.className = 'use'; use.textContent = 'Use this template';
+    use.addEventListener('click', function () {
+      try { sessionStorage.setItem('aiwb.pendingTemplate', JSON.stringify(t.elements)); } catch (e) {}
+      location.href = '../ai-whiteboard/?template=pending';
+    });
+    box.appendChild(cv); box.appendChild(title); box.appendChild(author);
+    box.appendChild(story); box.appendChild(use);
+    cgrid.appendChild(box);
+    var els = previewEls(t.elements);
+    var go = function () { preview(cv, els); };
+    go();
+    if (document.fonts && document.fonts.load) document.fonts.load('16px "Special Elite"').then(go, go);
+    var timer;
+    window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(go, 100); });
+  }
+  function showMore() {
+    community.slice(shown, shown + PAGE).forEach(communityCard);
+    shown = Math.min(community.length, shown + PAGE);
+    cmoreWrap.hidden = shown >= community.length;
+  }
+  cmore.addEventListener('click', showMore);
+  loadCommunity().then(function (items) {
+    community = items;
+    if (!items.length) {
+      cnote.textContent = 'No community templates yet. Be the first. ';
+      var a = document.createElement('a'); a.href = '../ai-whiteboard/'; a.textContent = 'Open the whiteboard';
+      cnote.appendChild(a);
+      return;
+    }
+    cnote.hidden = true;
+    showMore();
+  }).catch(function () {
+    cnote.textContent = 'Community templates are resting. Try again in a bit.';
+  });
+})();
+</script>
+</body>
+</html>
