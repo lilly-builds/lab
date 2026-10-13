@@ -3824,7 +3824,15 @@
       els.push(n);
       y += n.h + 16;
     });
+    /* frame the notes: fit their box above the dock with a small margin, zoom out only (never past 1) */
+    var bb = boardBounds(), bot = 110;
+    try { var dr = dock.getBoundingClientRect(); if (dr && dr.height > 0) bot = Math.max(110, dr.height + 32); } catch (e) {}
     view = { x: 0, y: 0, z: 1 };
+    if (bb && bb.w > 0 && bb.h > 0 && W > 0 && H > 0) {
+      var aw = Math.max(1, W - 48), ah = Math.max(1, H - 24 - bot);
+      var fz = clampZ(Math.min(1, aw / bb.w, ah / bb.h));
+      view = { x: Math.round(bb.x + bb.w / 2 - W / 2 / fz), y: Math.round(bb.y + bb.h / 2 - (24 + ah / 2) / fz), z: fz };
+    }
     lsSet('aiwb.welcomed', '1');
     save(); saveView(); draw();
   }
