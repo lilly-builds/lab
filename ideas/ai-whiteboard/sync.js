@@ -18,6 +18,7 @@
   var CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   var TIMEOUT_MS = 2500;
   var BOARD_KEY = 'aiwb.board';
+  var JUICE_Q_KEY = 'aiwb.juice.q';  /* persisted earn events awaiting the ledger (U6) */
   var FLUSH_DEBOUNCE_MS = 400;
 
   /* engine module: a window global in the browser (script tag), require()d in node tests */
@@ -64,6 +65,7 @@
     var timeoutMs = opts.timeoutMs || TIMEOUT_MS;
     var sb = null, engine = null, channel = null;
     var state = 'idle';        /* idle -> connecting -> online | offline (session) */
+    var myUserId = null, flushingJuice = false;
     var started = false, flushTimer = null;
 
     function lsGet(k) { try { return storage.getItem(k); } catch (e) { return null; } }
@@ -166,7 +168,9 @@
         if (!sess || !sess.data || !sess.data.session) {
           var anon = await withTimeout(sb.auth.signInAnonymously(), timeoutMs);
           if (anon && anon.error) throw new Error(anon.error.message);
+          sess = await withTimeout(sb.auth.getSession(), timeoutMs);
         }
+        myUserId = sess && sess.data && sess.data.session && sess.data.session.user && sess.data.session.user.id;
         engine = Engine.create({
           boardId: lsGet(BOARD_KEY) || 'local',
           transport: transport(),
@@ -201,9 +205,66 @@
 
     function engineBoardId() { return lsGet(BOARD_KEY) || 'local'; }
 
+    /* U6: earn events wait in a persisted queue and flush only after the
+       element flush (the note must exist server-side first). Permanent
+       rejections (note gone, not completed, not an editor) drop the event;
+       transient failures keep it for the next flush. Pre-first-sync earns
+       use e<n> keys the import remaps away - the server drops them as
+       "not found", which is correct: the imported_balance backfill already
+       subsumes them. */
+    function juiceQ() { try { return JSON.parse(lsGet(JUICE_Q_KEY) || '[]'); } catch (e) { return []; } }
+    function setJuiceQ(q) { lsSet(JUICE_Q_KEY, JSON.stringify(q.slice(-50))); }
+
+    async function flushJuice() {
+      if (flushingJuice || state !== 'online' || !sb) return;
+      flushingJuice = true;
+      try {
+        var q = juiceQ(), ev, r, msg;
+        while (q.length) {
+          ev = q[0];
+          try {
+            r = await withTimeout(sb.rpc('earn_juice', { p_board_id: engineBoardId(), p_note_key: ev.note_key, p_idempotency_key: ev.idem }), timeoutMs);
+          } catch (e) { break; }                 /* transient: retry on the next flush */
+          if (r.error) {
+            msg = String(r.error.message || '');
+            if (/not found|not completed|not a board editor|not authenticated/.test(msg)) { q.shift(); setJuiceQ(q); continue; }
+            break;                               /* unknown error: retry later */
+          }
+          q.shift(); setJuiceQ(q);               /* server dedupes replays by idempotency key (AE4) */
+        }
+        if (state === 'online') refreshBalance();
+      } finally { flushingJuice = false; }
+    }
+
+    async function refreshBalance() {
+      var J = win.Juice;
+      if (!J || !J.setBalance || !myUserId) return;
+      try {
+        var r = await sb.from('juice_balances').select('balance').eq('board_id', engineBoardId()).eq('user_id', myUserId);
+        if (r.error || !r.data || !r.data.length) return;
+        J.setBalance(r.data[0].balance || 0);
+      } catch (e) {}
+    }
+
+    function hookJuice() {
+      var J = win.Juice;
+      if (!J) return;
+      J.onEarn = function (note) {
+        if (!note || !note.id) return;
+        var q = juiceQ();
+        q.push({ note_key: note.id, idem: 'earn:' + note.id + ':' + Date.now() + ':' + Math.random().toString(36).slice(2, 10) });
+        setJuiceQ(q);
+        if (state === 'online') scheduleFlush(); /* elements first, then the ledger */
+      };
+    }
+
     async function doFlush() {
       if (state !== 'online' || !engine) return;
-      try { await engine.flush(); badge(engine.deadLetters().length ? 'some changes need a resync' : null); }
+      try {
+        await engine.flush();
+        badge(engine.deadLetters().length ? 'some changes need a resync' : null);
+        await flushJuice();
+      }
       catch (e) { circuitOpen(); }
     }
     function scheduleFlush(minDelay) {
@@ -226,6 +287,7 @@
       scheduleFlush();
     }
 
+    hookJuice();
     app.afterSave = onSave;
     /* synced boards mint collision-resistant keys; the e<n> counter never
        resets from imported content because it is no longer used */
