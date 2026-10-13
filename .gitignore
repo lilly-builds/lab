@@ -1,0 +1,7 @@
+# True secrets only. The publishable Supabase config (supabase-config.js) is committed on purpose.
+.env
+.env.*
+*.local
+ideas/ai-whiteboard/supabase-config.local.js
+.DS_Store
+node_modules/

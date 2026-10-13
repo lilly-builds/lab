@@ -1,0 +1,21 @@
+# Supabase CLI project config for the dreamspace whiteboard backend.
+# Link the hosted project once it exists: supabase link --project-ref <ref>
+project_id = "dreamspace-whiteboard"
+
+[auth]
+enabled = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
+
+# Anonymous sign-ins power the zero-friction first sync (plan KTD4).
+[auth.anonymous_users]
+enabled = true
+
+# CAPTCHA on sign-in bounds bot abuse of anonymous accounts (plan R18).
+# Fill in the secret from the hCaptcha or Turnstile dashboard, then set enabled = true.
+[auth.captcha]
+enabled = false
+provider = "turnstile"
+secret = ""
