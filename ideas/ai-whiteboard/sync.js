@@ -309,6 +309,8 @@
     return {
       get state() { return state; },
       get engine() { return engine; },
+      get client() { return sb; },      /* auth.js and team.js share the one connection */
+      get userId() { return myUserId; },
       init: init,
       flush: doFlush,
       onSave: onSave
