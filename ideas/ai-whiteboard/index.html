@@ -3824,10 +3824,10 @@
     document.head.appendChild(st);
   })();
   /* the Dream circle: an ellipse whose top edge carries a "Dream" text label */
-  function dreamCircle() {
+  function dreamCircle(label) {
     var best = null, bd = 1e9;
     els.forEach(function (t) {
-      if (t.type !== 'text' || String(t.text || '').trim().toLowerCase() !== 'dream') return;
+      if (t.type !== 'text' || String(t.text || '').trim().toLowerCase() !== (label || 'dream')) return;
       var tb = bbox(t), cx = tb.x + tb.w / 2, cy = tb.y + tb.h / 2;
       els.forEach(function (c) {
         if (c.type !== 'ellipse' || !(c.w > 0) || !(c.h > 0)) return;
@@ -3838,8 +3838,8 @@
     });
     return best;
   }
-  function inDream(n) {
-    var c = dreamCircle();
+  function inDream(n, label) {
+    var c = dreamCircle(label);
     if (!c) return false;
     var dx = (n.x + n.w / 2 - (c.x + c.w / 2)) / (c.w / 2), dy = (n.y + n.h / 2 - (c.y + c.h / 2)) / (c.h / 2);
     return dx * dx + dy * dy <= 1;
@@ -3927,6 +3927,34 @@
     dreamSnap = {};
   });
   /* DREAM-LOOP-END */
+
+  /* WANT-LOOP-BEGIN (additive: a note landing in the Want to do circle gets one playful team bubble; no AI, no key; delete this block to revert) */
+  var WANT_DEFAULTS = { personality: 'voice' /* a voice from the board, no face */ };
+  var WANT_COPY = ["Oooh tell me more. Let's make it happen.", "Ooh, I like this one. Say more!", "Yes! Let's go get this done.", "Now we're talking. What's the first move?", "Ooh, this has legs. Let's do it."];
+  var wantSnap = {}, wantFocus = null;
+  function wantCheck(n) {
+    if (!n || n.type !== 'note' || n.wantAsked || !String(n.text || '').trim()) return;
+    if (inDream(n) || !inDream(n, 'want to do')) return; /* dream wins an overlap */
+    n.wantAsked = true; save();
+    var last = -1;
+    try { last = parseInt(localStorage.getItem('wb_want_last'), 10); } catch (e) {}
+    var i = Math.floor(Math.random() * WANT_COPY.length);
+    if (i === last) i = (i + 1) % WANT_COPY.length;
+    try { localStorage.setItem('wb_want_last', String(i)); } catch (e) {}
+    dreamBubble(n, WANT_COPY[i], [['Love it', dreamClose, true]]);
+  }
+  ta.addEventListener('focus', function () { var n = els.filter(function (e) { return e.id === editing; })[0]; wantFocus = n ? { id: n.id, text: n.text } : null; });
+  ta.addEventListener('blur', function () {
+    var f = wantFocus; wantFocus = null;
+    var n = f && els.filter(function (e) { return e.id === f.id; })[0];
+    if (n && n.text !== f.text) wantCheck(n);
+  });
+  cv.addEventListener('pointerdown', function () { wantSnap = {}; els.forEach(function (e) { if (e.type === 'note') wantSnap[e.id] = e.x + ',' + e.y; }); });
+  cv.addEventListener('pointerup', function () {
+    els.forEach(function (e) { if (e.type === 'note' && wantSnap[e.id] && wantSnap[e.id] !== e.x + ',' + e.y) wantCheck(e); });
+    wantSnap = {};
+  });
+  /* WANT-LOOP-END */
 
   gcApps();
   resize();
