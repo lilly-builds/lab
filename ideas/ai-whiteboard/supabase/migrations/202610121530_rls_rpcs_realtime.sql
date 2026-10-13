@@ -280,6 +280,9 @@ grant execute on function public.upsert_elements(uuid, jsonb) to authenticated;
 -- Server-derived juice (KTD3, R10, AE4): the loop and amount come from the
 -- note's actual position inside the labelled circle ellipses, never from the
 -- client. Idempotent on idempotency_key and one-earn-per-note.
+-- KNOWN LIMIT (review F4, accepted for the trusted-team demo): a board editor
+-- can mint their own completed notes and earn on them, so the ledger is not a
+-- tamper-proof leaderboard. Idempotency and one-earn-per-note still hold.
 create or replace function public.earn_juice(p_board_id uuid, p_note_key text, p_idempotency_key text)
   returns table (event_id bigint, reason text, amount int, already_earned boolean)
   language plpgsql security definer set search_path = pg_catalog, public as $$
