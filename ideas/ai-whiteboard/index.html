@@ -50,6 +50,13 @@
   #bar a.tpl .lbl { display: none; font: 300 12px/1 var(--mono); letter-spacing: .04em; white-space: nowrap; }
   @media (min-width: 900px) { #bar a.tpl { width: auto; padding: 0 16px; border-radius: 24px; } #bar a.tpl .lbl { display: inline; } }
   #bar button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  #shapeFly { position: fixed; z-index: 7; display: flex; background: var(--paper); border: 1px solid var(--ink); border-radius: 0; box-shadow: none; max-width: calc(100vw - 8px); }
+  #shapeFly[hidden], #tip[hidden] { display: none; }
+  #shapeFly button { width: 44px; height: 44px; flex: none; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 0; background: var(--paper); color: var(--ink); padding: 0; cursor: pointer; }
+  #shapeFly button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  #shapeFly button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  #tip { position: fixed; z-index: 8; left: 0; top: 0; pointer-events: none; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); border-radius: 0; box-shadow: none; padding: 5px 8px; font: 400 13px/1.2 var(--mono); white-space: nowrap; }
+  #bar button, #shapeFly button { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
   #bar button:disabled { opacity: .3; cursor: default; }
   #magic svg .tip { opacity: 0; }
   #magic.busy svg { animation: spin 12s linear infinite; transform-origin: 50% 50%; }
@@ -267,13 +274,9 @@
     <button type="button" data-tool="pen" aria-label="Pen" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 0a2 2 0 0 1 0 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg></button>
     <button type="button" data-tool="note" aria-label="Note" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M8 9.5h8M8 13h5"/></svg></button>
     <button type="button" data-tool="text" aria-label="Text" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M8.5 9.5V8h7v1.5M12 8v8M10.5 16h3"/></svg></button>
-    <button type="button" data-tool="rect" aria-label="Rectangle" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4" y="6.5" width="16" height="11"/></svg></button>
-    <button type="button" data-tool="diamond" aria-label="Diamond" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3.5l8.5 8.5-8.5 8.5L3.5 12z"/></svg></button>
-    <button type="button" data-tool="ellipse" aria-label="Ellipse" aria-pressed="false"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8.5" ry="6"/></svg></button>
-    <button type="button" data-tool="line" aria-label="Line" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19L19 5"/></svg></button>
-    <button type="button" data-tool="arrow" aria-label="Arrow" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19L19 5M10 5h9v9"/></svg></button>
+    <button type="button" id="shapeBtn" aria-label="Shapes" aria-haspopup="true" aria-expanded="false" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 5l8 14H4z"/></svg></button>
     <button type="button" id="embedBtn" aria-label="Embed a page" aria-expanded="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M13.5 19.5v-6h6"/></svg></button>
-    <button type="button" data-tool="erase" aria-label="Eraser" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15" rx="3"/><path d="M4.5 12.5l8-8M4.5 19.5l15-15"/></svg></button>
+    <button type="button" data-tool="erase" aria-label="Eraser" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M9 19L4.6 14.6a1.6 1.6 0 0 1 0-2.2l8-8a1.6 1.6 0 0 1 2.2 0l4.6 4.6a1.6 1.6 0 0 1 0 2.2L12 19z"/><path d="M8.3 8.7l7 7M9 19h11"/></svg></button>
     <button type="button" data-tool="move"aria-label="Select and move" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></button>
     <button type="button" id="undo" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 8h-3"/></svg></button>
     <a id="tplLink" class="tpl" href="../templates/" aria-label="Templates"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="6" height="6"/><rect x="13.5" y="4.5" width="6" height="6"/><rect x="4.5" y="13.5" width="6" height="6"/><rect x="13.5" y="13.5" width="6" height="6"/></svg><span class="lbl">Templates</span></a>
@@ -283,6 +286,15 @@
     <button type="button" id="magic" aria-label="Ask AI" aria-expanded="false"><svg viewBox="0 0 24 24"><path class="star" d="M10 4c.7 5 2.5 7.3 7 8-4.5.7-6.3 3-7 8-.7-5-2.5-7.3-7-8 4.5-.7 6.3-3 7-8z"/><path d="M19 3v4M17 5h4"/><path class="tip" d="M10 4v.01"/><path class="tip" d="M17 12v.01"/><path class="tip" d="M10 20v.01"/><path class="tip" d="M3 12v.01"/></svg></button>
   </div>
 </div>
+
+<div id="shapeFly" role="group" aria-label="Shapes" hidden>
+  <button type="button" data-tool="rect" aria-label="Rectangle" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4" y="6.5" width="16" height="11"/></svg></button>
+  <button type="button" data-tool="diamond" aria-label="Diamond" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M12 3.5l8.5 8.5-8.5 8.5L3.5 12z"/></svg></button>
+  <button type="button" data-tool="ellipse" aria-label="Ellipse" aria-pressed="false"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8.5" ry="6"/></svg></button>
+  <button type="button" data-tool="line" aria-label="Line" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19L19 5"/></svg></button>
+  <button type="button" data-tool="arrow" aria-label="Arrow" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19L19 5M10 5h9v9"/></svg></button>
+</div>
+<div id="tip" role="tooltip" hidden></div>
 
 <div id="scrim" hidden>
   <div id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
@@ -1378,6 +1390,94 @@
   cv.addEventListener('pointerup', end);
   cv.addEventListener('pointercancel', end);
 
+  /* ---------- shape slot + tooltips ---------- */
+  var shapeBtn = document.getElementById('shapeBtn'), shapeFly = document.getElementById('shapeFly');
+  var shapeItems = Array.prototype.slice.call(shapeFly.querySelectorAll('[data-tool]'));
+  function setShapeIcon(t) {
+    var it = shapeItems.filter(function (b) { return b.dataset.tool === t; })[0];
+    if (it) shapeBtn.innerHTML = it.innerHTML;
+  }
+  function syncShape(t) {
+    var on = SHAPES.indexOf(t) >= 0;
+    if (on) { setShapeIcon(t); try { localStorage.setItem('aiwb.shape', t); } catch (_) {} }
+    shapeBtn.setAttribute('aria-pressed', String(on));
+  }
+  function closeFly(refocus) {
+    if (shapeFly.hidden) return;
+    shapeFly.hidden = true; shapeBtn.setAttribute('aria-expanded', 'false');
+    if (refocus) shapeBtn.focus();
+  }
+  function openFly() {
+    shapeFly.hidden = false; shapeBtn.setAttribute('aria-expanded', 'true');
+    var r = shapeBtn.getBoundingClientRect(), w = shapeFly.offsetWidth, h = shapeFly.offsetHeight, vw = document.documentElement.clientWidth;
+    var x = Math.max(4, Math.min(r.left + r.width / 2 - w / 2, vw - w - 4));
+    var y = r.top - h - 4; if (y < 4) y = Math.min(r.bottom + 4, window.innerHeight - h - 4);
+    shapeFly.style.left = x + 'px'; shapeFly.style.top = y + 'px';
+    var cur = shapeItems.filter(function (b) { return b.dataset.tool === tool; })[0] || shapeItems[0];
+    cur.focus();
+  }
+  shapeBtn.addEventListener('click', function () { commitEdit(); if (shapeFly.hidden) openFly(); else closeFly(false); });
+  shapeItems.forEach(function (b) { b.addEventListener('click', function () { closeFly(true); }); });
+  shapeFly.addEventListener('keydown', function (e) {
+    var i = shapeItems.indexOf(document.activeElement), n = shapeItems.length;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); shapeItems[(i + 1) % n].focus(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); shapeItems[(i + n - 1) % n].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); shapeItems[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); shapeItems[n - 1].focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFly(true); }
+  });
+  document.addEventListener('pointerdown', function (e) {
+    if (!shapeFly.hidden && !shapeFly.contains(e.target) && !shapeBtn.contains(e.target)) closeFly(false);
+  }, true);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeFly(false); });
+  try { var savedShape = localStorage.getItem('aiwb.shape'); if (SHAPES.indexOf(savedShape) >= 0) setShapeIcon(savedShape); } catch (_) {}
+
+  var tip = document.getElementById('tip'), tipTimer = 0, tipHide = 0, lpTimer = 0, lpFired = false;
+  function hideTip() { clearTimeout(tipTimer); clearTimeout(tipHide); tip.hidden = true; }
+  function showTip(el) {
+    var text = el.getAttribute('aria-label'); if (!text) return;
+    clearTimeout(tipHide);
+    tip.textContent = text; tip.hidden = false;
+    var r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight, vw = document.documentElement.clientWidth;
+    var host = shapeFly.contains(el) ? shapeFly.getBoundingClientRect() : r;
+    var x = Math.max(4, Math.min(r.left + r.width / 2 - w / 2, vw - w - 4));
+    var y = host.top - h - 6; if (y < 4) y = Math.min(host.bottom + 6, window.innerHeight - h - 4);
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  }
+  var tipSel = '#bar button, #bar a.tpl, #shapeFly button';
+  function tipTarget(e) { return e.target.closest ? e.target.closest(tipSel) : null; }
+  document.addEventListener('pointerover', function (e) {
+    var el = tipTarget(e); if (!el || e.pointerType !== 'mouse') return;
+    clearTimeout(tipTimer); tipTimer = setTimeout(function () { showTip(el); }, 400);
+  });
+  document.addEventListener('pointerout', function (e) { var el = tipTarget(e); if (el && !el.contains(e.relatedTarget)) hideTip(); });
+  document.addEventListener('focusin', function (e) {
+    var el = tipTarget(e); if (el && el.matches(':focus-visible')) showTip(el);
+  });
+  document.addEventListener('focusout', function (e) { if (tipTarget(e)) hideTip(); });
+  document.addEventListener('pointerdown', function (e) {
+    var el = tipTarget(e);
+    if (e.pointerType === 'mouse') { hideTip(); return; }
+    if (!el) return;
+    lpFired = false; clearTimeout(lpTimer);
+    lpTimer = setTimeout(function () {
+      lpFired = true; showTip(el);
+      clearTimeout(tipHide); tipHide = setTimeout(hideTip, 1500);
+    }, 500);
+  }, true);
+  ['pointerup', 'pointercancel', 'pointermove'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      if (ev === 'pointermove' && e.pointerType === 'mouse') return;
+      clearTimeout(lpTimer);
+    }, true);
+  });
+  /* a long-press shows the label only: swallow the click that follows it */
+  document.addEventListener('click', function (e) {
+    if (lpFired) { lpFired = false; if (tipTarget(e)) { e.preventDefault(); e.stopImmediatePropagation(); } }
+  }, true);
+  document.addEventListener('contextmenu', function (e) { if (tipTarget(e)) e.preventDefault(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideTip(); });
+
   /* ---------- toolbar ---------- */
   var toolBtns = document.querySelectorAll('[data-tool]');
   var prevTool = 'pen';
@@ -1388,6 +1488,7 @@
     if (t !== 'erase') eraseCur.style.display = 'none';
     cv.classList.toggle('erase', t === 'erase');
     toolBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.tool === t)); });
+    syncShape(t);
     cv.classList.toggle('move', t === 'move');
     cv.classList.toggle('txt', t === 'text');
     draw();
