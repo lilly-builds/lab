@@ -23,6 +23,8 @@
   button { cursor: pointer; background: none; border: 0; padding: 0; }
   :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
 
+  #imgs { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  #imgs img { position: absolute; display: block; margin: 0; padding: 0; border: 0; outline: 0; box-shadow: none; background: none; pointer-events: none; user-select: none; -webkit-user-select: none; max-width: none; }
   canvas#board { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; cursor: crosshair; }
   canvas#board.move { cursor: grab; }
   canvas#board.txt { cursor: text; }
@@ -216,6 +218,7 @@
 </style>
 </head>
 <body>
+<div id="imgs"></div>
 <canvas id="board"></canvas>
 <svg id="edge" aria-hidden="true"><rect x="0" y="0" width="100%" height="100%" pathLength="100"/></svg>
 <div id="embeds"></div>
@@ -601,7 +604,7 @@
     '{"type":"text","x":0,"y":0,"text":"...","size":24} plain label, x,y is top-left, up to 2000 characters. Optional "size" 10 to 120 (16 small, 24 medium, 40 large) and "w" wrap width.',
     '{"type":"rect","x":0,"y":0,"width":0,"height":0}, {"type":"ellipse", same fields} and {"type":"diamond", same fields}, optional "text" label.',
     '{"type":"line","x1":0,"y1":0,"x2":0,"y2":0} and {"type":"arrow", same fields}.',
-    '{"type":"image","x":0,"y":0,"width":0,"height":0,"url":"https://..."} only with an image URL the user gave you.',
+    '{"type":"image","x":0,"y":0,"width":0,"height":0,"url":"https://..."} only with an image URL the user gave you. Some images on the board are not visible in the PNG.',
     '{"type":"embed","x":0,"y":0,"width":360,"height":280,"url":"https://lilly-builds.github.io/lab/...","text":"title"} a live page, only for URLs under https://lilly-builds.github.io/lab/.',
     'Optional style fields on any element except image, using ONLY these values:',
     '"strokeColor": "#1e1e1e" black, "#e03131" red, "#2f9e44" green, "#1971c2" blue, "#f08c00" amber. Text elements take the same values as "color".',
@@ -766,10 +769,12 @@
       /* built apps never travel: only this device's own saved scene may bring them back */
       if (e.type === 'embed') { if (n >= EMB_MAX) return; e = e.kind === 'app' ? (ownBoard ? cleanApp(e) : null) : cleanEmbed(e); if (!e) return; n++; }
       else if (e.type === 'text') { e = cleanText(e); if (!e) return; }
+      else if (e.type === 'image' && !ownBoard) { if (!isHttps(e.url)) return; e = Object.assign({}, e); delete e.tainted; }
       out.push(e);
     });
     return out;
   }
+  function isHttps(u) { return typeof u === 'string' && /^https:\/\//i.test(u); }
   function embedCount() { return els.filter(function (e) { return e.type === 'embed'; }).length; }
 
   try { var s = JSON.parse(lsGet(KEY_SCENE) || '[]'); if (Array.isArray(s)) els = loadEls(s, true); } catch (e) {}
@@ -777,9 +782,10 @@
   els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
   els.forEach(function (e) { if (!e.id) e.id = 'e' + (nextId++); });
 
-  function save() { lsSet(KEY_SCENE, JSON.stringify(els)); }
+  function ser(v) { return JSON.stringify(v, function (k, x) { return k === 'tainted' ? undefined : x; }); }
+  function save() { lsSet(KEY_SCENE, ser(els)); }
   function saveView() { lsSet(KEY_VIEW, JSON.stringify(view)); }
-  function snap() { undoStack.push(JSON.stringify(els)); if (undoStack.length > 60) undoStack.shift(); syncUndo(); }
+  function snap() { undoStack.push(ser(els)); if (undoStack.length > 60) undoStack.shift(); syncUndo(); }
   function syncUndo() { document.getElementById('undo').disabled = !undoStack.length; }
   function newId() { return 'e' + (nextId++); }
   function selEl() {
@@ -877,20 +883,59 @@
   }
 
   /* ---------- rendering ---------- */
+  /* images: first as a CORS-clean canvas image, then once more as a plain DOM image (tainted: shown by the overlay, never drawn on a canvas) */
+  function loadImage(url, done) {
+    var c = imgCache[url];
+    if (c) { if (c.ok || c.tainted) done(c); else c.waiters.push(done); return; }
+    c = imgCache[url] = { img: null, ok: false, tainted: false, w: 0, h: 0, waiters: [done] };
+    function fin(good, im) {
+      var ws = c.waiters; c.waiters = [];
+      if (good) { c.w = im.naturalWidth || 300; c.h = im.naturalHeight || 300; } else delete imgCache[url];
+      ws.forEach(function (f) { f(good ? c : null); });
+    }
+    var a = new Image();
+    a.crossOrigin = 'anonymous';
+    a.onload = function () { c.ok = true; c.img = a; fin(true, a); };
+    a.onerror = function () {
+      var b = new Image();
+      b.referrerPolicy = 'no-referrer';
+      b.onload = function () { c.tainted = true; fin(true, b); };
+      b.onerror = function () { fin(false); };
+      b.src = url;
+    };
+    a.src = url;
+  }
   function getImage(el) {
     var c = imgCache[el.url];
-    if (c) return c.ok ? c.img : null;
-    var img = new Image();
-    c = imgCache[el.url] = { img: img, ok: false };
-    img.crossOrigin = 'anonymous';
-    img.onload = function () { c.ok = true; draw(); };
-    img.onerror = function () {
+    if (c && c.ok) return c.img;
+    if (c && c.tainted) { el.tainted = true; return null; }
+    if (!c) loadImage(el.url, function (r) {
+      if (r) { draw(); return; }
       var n = els.length;
       els = els.filter(function (e) { return !(e.type === 'image' && e.url === el.url); });
-      if (els.length !== n) { save(); draw(); }
-    };
-    img.src = el.url;
+      if (els.length !== n) { if (selId && !selEl()) selId = null; save(); draw(); showErr('An image could not be loaded and was removed.'); }
+    });
     return null;
+  }
+  var imgLayer = document.getElementById('imgs'), imgNodes = {};
+  function syncImages() {
+    var seen = {};
+    els.forEach(function (el) {
+      var c = el.type === 'image' ? imgCache[el.url] : null;
+      if (!c || !c.tainted) return;
+      el.tainted = true; seen[el.id] = true;
+      var n = imgNodes[el.id];
+      if (!n) {
+        n = imgNodes[el.id] = document.createElement('img');
+        n.setAttribute('referrerpolicy', 'no-referrer'); n.setAttribute('decoding', 'async'); n.setAttribute('alt', ''); n.draggable = false;
+        n.src = el.url; imgLayer.appendChild(n);
+      }
+      if (n.getAttribute('src') !== el.url) n.src = el.url;
+      n.style.left = (el.x - view.x) + 'px'; n.style.top = (el.y - view.y) + 'px';
+      n.style.width = el.w + 'px'; n.style.height = el.h + 'px';
+      n.style.opacity = eraseIds[el.id] ? '0.3' : '';
+    });
+    Object.keys(imgNodes).forEach(function (id) { if (!seen[id]) { imgNodes[id].remove(); delete imgNodes[id]; } });
   }
   function elWidth(el) { return WIDTHS.indexOf(el.strokeWidth) >= 0 ? el.strokeWidth : (el.type === 'pen' ? 2.2 : 1.5); }
   function elDashed(el) { return el.type === 'pen' ? false : (el.dashed != null ? !!el.dashed : !!el.ai); }
@@ -964,7 +1009,7 @@
       g.fillText(tt, x + 10, y + 16);
     } else if (el.type === 'image') {
       var im = getImage(el);
-      if (im) g.drawImage(im, x, y, el.w, el.h);
+      if (im && !el.tainted) g.drawImage(im, x, y, el.w, el.h);
     }
     g.restore();
   }
@@ -988,7 +1033,7 @@
   }
   function draw() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    ctx.clearRect(0, 0, W, H);
     var fp = fade ? Math.min(1, (performance.now() - fade.t0) / 250) : 1;
     els.forEach(function (el) {
       if (eraseIds[el.id]) { ctx.save(); ctx.globalAlpha = 0.3; drawEl(ctx, el, view.x, view.y); ctx.restore(); }
@@ -999,6 +1044,7 @@
     var s = selEl();
     if (s && editing !== s.id) drawSel(ctx, s);
     renderProps();
+    syncImages();
     syncEmbeds();
   }
   function resize() {
@@ -1203,6 +1249,7 @@
         snap();
         var hs = handles(sel), anchor = hs[(hi + 2) % 4] || hs[0];
         drag = { kind: 'handle', el: sel, i: hi, ax: anchor.x, ay: anchor.y, ex: sel.x + sel.w, ey: sel.y + sel.h };
+        if (sel.type === 'image') { drag.w0 = sel.w; drag.h0 = sel.h; }
         if (sel.type === 'text') { var b0 = bbox(sel); drag.w0 = b0.w; drag.h0 = b0.h; drag.size0 = sel.size; drag.ew0 = sel.w; }
       } else {
         var t = topAt(p.x, p.y);
@@ -1275,6 +1322,12 @@
       } else if (h.type === 'line' || h.type === 'arrow') {
         if (drag.i === 0) { h.x = p.x; h.y = p.y; h.w = drag.ex - p.x; h.h = drag.ey - p.y; }
         else { h.w = p.x - h.x; h.h = p.y - h.y; }
+      } else if (h.type === 'image') {
+        /* always proportional from the opposite corner; 24px on the short side up to 1600px on the long side */
+        var ik = Math.max(Math.abs(p.x - drag.ax) / drag.w0, Math.abs(p.y - drag.ay) / drag.h0);
+        ik = Math.max(24 / Math.min(drag.w0, drag.h0), Math.min(1600 / Math.max(drag.w0, drag.h0), ik));
+        h.w = drag.w0 * ik; h.h = drag.h0 * ik;
+        h.x = (drag.i === 0 || drag.i === 3) ? drag.ax - h.w : drag.ax; h.y = (drag.i === 0 || drag.i === 1) ? drag.ay - h.h : drag.ay;
       } else {
         var mw = h.type === 'embed' ? EMB_MIN_W : 8, mh = h.type === 'embed' ? EMB_MIN_H : 8;
         h.w = Math.max(mw, Math.abs(p.x - drag.ax)); h.h = Math.max(mh, Math.abs(p.y - drag.ay));
@@ -2425,8 +2478,8 @@
     return b64url(bytes);
   }
   function snapshot(tight) {
-    var out = JSON.parse(JSON.stringify(els))
-      .filter(function (e) { return e && e.type !== 'embed' && e.kind !== 'app' && !e.pending; })
+    var out = JSON.parse(ser(els))
+      .filter(function (e) { return e && e.type !== 'embed' && e.kind !== 'app' && !e.pending && (e.type !== 'image' || isHttps(e.url)); })
       .slice(0, EL_MAX);
     if (tight) {
       var r = function (v) { return typeof v === 'number' ? Math.round(v) : v; };
@@ -2695,6 +2748,19 @@
     return out;
   }
   /* embedFor:end */
+
+  /* isImageUrl:start */
+  var IMAGE_HOSTS = ['i.pinimg.com', 'assets.pinterest.com', 'images.unsplash.com', 'i.imgur.com', 'upload.wikimedia.org', 'pbs.twimg.com'];
+  function isImageUrl(url) {
+    var u;
+    try { u = new URL(String(url)); } catch (e) { return false; }
+    if (u.protocol !== 'https:') return false;
+    if (/\.(jpe?g|png|gif|webp|avif|svg)$/i.test(u.pathname)) return true;
+    var host = u.hostname.toLowerCase().replace(/\.$/, '');
+    if (IMAGE_HOSTS.some(function (h) { return host === h || host.slice(-(h.length + 1)) === '.' + h; })) return true;
+    return u.searchParams.getAll('format').some(function (f) { return /^(jpg|jpeg|png|webp)$/i.test(f); });
+  }
+  /* isImageUrl:end */
 
   /* ---------- embed frames (DOM, synced from els on every draw) ---------- */
   var embedLayer = document.getElementById('embeds'), embedNodes = {};
@@ -3332,6 +3398,17 @@
     });
   }
 
+  /* a direct image link becomes a bare picture: load it first, then size it to fit 480px without upscaling */
+  function addImage(url) {
+    loadImage(url, function (c) {
+      if (!c) { showErr('That image could not be loaded.'); return; }
+      var k = Math.min(1, 480 / Math.max(c.w, c.h)), w = Math.max(1, Math.round(c.w * k)), h = Math.max(1, Math.round(c.h * k)), sp = freeSpot(w, h);
+      var el = { id: newId(), type: 'image', x: sp.x, y: sp.y, w: w, h: h, url: url };
+      snap(); els.push(el);
+      setTool('move'); selId = el.id;
+      save(); draw();
+    });
+  }
   function addEmbed(o) {
     if (embedCount() >= EMB_MAX) { showErr('Six frames at most. Close one first.'); return null; }
     var w = Math.max(200, Math.min(360, W - 48)), h = 260, sp = freeSpot(w, h);
@@ -3361,6 +3438,7 @@
     if (!/^[a-z][a-z0-9+.-]*:/i.test(raw)) raw = 'https://' + raw;
     var u = cleanUrl(raw);
     if (!u) { showErr('Use an https link'); return; }
+    if (isImageUrl(u)) { addImage(u); xurl.value = ''; closePanel(); return; }
     if (addEmbed({ url: u })) { xurl.value = ''; closePanel(); }
   });
   document.addEventListener('paste', function (e) {
@@ -3369,7 +3447,9 @@
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
     var t = ((e.clipboardData && e.clipboardData.getData('text')) || '').trim();
     if (!t || /\s/.test(t) || !/^https:\/\//i.test(t) || !cleanUrl(t)) return;
-    e.preventDefault(); openEmbedPanel(cleanUrl(t));
+    e.preventDefault();
+    if (isImageUrl(cleanUrl(t))) { addImage(cleanUrl(t)); return; }
+    openEmbedPanel(cleanUrl(t));
   });
 
   /* ---------- make it real: prefilled issue in the lab repo, then wait for the page ---------- */
