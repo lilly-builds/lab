@@ -3,7 +3,7 @@
   { "id": "r2", "type": "rect", "x": 660, "y": 0, "w": 540, "h": 440, "strokeColor": "#1e1e1e", "fill": "none", "strokeWidth": 2 },
   { "id": "r3", "type": "rect", "x": 1320, "y": 0, "w": 540, "h": 440, "strokeColor": "#1e1e1e", "fill": "none", "strokeWidth": 2 },
   { "id": "r4", "type": "rect", "x": 0, "y": 560, "w": 540, "h": 440, "strokeColor": "#1e1e1e", "fill": "none", "strokeWidth": 2 },
-  { "id": "r5", "type": "rect", "x": 660, "y": 560, "w": 540, "h": 440, "strokeColor": "#1e1e1e", "fill": "none", "strokeWidth": 2 },
+  { "id": "r5", "type": "rect", "x": 660, "y": 560, "w": 540, "h": 540, "strokeColor": "#1e1e1e", "fill": "none", "strokeWidth": 2 },
   { "id": "r6", "type": "rect", "x": 1320, "y": 560, "w": 540, "h": 440, "strokeColor": "#1e1e1e", "fill": "none", "strokeWidth": 2 },
   { "id": "t1", "type": "text", "x": 24, "y": 16, "text": "Core loop", "size": 24, "color": "#1e1e1e", "w": 480 },
   { "id": "t2", "type": "text", "x": 684, "y": 16, "text": "Canvas", "size": 24, "color": "#1e1e1e", "w": 480 },
@@ -49,5 +49,6 @@
   { "id": "n24", "type": "note", "x": 696, "y": 796, "w": 132, "h": 132, "text": "[IDEA] Use my plan, not API key", "fill": "#bfd7ff" },
   { "id": "n25", "type": "note", "x": 876, "y": 796, "w": 132, "h": 132, "text": "[IDEA] Platform key, free allowance", "fill": "#bfd7ff" },
   { "id": "n26", "type": "note", "x": 1056, "y": 796, "w": 132, "h": 132, "text": "[IDEA] Tested in real browser", "fill": "#bfd7ff" },
-  { "id": "n27", "type": "note", "x": 1356, "y": 640, "w": 132, "h": 132, "text": "[BUILDING] Dreamspace plans itself", "fill": "#bfd7ff" }
+  { "id": "n27", "type": "note", "x": 1356, "y": 640, "w": 132, "h": 132, "text": "[BUILDING] Dreamspace plans itself", "fill": "#bfd7ff" },
+  { "id": "n28", "type": "note", "x": 696, "y": 952, "w": 132, "h": 132, "text": "[IDEA] Agent does the have-to's", "fill": "#bfd7ff" }
 ]

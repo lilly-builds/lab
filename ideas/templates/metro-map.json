@@ -45,5 +45,6 @@
   { "id": "n25", "type": "note", "x": 424, "y": 914, "w": 132, "h": 132, "text": "[BUILDING] No modes, no tool names", "fill": "#ffec99" },
   { "id": "n26", "type": "note", "x": 588, "y": 914, "w": 132, "h": 132, "text": "[IDEA] Use my plan, not an API key (needs a backend and a business decision)", "fill": "#ffc9c9" },
   { "id": "n27", "type": "note", "x": 752, "y": 914, "w": 132, "h": 132, "text": "[IDEA] Platform key with a free allowance", "fill": "#ffc9c9" },
-  { "id": "n28", "type": "note", "x": 916, "y": 914, "w": 132, "h": 132, "text": "[IDEA] Tested in a real browser", "fill": "#ffc9c9" }
+  { "id": "n28", "type": "note", "x": 916, "y": 914, "w": 132, "h": 132, "text": "[IDEA] Tested in a real browser", "fill": "#ffc9c9" },
+  { "id": "n29", "type": "note", "x": 1080, "y": 914, "w": 132, "h": 132, "text": "[IDEA] Have-to's done by an agent", "fill": "#ffc9c9" }
 ]
