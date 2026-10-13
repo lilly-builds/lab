@@ -20,7 +20,7 @@ The old "background agent loops" element is cut as an element: it IS the loops (
 
 1. Magic Moment - the onboarding / dream board first moment: dream board + sticky note dramatically slaps into the Have to do circle, pre-written ("Email the landlord about the leak"), teaching "write down your have-to's > the board gets them done." SHIPPED Oct 12 (PR #116).
 2. Community Template Shares - add a template to the community board.
-3. Collab Together - invite a friend, cofounder, teammate, family to your board.
+3. Join my Dream Team - invite a friend, cofounder, teammate, family to your board.
 4. The Invisible AI Toolbox - the open tool router.
 
 Plus, elevated priority by owner: the visible success loop - STICKY NOTE JUICE (below).
