@@ -21,6 +21,9 @@
   canvas#board.move { cursor: grab; }
   canvas#board.txt { cursor: text; }
   canvas#board.erase { cursor: none; }
+  #embeds { position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+  .embed { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: var(--paper); border: 1px solid var(--ink); pointer-events: auto; }
+  .embed iframe { display: block; width: 100%; height: 100%; border: 0; background: var(--paper); }
   #eraseCur { position: fixed; left: 0; top: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 1px solid var(--ink); border-radius: 50% !important; pointer-events: none; z-index: 6; display: none; }
 
   textarea#noteEdit { position: fixed; transform-origin: 0 0; display: none; margin: 0; padding: 8px; resize: none; overflow: hidden; border: 1px solid var(--ink); background: var(--paper); font: 400 16px/20px var(--f); outline: 0; z-index: 5; }
@@ -52,6 +55,7 @@
 </head>
 <body>
 <canvas id="board"></canvas>
+<div id="embeds"></div>
 <div id="eraseCur" aria-hidden="true"></div>
 <textarea id="noteEdit" aria-label="Note" maxlength="400"></textarea>
 <textarea id="textEdit" aria-label="Text" maxlength="2000" rows="1" spellcheck="false" autocorrect="off" wrap="soft"></textarea>
@@ -84,24 +88,40 @@
   'use strict';
 
   /* ---------- SEED: the whole starting board ----------
-     Five areas, each a titled region at a fixed spot on one big canvas (world units, 1 unit = 1px at 100%).
+     Eight areas, each a free-floating title with its notes loosely clustered underneath, on one open
+     canvas (world units, 1 unit = 1px at 100%). Nothing is boxed.
      id    -> the sublink: .../everything/#<id>
+              restoreops, whiteboard, followups, lifeadmin, purpose, pickleball, coliving, health-beauty
      title -> the heading drawn on the board and the label in the index bar
-     x, y  -> top-left corner of the area on the canvas
-     notes -> sticky notes placed inside the area, top to bottom
-     Areas are always drawn from this block. The notes are copied into localStorage
-     ("everything.scene") only when no saved board exists, then belong to the user. */
-  var AREA_W = 360, AREA_H = 520;
+     x, y  -> top-left of the title on the canvas
+     w     -> width reserved for the area (focus framing and ownership of what sits inside it)
+     notes -> sticky notes under the title, top to bottom; "ask\ncontext" is a bold line plus a smaller one
+     embed -> true puts a same-origin iframe card (../plot-your-purpose/) under the title
+     Areas are always drawn from this block. Notes and embeds are copied into localStorage
+     ("everything.scene") only when no board of this seed version exists, then belong to the user. */
+  var SEED_VER = '2', EMBED_SRC = '../plot-your-purpose/', EMBED_W = 520, EMBED_H = 640;
   var SEED = [
-    { id: 'work',          title: 'Work coding project',        x: 0,   y: 0,   notes: [] },
-    { id: 'pickleball',    title: 'Pickleball plans',           x: 480, y: 0,   notes: [] },
-    { id: 'coliving',      title: 'Biohacker coliving hub - SF', x: 960, y: 0,  notes: ['Getting sponsorships'] },
-    { id: 'whiteboard',    title: 'Whiteboard project',         x: 0,   y: 640, notes: ['Open the whiteboard - lilly-builds.github.io/lab/ideas/ai-whiteboard/', 'Metro map - lilly-builds.github.io/lab/ideas/metro-map/'] },
-    { id: 'health-beauty', title: 'Health & beauty',            x: 480, y: 640, notes: [] }
+    { id: 'restoreops',    title: 'RestoreOps',                  x: 0,    y: 0,    w: 360, notes: ['MCP wrap-up'] },
+    { id: 'whiteboard',    title: 'Whiteboard project',          x: 520,  y: 0,    w: 360, notes: ['Open the whiteboard - lilly-builds.github.io/lab/ideas/ai-whiteboard/', 'Metro map - lilly-builds.github.io/lab/ideas/metro-map/'] },
+    { id: 'followups',     title: 'Follow ups',                  x: 1200, y: 0,    w: 360, notes: [
+      'Reply to Adrian\nBiohackr, wants to build the hacker house',
+      'Reply to Sai\nLinkedIn, Frontier Tower intro',
+      'Pick John Kreish slot\nMindbody replacement builder',
+      'Send Jim MCP wrap-up\nWork Wonders owner',
+      'Confirm hackathon\nOct 23, Menlo Park',
+      'Pick pickleball plan\nThu Oct 15, Bushrod',
+      'Answer Luma people\nwho? unclear',
+      'Answer Matt\nShepherd, LinkedIn, outbound engine request',
+      'Answer Thomas Foley\nComposio GTM lead, LinkedIn, outbound engine request'] },
+    { id: 'lifeadmin',     title: 'Life admin',                  x: 0,    y: 440,  w: 360, notes: ['Call IRS to waive business tax fee', 'Prep taxes', 'Pick up wallet at Grocery Outlet', 'Back up Render DB by Oct 29', 'Review Vercel storage by Oct 23', 'Check ClickHouse trial', 'Decide on Wajo / Fo Google access'] },
+    { id: 'purpose',       title: 'Plot your purpose',           x: 1200, y: 1040, w: EMBED_W, notes: [], embed: true },
+    { id: 'pickleball',    title: 'Pickleball plans',            x: 520,  y: 480,  w: 360, notes: [] },
+    { id: 'coliving',      title: 'Biohacker coliving hub - SF', x: 520,  y: 800,  w: 480, notes: ['Getting sponsorships'] },
+    { id: 'health-beauty', title: 'Health & beauty',             x: 520,  y: 1140, w: 360, notes: [] }
   ];
 
   /* storage: every key starts with "everything." and never touches the whiteboard's own keys */
-  var K = { scene: 'everything.scene', sel: 'everything.sel', mode: 'everything.mode', shape: 'everything.shape' };
+  var K = { scene: 'everything.scene', ver: 'everything.ver', sel: 'everything.sel', mode: 'everything.mode', shape: 'everything.shape' };
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
@@ -112,7 +132,16 @@
   var dpr = 1, W = 0, H = 0, lastW = 0, TOP = 56;
   var sel = SEED[0].id, mode = 'A', anim = null;
   var areaById = {};
-  SEED.forEach(function (a) { a.w = AREA_W; a.h = AREA_H; areaById[a.id] = a; });
+  /* first-pass note height, before the font is measured; growNotes() only ever grows it */
+  function estH(t, w) { return t.indexOf('\n') > 0 ? 56 : Math.max(44, Math.ceil(t.length * 9.6 / (w - 16)) * 20 + 20); }
+  SEED.forEach(function (a) {
+    var y = 76;
+    a.nw = Math.min(a.w, 340);
+    a.layout = a.notes.map(function (t) { var h = estH(t, a.nw), r = { t: t, y: y, h: h }; y += h + 16; return r; });
+    if (a.embed) { a.embedY = y; y += EMBED_H + 16; }
+    a.h = Math.max(120, y + 8);
+    areaById[a.id] = a;
+  });
 
   var MIN_Z = 0.15, MAX_Z = 4;
   function clampZ(z) { return Math.max(MIN_Z, Math.min(MAX_Z, z)); }
@@ -123,7 +152,7 @@
   function toWorld(cx, cy) { return { x: view.x + cx / view.z, y: view.y + cy / view.z }; }
   function toScreen(wx, wy) { return { x: (wx - view.x) * view.z, y: (wy - view.y) * view.z }; }
 
-  var TYPES = ['note', 'text', 'pen', 'rect', 'diamond', 'ellipse', 'line', 'arrow'];
+  var TYPES = ['note', 'embed', 'text', 'pen', 'rect', 'diamond', 'ellipse', 'line', 'arrow'];
   var SHAPES = ['rect', 'ellipse', 'line', 'arrow'];
   function isClosed(t) { return t === 'rect' || t === 'diamond' || t === 'ellipse'; }
   function num(v, d) { v = Number(v); return isFinite(v) ? Math.max(-20000, Math.min(20000, v)) : d; }
@@ -143,18 +172,21 @@
       e.size = clampSize(o.size); e.w = Math.max(40, Math.min(2000, Math.abs(num(o.w, 280))));
     } else if (o.type === 'note') {
       e.text = str(o.text, 400); e.w = Math.max(60, Math.min(600, Math.abs(num(o.w, NOTE_W)))); e.h = Math.max(40, Math.min(800, Math.abs(num(o.h, NOTE_H))));
+    } else if (o.type === 'embed') {
+      e.w = EMBED_W; e.h = EMBED_H; e.src = EMBED_SRC; /* same-origin page only, never a stored url */
     } else { e.w = num(o.w, 0); e.h = num(o.h, 0); }
     return e;
   }
   function seedEls() {
     var out = [];
     SEED.forEach(function (a) {
-      a.notes.forEach(function (t, i) { out.push({ id: 'e' + (out.length + 1), type: 'note', x: a.x + 20, y: a.y + 64 + i * (NOTE_H + 16), w: a.w - 40, h: NOTE_H, text: t }); });
+      a.layout.forEach(function (r) { out.push({ id: 'e' + (out.length + 1), type: 'note', x: a.x, y: a.y + r.y, w: a.nw, h: r.h, text: r.t }); });
+      if (a.embed) out.push({ id: 'e' + (out.length + 1), type: 'embed', x: a.x, y: a.y + a.embedY, w: EMBED_W, h: EMBED_H, src: EMBED_SRC });
     });
     return out;
   }
   var saved = lsGet(K.scene);
-  if (saved === null) { els = seedEls(); lsSet(K.scene, JSON.stringify(els)); }
+  if (saved === null || lsGet(K.ver) !== SEED_VER) { lsSet(K.ver, SEED_VER); els = seedEls(); lsSet(K.scene, JSON.stringify(els)); }
   else { try { var s = JSON.parse(saved); if (Array.isArray(s)) els = s.map(cleanEl).filter(Boolean); } catch (e) {} }
   els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
   els.forEach(function (e) { if (!e.id) e.id = newId(); });
@@ -194,9 +226,19 @@
     });
     return out;
   }
-  function noteLines(el) { return wrap(el.text, el.w - 16, FONT); }
+  var SUBFONT = '400 12px ' + FAMILY;
+  /* "ask\ncontext": the first paragraph is the bold ask, the rest smaller context */
+  function noteLayout(el) {
+    var txt = String(el.text || ''), two = txt.indexOf('\n') > 0, out = [];
+    txt.split('\n').forEach(function (p, i) {
+      var sub = two && i > 0, font = sub ? SUBFONT : FONT, lh = sub ? 16 : LH;
+      wrap(p, el.w - 16, font).forEach(function (l) { out.push({ t: l, font: font, lh: lh, bold: two && i === 0 }); });
+    });
+    return out;
+  }
+  function noteH(el) { return noteLayout(el).reduce(function (n, l) { return n + l.lh; }, 16); }
   /* a note only ever grows to fit its words */
-  function fitNote(el) { el.h = Math.max(el.h || NOTE_H, noteLines(el).length * LH + 16); }
+  function fitNote(el) { el.h = Math.max(el.h || NOTE_H, noteH(el)); }
   function textLH(el) { return Math.round(el.size * 1.4); }
   function textBox(el) {
     var font = '400 ' + el.size + 'px ' + FAMILY, lh = textLH(el);
@@ -294,8 +336,13 @@
       g.lineWidth = 1;
       g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
       if (editing !== el.id) {
-        g.fillStyle = '#000'; g.textBaseline = 'top'; g.font = FONT;
-        noteLines(el).forEach(function (l, i) { g.fillText(l, x + 8, y + 8 + i * LH); });
+        g.fillStyle = '#000'; g.textBaseline = 'top';
+        var ly = y + 8;
+        noteLayout(el).forEach(function (l) {
+          g.font = l.font; g.fillText(l.t, x + 8, ly);
+          if (l.bold) g.fillText(l.t, x + 8.6, ly);
+          ly += l.lh;
+        });
       }
     } else if (el.type === 'text') {
       if (editing !== el.id) {
@@ -318,14 +365,11 @@
   function drawArea(g, a, alpha) {
     g.save();
     g.globalAlpha = alpha;
-    g.strokeStyle = '#000'; g.fillStyle = '#000'; g.lineWidth = 1;
-    var x = a.x - view.x, y = a.y - view.y;
-    g.strokeRect(x + .5, y + .5, a.w - 1, a.h - 1);
-    g.beginPath(); g.moveTo(x, y + 44.5); g.lineTo(x + a.w, y + 44.5); g.stroke();
-    g.font = '400 20px ' + FAMILY; g.textBaseline = 'middle'; g.textAlign = 'left';
+    g.fillStyle = '#000';
+    g.font = '400 28px ' + FAMILY; g.textBaseline = 'top'; g.textAlign = 'left';
     var tt = a.title;
-    while (tt.length > 1 && g.measureText(tt).width > a.w - 24) tt = tt.slice(0, -1);
-    g.fillText(tt, x + 12, y + 23);
+    while (tt.length > 1 && g.measureText(tt).width > a.w) tt = tt.slice(0, -1);
+    g.fillText(tt, a.x - view.x, a.y - view.y + 4);
     g.restore();
   }
   function drawSel(g, el) {
@@ -357,6 +401,28 @@
     var s = selEl();
     if (s && editing !== s.id) drawSel(ctx, s);
     document.getElementById('del').hidden = !s;
+    syncEmbeds();
+  }
+  /* embed cards are real iframes in a layer over the canvas, placed with the same view transform */
+  var embedLayer = document.getElementById('embeds'), embedNodes = {};
+  function syncEmbeds() {
+    var seen = {};
+    els.forEach(function (el) {
+      if (el.type !== 'embed') return;
+      seen[el.id] = true;
+      var n = embedNodes[el.id];
+      if (!n) {
+        n = embedNodes[el.id] = document.createElement('div'); n.className = 'embed';
+        var f = document.createElement('iframe'); f.src = EMBED_SRC; f.title = 'Plot your purpose';
+        n.appendChild(f); embedLayer.appendChild(n);
+      }
+      var p = toScreen(el.x, el.y), o = ownerOf(el);
+      n.hidden = !visible(el);
+      n.style.width = el.w + 'px'; n.style.height = el.h + 'px';
+      n.style.transform = 'translate(' + p.x + 'px,' + p.y + 'px) scale(' + view.z + ')';
+      n.style.opacity = mode === 'C' && o !== sel && o !== null ? '0.25' : '1';
+    });
+    Object.keys(embedNodes).forEach(function (id) { if (!seen[id]) { embedLayer.removeChild(embedNodes[id]); delete embedNodes[id]; } });
   }
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -427,7 +493,7 @@
     });
     indexEl.appendChild(b);
   });
-  function hashId() { var h = ''; try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) {} return areaById[h] ? h : null; }
+  function hashId() { var h = ''; try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) {} if (h === 'work') h = 'restoreops'; return areaById[h] ? h : null; }
   window.addEventListener('hashchange', function () { var id = hashId(); if (id) select(id, true); });
   Array.prototype.forEach.call(document.querySelectorAll('#focus [data-mode]'), function (b) {
     b.addEventListener('click', function () {
