@@ -65,7 +65,7 @@
     var timeoutMs = opts.timeoutMs || TIMEOUT_MS;
     var sb = null, engine = null, channel = null;
     var state = 'idle';        /* idle -> connecting -> online | offline (session) */
-    var myUserId = null, flushingJuice = false;
+    var myUserId = null, flushingJuice = false, beforeImport = null;
     var started = false, flushTimer = null;
 
     function lsGet(k) { try { return storage.getItem(k); } catch (e) { return null; } }
@@ -179,6 +179,13 @@
           onDeadLetter: function () { badge('some changes need a resync'); },
           onConflict: function () { badge('synced over a local change'); }
         });
+        /* an invite link joins the shared board BEFORE any import would
+           create a personal one (U7): the hook may set BOARD_KEY, which
+           turns the first sync into the returning-device pull path */
+        if (!lsGet(BOARD_KEY) && beforeImport) {
+          try { await beforeImport(); } catch (e) {}
+          if (lsGet(BOARD_KEY)) engine.rebindBoardId(lsGet(BOARD_KEY));
+        }
         if (!lsGet(BOARD_KEY)) {
           /* first sync: import the device scene, remap ids, store the board id */
           var res = await engine.importScene(app.getEls());
@@ -312,6 +319,7 @@
       get client() { return sb; },      /* auth.js and team.js share the one connection */
       get userId() { return myUserId; },
       init: init,
+      setBeforeImport: function (fn) { beforeImport = fn; },
       flush: doFlush,
       onSave: onSave
     };
