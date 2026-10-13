@@ -598,7 +598,7 @@
      busy is the word list under the input while the handler works. A new route is one entry plus one run(). */
   var ROUTES = {
     draw: { label: 'Answer or draw', about: 'a question, discussion, brainstorm, or adding new notes, shapes or diagrams to the board.', model: 'main', busy: ['Looking at your board', 'Drawing', 'Sketching'], run: runDraw },
-    build: { label: 'Build an app', about: 'the user wants a working app, tool, game or page they can use.', model: 'main', busy: ['Thinking'], run: runBuild },
+    build: { label: 'Build an app', about: 'the user wants a working app, tool, game or page they can use.', model: 'fast', busy: ['Thinking'], run: runBuild },
     edit: { label: 'Change the board', about: 'the user wants to change what is already on the board: move, align, group, recolor, resize, rename, delete or tidy existing elements.', model: 'main', busy: ['Rearranging'], run: runEdit }
   };
 
