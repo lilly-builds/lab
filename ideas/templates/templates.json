@@ -2,5 +2,15 @@
   { "id": "dream-board", "title": "Dream board", "author": "Lilly Field", "file": "dream-board.json" },
   { "id": "dreamspace-plan", "title": "Dreamspace plan", "author": "Lilly Field", "file": "dreamspace-plan.json" },
   { "id": "idea-map", "title": "Idea map", "author": "Lilly Field", "file": "idea-map.json" },
-  { "id": "metro-map", "title": "Metro map", "author": "Lilly Field", "file": "metro-map.json" }
+  { "id": "metro-map", "title": "Metro map", "author": "Lilly Field", "file": "metro-map.json" },
+  { "id": "our-week", "title": "Our week, together", "author": "Lilly Field", "file": "our-week.json" },
+  { "id": "friends-trip", "title": "Plan a trip with friends", "author": "Lilly Field", "file": "friends-trip.json" },
+  { "id": "group-party", "title": "Party everyone pitches in on", "author": "Lilly Field", "file": "group-party.json" },
+  { "id": "learn-in-a-month", "title": "Learn something in a month", "author": "Lilly Field", "file": "learn-in-a-month.json" },
+  { "id": "save-for-it", "title": "Save for something real", "author": "Lilly Field", "file": "save-for-it.json" },
+  { "id": "side-project-weekend", "title": "Side project, first weekend", "author": "Lilly Field", "file": "side-project-weekend.json" },
+  { "id": "drop-shrink-handoff", "title": "Drop, shrink or hand off", "author": "Lilly Field", "file": "drop-shrink-handoff.json" },
+  { "id": "make-one-chore-smaller", "title": "Make one chore smaller", "author": "Lilly Field", "file": "make-one-chore-smaller.json" },
+  { "id": "first-time-with-ai", "title": "Your first time with AI", "author": "Lilly Field", "file": "first-time-with-ai.json" },
+  { "id": "say-the-hard-thing", "title": "Say the hard thing kindly", "author": "Lilly Field", "file": "say-the-hard-thing.json" }
 ]
