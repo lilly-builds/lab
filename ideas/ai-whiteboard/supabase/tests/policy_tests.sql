@@ -393,3 +393,17 @@ select pg_temp.throws('per-author pending cap rejects the one past the limit',
     values ('cap-11', 'T', '22222222-2222-2222-2222-222222222222', 'Eddie', '[]'::jsonb)$$,
   'cap');
 reset role;
+
+-- ------------------------------------------------------------ final gate
+-- Any failed assertion aborts the session; with psql -v ON_ERROR_STOP=1 the
+-- exit code is non-zero, so CI cannot wave a red suite through.
+do $$
+declare v_fails int;
+begin
+  select count(*) into v_fails from pg_temp.test_results where not ok;
+  if v_fails > 0 then
+    raise warning '%', (select string_agg('FAIL: ' || name || ' -> ' || detail, E'\n' order by ord) from pg_temp.test_results where not ok);
+    raise exception 'POLICY TESTS FAILED: % assertion(s)', v_fails;
+  end if;
+  raise info 'POLICY TESTS: ALL GREEN (%)', (select count(*) from pg_temp.test_results);
+end $$;
