@@ -39,6 +39,12 @@
     font: 300 24px/31px var(--serif); text-decoration: none; box-shadow: none; outline: 1px solid var(--ink); outline-offset: 4px; z-index: 5; }
   textarea#textEdit:focus, textarea#textEdit:focus-visible { outline: 1px solid var(--ink); outline-offset: 4px; }
 
+  #zoom { position: fixed; left: calc(12px + env(safe-area-inset-left)); bottom: 80px; display: flex; background: var(--paper); border: 1px solid var(--ink); z-index: 9; }
+  #zoom button { min-width: 44px; height: 44px; padding: 0 8px; border-radius: 0; font: 400 14px/1 var(--serif); color: var(--ink); background: var(--paper); }
+  #zoom button + button { border-left: 1px solid var(--ink); }
+  #zoom #zoomReset { min-width: 64px; }
+  #zoom button:hover, #zoom button:focus-visible { background: var(--ink); color: var(--paper); }
+  #zoom button:focus-visible { outline-offset: -4px; outline-color: var(--paper); }
   #dock { position: fixed; left: 0; right: 0; bottom: 0; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; z-index: 10; }
   #dock > * { pointer-events: auto; }
 
@@ -236,6 +242,12 @@
 <div id="eraseCur" aria-hidden="true"></div>
 <textarea id="noteEdit" aria-label="Note" maxlength="400"></textarea>
 <textarea id="textEdit" aria-label="Text" maxlength="2000" rows="1" spellcheck="false" autocorrect="off" wrap="soft"></textarea>
+
+<div id="zoom" role="group" aria-label="Zoom">
+  <button type="button" id="zoomOut" aria-label="Zoom out">-</button>
+  <button type="button" id="zoomReset" aria-label="Reset zoom to 100%">100%</button>
+  <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
+</div>
 
 <div id="dock">
   <div id="err" role="status" aria-live="polite"></div>
@@ -641,10 +653,25 @@
   var KEY_SCENE = 'aiwb.scene', KEY_VIEW = 'aiwb.view', KEY_PROVIDER = 'aiwb.provider';
   var OLD_KEY = 'aiwb.key', OLD_MODEL = 'aiwb.model';
   var cv = document.getElementById('board'), ctx = cv.getContext('2d');
-  var els = [], view = { x: 0, y: 0 }, tool = 'pen', undoStack = [], editing = null, busy = false, fade = null, selId = null, eraseIds = {};
+  /* zoom:start */
+  var Z_MIN = 0.25, Z_MAX = 4, Z_STEP = 1.25;
+  function clampZ(z, minZ, maxZ) { return Math.max(minZ == null ? Z_MIN : minZ, Math.min(maxZ == null ? Z_MAX : maxZ, z)); }
+  /* new view after scaling by `factor` with the world point under screen (cx, cy) held fixed; screen = (world - view) * z */
+  function zoomAround(v, factor, cx, cy, minZ, maxZ) {
+    var z0 = v.z || 1, z1 = clampZ(z0 * factor, minZ, maxZ);
+    if (Math.abs(z1 - 1) < 1e-9) z1 = 1;
+    var wx = v.x + cx / z0, wy = v.y + cy / z0;
+    return { x: wx - cx / z1, y: wy - cy / z1, z: z1 };
+  }
+  /* zoom:end */
+  var els = [], view = { x: 0, y: 0, z: 1 }, tool = 'pen', undoStack = [], editing = null, busy = false, fade = null, selId = null, eraseIds = {};
   var cur = { strokeColor: '#1e1e1e', fill: 'none', strokeWidth: 2, dashed: false, noteFill: '#bfd7ff', size: 24 };
   var imgCache = {}, NOTE = 120, nextId = 1, editNew = false;
   var dpr = 1, W = 0, H = 0;
+  var zoomBox = document.getElementById('zoom'), zoomLab = document.getElementById('zoomReset');
+  /* the only two places screen and world meet: screen = (world - view) * z */
+  function toWorld(cx, cy) { return { x: cx / view.z + view.x, y: cy / view.z + view.y }; }
+  function toScreen(wx, wy) { return { x: (wx - view.x) * view.z, y: (wy - view.y) * view.z }; }
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
@@ -794,7 +821,7 @@
   function embedCount() { return els.filter(function (e) { return e.type === 'embed'; }).length; }
 
   try { var s = JSON.parse(lsGet(KEY_SCENE) || '[]'); if (Array.isArray(s)) els = loadEls(s, true); } catch (e) {}
-  try { var vv = JSON.parse(lsGet(KEY_VIEW) || 'null'); if (vv && isFinite(vv.x) && isFinite(vv.y)) view = { x: +vv.x, y: +vv.y }; } catch (e) {}
+  try { var vv = JSON.parse(lsGet(KEY_VIEW) || 'null'); if (vv && isFinite(vv.x) && isFinite(vv.y)) view = { x: +vv.x, y: +vv.y, z: isFinite(vv.z) && vv.z > 0 ? clampZ(+vv.z) : 1 }; } catch (e) {}
   els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
   els.forEach(function (e) { if (!e.id) e.id = 'e' + (nextId++); });
 
@@ -871,7 +898,7 @@
     return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
   }
   function hit(el, px, py) {
-    var pad = 10;
+    var pad = 10 / view.z, slop = 4 / view.z;
     if (el.type === 'pen') {
       for (var i = 0; i < el.pts.length; i++) {
         var a = el.pts[i], b = el.pts[i + 1] || a;
@@ -881,7 +908,7 @@
     }
     if (el.type === 'line' || el.type === 'arrow') return distSeg(px, py, el.x, el.y, el.x + el.w, el.y + el.h) < pad;
     var b2 = bbox(el);
-    return px >= b2.x - 4 && px <= b2.x + b2.w + 4 && py >= b2.y - 4 && py <= b2.y + b2.h + 4;
+    return px >= b2.x - slop && px <= b2.x + b2.w + slop && py >= b2.y - slop && py <= b2.y + b2.h + slop;
   }
   function topAt(px, py) { for (var i = els.length - 1; i >= 0; i--) if (hit(els[i], px, py)) return els[i]; return null; }
 
@@ -894,7 +921,7 @@
   }
   function handleAt(el, px, py) {
     var hs = handles(el);
-    for (var i = 0; i < hs.length; i++) if (Math.hypot(px - hs[i].x, py - hs[i].y) < 16) return i;
+    for (var i = 0; i < hs.length; i++) if (Math.hypot(px - hs[i].x, py - hs[i].y) < 16 / view.z) return i;
     return -1;
   }
 
@@ -947,7 +974,8 @@
         n.src = el.url; imgLayer.appendChild(n);
       }
       if (n.getAttribute('src') !== el.url) n.src = el.url;
-      n.style.left = (el.x - view.x) + 'px'; n.style.top = (el.y - view.y) + 'px';
+      var sp = toScreen(el.x, el.y);
+      n.style.left = sp.x + 'px'; n.style.top = sp.y + 'px'; n.style.transformOrigin = '0 0'; n.style.transform = view.z === 1 ? '' : 'scale(' + view.z + ')';
       n.style.width = el.w + 'px'; n.style.height = el.h + 'px';
       n.style.opacity = eraseIds[el.id] ? '0.3' : '';
     });
@@ -1039,17 +1067,23 @@
   }
   function drawSel(g, el) {
     if (el.type === 'embed') return;
-    var b = bbox(el), x = b.x - view.x, y = b.y - view.y;
+    /* drawn in screen space (dpr only) so the outline and handles keep their pixel size at any zoom */
+    var b = bbox(el), o = toScreen(b.x, b.y), x = o.x, y = o.y, bw = b.w * view.z, bh = b.h * view.z;
     g.save();
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.lineWidth = 1; g.strokeStyle = '#000'; g.setLineDash([4, 3]);
-    g.strokeRect(x - 5.5, y - 5.5, b.w + 11, b.h + 11);
+    g.strokeRect(x - 5.5, y - 5.5, bw + 11, bh + 11);
     g.setLineDash([]); g.fillStyle = '#fff';
-    handles(el).forEach(function (h) { g.fillRect(h.x - view.x - 4.5, h.y - view.y - 4.5, 9, 9); g.strokeRect(h.x - view.x - 4.5, h.y - view.y - 4.5, 9, 9); });
+    handles(el).forEach(function (h) { var s = toScreen(h.x, h.y); g.fillRect(s.x - 4.5, s.y - 4.5, 9, 9); g.strokeRect(s.x - 4.5, s.y - 4.5, 9, 9); });
     g.restore();
   }
   function draw() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
+    /* world to device: drawEl subtracts the view origin, this scales it */
+    ctx.setTransform(dpr * view.z, 0, 0, dpr * view.z, 0, 0);
+    var zt = Math.round(view.z * 100) + '%';
+    if (zoomLab.textContent !== zt) zoomLab.textContent = zt;
     var fp = fade ? Math.min(1, (performance.now() - fade.t0) / 250) : 1;
     els.forEach(function (el) {
       if (eraseIds[el.id]) { ctx.save(); ctx.globalAlpha = 0.3; drawEl(ctx, el, view.x, view.y); ctx.restore(); }
@@ -1058,6 +1092,7 @@
     });
     if (fade) { if (fp < 1) requestAnimationFrame(draw); else fade = null; }
     var s = selEl();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (s && editing !== s.id) drawSel(ctx, s);
     renderProps();
     syncImages();
@@ -1151,13 +1186,17 @@
     if (!el) return;
     if (el.type === 'text') {
       var st = tx.style;
-      st.left = (el.x - view.x) + 'px'; st.top = (el.y - view.y) + 'px'; st.width = el.w + 'px';
+      var tp = toScreen(el.x, el.y);
+      st.left = tp.x + 'px'; st.top = tp.y + 'px'; st.width = el.w + 'px';
+      st.transformOrigin = '0 0'; st.transform = view.z === 1 ? '' : 'scale(' + view.z + ')';
       st.fontSize = el.size + 'px'; st.lineHeight = textLH(el) + 'px';
       st.color = pick(el.color, STROKES, '#1e1e1e');
       st.height = 'auto'; st.height = Math.max(textLH(el), tx.scrollHeight) + 'px';
       return;
     }
-    ta.style.left = (el.x - view.x) + 'px'; ta.style.top = (el.y - view.y) + 'px'; ta.style.width = el.w + 'px'; ta.style.height = el.h + 'px';
+    var np = toScreen(el.x, el.y);
+    ta.style.transformOrigin = '0 0'; ta.style.transform = view.z === 1 ? '' : 'scale(' + view.z + ')';
+    ta.style.left = np.x + 'px'; ta.style.top = np.y + 'px'; ta.style.width = el.w + 'px'; ta.style.height = el.h + 'px';
     ta.style.background = pick(el.fill, NOTE_FILLS, '#bfd7ff');
   }
   function editNote(el) {
@@ -1173,7 +1212,7 @@
     if (r.bottom > bottom) dy = r.bottom - bottom;
     if (r.top - dy < top + 12) dy = r.top - top - 12;
     if (!dy) return;
-    view.y += dy; saveView(); draw(); placeEditor();
+    view.y += dy / view.z; saveView(); draw(); placeEditor();
   }
   function editText(el, isNew) {
     commitEdit();
@@ -1218,7 +1257,7 @@
 
   /* ---------- pointer interaction ---------- */
   var drag = null, lastTap = { id: null, t: 0 }, interactId = null;
-  function pt(e) { return { x: e.clientX + view.x, y: e.clientY + view.y }; }
+  function pt(e) { return toWorld(e.clientX, e.clientY); }
   function styled(el) {
     el.strokeColor = cur.strokeColor; el.strokeWidth = cur.strokeWidth;
     if (isClosed(el.type)) { el.fill = cur.fill; el.dashed = cur.dashed; }
@@ -1251,8 +1290,8 @@
       else if (ex && ex.type === 'text') drag = { kind: 'text', el: ex, isNew: false };
       else {
         snap();
-        var tw = Math.max(120, Math.min(280, W - 32));
-        var tn = { id: newId(), type: 'text', x: Math.max(view.x + 8, Math.min(p.x, view.x + W - 8 - tw)), y: p.y, text: '', size: cur.size, color: cur.strokeColor, w: tw };
+        var tw = Math.max(120, Math.min(280, (W - 32) / view.z));
+        var tn = { id: newId(), type: 'text', x: Math.max(view.x + 8 / view.z, Math.min(p.x, view.x + (W - 8) / view.z - tw)), y: p.y, text: '', size: cur.size, color: cur.strokeColor, w: tw };
         els.push(tn); drag = { kind: 'text', el: tn, isNew: true };
       }
     } else if (SHAPES.indexOf(tool) >= 0) {
@@ -1276,19 +1315,19 @@
     draw();
   });
   /* eraser: object eraser, hit-tested along the pointer path; removal happens once on release */
-  var ERASE_TOL = 8, eraseCur = document.getElementById('eraseCur');
+  var ERASE_TOL_PX = 8, eraseCur = document.getElementById('eraseCur');
   function eraseHit(el, px, py) {
     if (el.type === 'pen') {
       for (var i = 0; i < el.pts.length; i++) {
         var a = el.pts[i], b = el.pts[i + 1] || a;
-        if (distSeg(px, py, el.x + a[0], el.y + a[1], el.x + b[0], el.y + b[1]) < ERASE_TOL) return true;
+        if (distSeg(px, py, el.x + a[0], el.y + a[1], el.x + b[0], el.y + b[1]) < ERASE_TOL_PX / view.z) return true;
       }
       return false;
     }
     return hit(el, px, py);
   }
   function eraseTo(x0, y0, x1, y1) {
-    var n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 4)), changed = false;
+    var n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * view.z / 4)), changed = false;
     for (var k = 0; k <= n; k++) {
       var px = x0 + (x1 - x0) * k / n, py = y0 + (y1 - y0) * k / n;
       for (var i = 0; i < els.length; i++) if (!eraseIds[els[i].id] && eraseHit(els[i], px, py)) { eraseIds[els[i].id] = true; changed = true; }
@@ -1320,7 +1359,7 @@
       eraseTo(drag.lx, drag.ly, p.x, p.y); drag.lx = p.x; drag.ly = p.y;
     } else if (drag.kind === 'pen') {
       var el = drag.el, last = el.pts[el.pts.length - 1], q = [p.x - el.x, p.y - el.y];
-      if (Math.hypot(q[0] - last[0], q[1] - last[1]) >= 1.5) { el.pts.push(q); draw(); }
+      if (Math.hypot(q[0] - last[0], q[1] - last[1]) * view.z >= 1.5) { el.pts.push(q); draw(); }
     } else if (drag.kind === 'shape') {
       var s = drag.el;
       if (isClosed(s.type)) { s.x = Math.min(drag.sx, p.x); s.y = Math.min(drag.sy, p.y); s.w = Math.abs(p.x - drag.sx); s.h = Math.abs(p.y - drag.sy); }
@@ -1351,11 +1390,11 @@
       }
       draw();
     } else if (drag.kind === 'move') {
-      var dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
-      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      var dx = (e.clientX - drag.sx) / view.z, dy = (e.clientY - drag.sy) / view.z;
+      if ((Math.abs(dx) + Math.abs(dy)) * view.z > 3) drag.moved = true;
       drag.el.x = drag.ox + dx; drag.el.y = drag.oy + dy; draw();
     } else if (drag.kind === 'pan') {
-      view.x = drag.vx - (e.clientX - drag.sx); view.y = drag.vy - (e.clientY - drag.sy); draw();
+      view.x = drag.vx - (e.clientX - drag.sx) / view.z; view.y = drag.vy - (e.clientY - drag.sy) / view.z; draw();
     }
   });
   function end(e) {
@@ -1385,7 +1424,7 @@
     } else if (d.kind === 'text') editText(d.el, d.isNew);
     else if (d.kind === 'pan') saveView();
     else if (d.kind === 'shape') {
-      if (Math.hypot(d.el.w, d.el.h) < 6) { els = els.filter(function (x) { return x !== d.el; }); undoStack.pop(); syncUndo(); }
+      if (Math.hypot(d.el.w, d.el.h) * view.z < 6) { els = els.filter(function (x) { return x !== d.el; }); undoStack.pop(); syncUndo(); }
       else { setTool('move'); selId = d.el.id; save(); }
     }
     else save();
@@ -1393,6 +1432,87 @@
   }
   cv.addEventListener('pointerup', end);
   cv.addEventListener('pointercancel', end);
+
+  /* ---------- zoom: buttons, keys, ctrl+wheel, touch pinch ---------- */
+  var zoomT = 0;
+  function applyView(v) {
+    view = v; draw();
+    if (editing) placeEditor();
+    clearTimeout(zoomT); zoomT = setTimeout(saveView, 200);
+  }
+  function zoomBy(factor, cx, cy) { applyView(zoomAround(view, factor, cx == null ? W / 2 : cx, cy == null ? H / 2 : cy)); }
+  function zoomReset() { zoomBy(1 / view.z); }
+  document.getElementById('zoomIn').addEventListener('click', function () { zoomBy(Z_STEP); });
+  document.getElementById('zoomOut').addEventListener('click', function () { zoomBy(1 / Z_STEP); });
+  zoomLab.addEventListener('click', zoomReset);
+  /* keep the control just above whatever the dock currently holds (toolbar, style bar, prompt) */
+  var zDock = document.getElementById('dock');
+  function placeZoom() {
+    try { var r = zDock.getBoundingClientRect(); zoomBox.style.bottom = Math.max(12, window.innerHeight - r.top + 8) + 'px'; } catch (e) {}
+  }
+  if (window.ResizeObserver) new ResizeObserver(placeZoom).observe(zDock);
+  window.addEventListener('resize', placeZoom);
+  placeZoom();
+  document.addEventListener('keydown', function (e) {
+    if (modalOpen || cOpen || e.ctrlKey || e.metaKey || e.altKey) return;
+    var tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomBy(Z_STEP); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(1 / Z_STEP); }
+    else if (e.key === '0') { e.preventDefault(); zoomReset(); }
+  });
+  /* ctrl/meta + wheel is the trackpad pinch (and ctrl+wheel on a mouse); plain wheel is left alone for the app frames */
+  document.addEventListener('wheel', function (e) {
+    if (!(e.ctrlKey || e.metaKey) || modalOpen || cOpen) return;
+    if (e.target.closest && e.target.closest('#dock, #zoom, dialog, .epop')) return;
+    e.preventDefault();
+    var dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1);
+    zoomBy(Math.exp(-Math.max(-100, Math.min(100, dy)) * 0.0025), e.clientX, e.clientY);
+  }, { passive: false });
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('gesturechange', function (e) { e.preventDefault(); });
+
+  /* two touch pointers: zoom around their midpoint and pan with it */
+  var ptrs = {}, pinch = null;
+  function pinchState() {
+    var ids = Object.keys(ptrs), a = ptrs[ids[0]], b = ptrs[ids[1]];
+    return { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)) };
+  }
+  /* drop a stroke or drag in progress: the snapshot taken when it began restores the board, so nothing stray is left */
+  function cancelDrag() {
+    if (!drag) return;
+    var d = drag; drag = null;
+    if (d.kind === 'erase') endErase(false);
+    else if (d.kind === 'pen' || d.kind === 'shape' || d.kind === 'move' || d.kind === 'handle') { els = JSON.parse(undoStack.pop()); syncUndo(); save(); }
+    else if (d.kind === 'text' && d.isNew) { els = els.filter(function (x) { return x !== d.el; }); undoStack.pop(); syncUndo(); }
+    draw();
+  }
+  cv.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'mouse') return;
+    ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (Object.keys(ptrs).length === 2) {
+      cancelDrag();
+      if (editing) commitEdit();
+      pinch = pinchState();
+    }
+  });
+  cv.addEventListener('pointermove', function (e) {
+    var p = ptrs[e.pointerId];
+    if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    if (!pinch || Object.keys(ptrs).length !== 2) return;
+    var n = pinchState(), v = zoomAround(view, n.d / pinch.d, pinch.mx, pinch.my);
+    /* the midpoint's travel pans the board */
+    v.x -= (n.mx - pinch.mx) / v.z; v.y -= (n.my - pinch.my) / v.z;
+    pinch = n; applyView(v);
+  });
+  function pinchEnd(e) {
+    if (!ptrs[e.pointerId]) return;
+    delete ptrs[e.pointerId];
+    if (pinch && Object.keys(ptrs).length < 2) { pinch = null; saveView(); }
+  }
+  cv.addEventListener('pointerup', pinchEnd);
+  cv.addEventListener('pointercancel', pinchEnd);
 
   /* ---------- shape slot + tooltips ---------- */
   var shapeBtn = document.getElementById('shapeBtn'), shapeFly = document.getElementById('shapeFly');
@@ -1735,7 +1855,7 @@
   function safeRect() {
     var bot = 110;
     try { var r = dock.getBoundingClientRect(); if (r && r.height > 0) bot = Math.max(110, r.height + 32); } catch (e) {}
-    return { x: view.x + 24, y: view.y + 24, w: Math.max(0, W - 48), h: Math.max(0, H - 24 - bot) };
+    return { x: view.x + 24 / view.z, y: view.y + 24 / view.z, w: Math.max(0, (W - 48) / view.z), h: Math.max(0, (H - 24 - bot) / view.z) };
   }
   function isLinear(e) { return e.type === 'line' || e.type === 'arrow'; }
   function okBox(b) { return isFinite(b.x) && isFinite(b.y) && isFinite(b.w) && isFinite(b.h); }
@@ -1945,7 +2065,7 @@
   }
 
   function sceneForModel() {
-    var vis = { x: Math.round(view.x), y: Math.round(view.y), width: W, height: H };
+    var vis = { x: Math.round(view.x), y: Math.round(view.y), width: Math.round(W / view.z), height: Math.round(H / view.z), zoom: Math.round(view.z * 100) / 100 };
     var list = els.map(function (el) {
       var b = bbox(el), o = { id: el.id, type: el.type };
       if (el.type === 'line' || el.type === 'arrow') { o.x1 = Math.round(el.x); o.y1 = Math.round(el.y); o.x2 = Math.round(el.x + el.w); o.y2 = Math.round(el.y + el.h); }
@@ -1973,6 +2093,7 @@
     c.width = Math.max(1, Math.round(W * k)); c.height = Math.max(1, Math.round(H * k));
     var g = c.getContext('2d');
     g.scale(k, k); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    g.scale(view.z, view.z);
     els.forEach(function (el) { drawEl(g, el, view.x, view.y); });
     try { return c.toDataURL('image/png').split(',')[1]; } catch (e) { return null; }
   }
@@ -2229,7 +2350,7 @@
   function sanitize(a) {
     if (!a || typeof a !== 'object') return null;
     var t = a.type, el = { id: newId(), type: t, ai: true };
-    if (t === 'note') { el.x = num(a.x, view.x + 40); el.y = num(a.y, view.y + 40); el.text = str(a.text, 400); if (!el.text) return null; fitNote(el); }
+    if (t === 'note') { el.x = num(a.x, view.x + 40 / view.z); el.y = num(a.y, view.y + 40 / view.z); el.text = str(a.text, 400); if (!el.text) return null; fitNote(el); }
     else if (t === 'text') {
       var te = cleanText({ x: a.x, y: a.y, text: a.text, size: a.size, color: a.color != null ? a.color : a.strokeColor, w: a.w != null ? a.w : a.width });
       if (!te) return null;
@@ -2267,12 +2388,12 @@
   function freeSpot(size, hgt) {
     var boxes = els.map(bbox), sh = hgt || size, S = safeRect();
     for (var r = 0; r < 12; r++) for (var c = 0; c < 20; c++) {
-      var x = view.x + 24 + c * 40, y = view.y + 24 + r * 40;
+      var x = S.x + c * 40, y = S.y + r * 40;
       if (x + size > S.x + S.w || y + sh > S.y + S.h) continue;
       var ok = boxes.every(function (b) { return x + size + 12 < b.x || x > b.x + b.w + 12 || y + sh + 12 < b.y || y > b.y + b.h + 12; });
       if (ok) return { x: x, y: y };
     }
-    return { x: view.x + 24, y: view.y + 24 };
+    return { x: S.x, y: S.y };
   }
   function applyReply(r) {
     var add = Array.isArray(r.add) ? r.add.slice(0, 40).map(function (a) {
@@ -2677,9 +2798,9 @@
       var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       els.forEach(function (e) { var b = bbox(e); x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); });
       /* keep the whole template in sight: 24px margins, 110px at the bottom for the toolbar; wider than the view -> left edge at 24px */
-      var vx = (x1 - x0) > W - 48 ? x0 - 24 : (x0 + x1) / 2 - W / 2;
-      var vy = (y0 + y1) / 2 - (24 + (H - 134) / 2);
-      view = { x: Math.round(vx), y: Math.round(vy) };
+      var vz = view.z, vx = (x1 - x0) > (W - 48) / vz ? x0 - 24 / vz : (x0 + x1) / 2 - W / vz / 2;
+      var vy = (y0 + y1) / 2 - (24 + (H - 134) / 2) / vz;
+      view = { x: Math.round(vx), y: Math.round(vy), z: vz };
       save(); saveView(); draw();
     }
   }
@@ -2953,7 +3074,7 @@
     var b = e.target.closest('.ebody'), n = b && nodeOfBody(b);
     if (!n || !n.iframe || !n.appId || n.root.classList.contains('act')) return;
     var r = n.iframe.getBoundingClientRect(), k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? r.height : 1;
-    try { n.iframe.contentWindow.postMessage({ eWheel: 1, x: e.clientX - r.left, y: e.clientY - r.top, dx: e.deltaX * k, dy: e.deltaY * k }, '*'); } catch (err) { return; }
+    try { n.iframe.contentWindow.postMessage({ eWheel: 1, x: (e.clientX - r.left) / view.z, y: (e.clientY - r.top) / view.z, dx: e.deltaX * k, dy: e.deltaY * k }, '*'); } catch (err) { return; }
     e.preventDefault();
   }, { passive: false });
   document.addEventListener('pointerover', function (e) {
@@ -2986,7 +3107,9 @@
   }
   function updateEmbedNode(n, el) {
     var st = n.root.style;
-    st.left = Math.round(el.x - view.x) + 'px'; st.top = Math.round(el.y - view.y) + 'px';
+    var ep = toScreen(el.x, el.y);
+    st.left = Math.round(ep.x) + 'px'; st.top = Math.round(ep.y) + 'px';
+    st.transformOrigin = '0 0'; st.transform = view.z === 1 ? '' : 'scale(' + view.z + ')';
     st.width = Math.round(el.w) + 'px'; st.height = Math.round(el.h) + 'px';
     if (el.kind === 'app') { updateAppNode(n, el); return; }
     var stalled = isStalled(el), sel = selId === el.id;
@@ -3505,7 +3628,7 @@
     }
   }
   function addApp(idea) {
-    var w = Math.max(200, Math.min(360, W - 48)), h = 420, sp = freeSpot(w, h);
+    var w = Math.max(EMB_MIN_W, Math.min(360, (W - 48) / view.z)), h = 420, sp = freeSpot(w, h);
     var el = cleanApp({ x: sp.x, y: sp.y, w: w, h: h, appId: newAppId(), title: firstWords(idea), prompt: idea });
     el.id = newId();
     var u = undoStack.length;
@@ -3554,7 +3677,7 @@
   }
   function addEmbed(o) {
     if (embedCount() >= EMB_MAX) { showErr('Six frames at most. Close one first.'); return null; }
-    var w = Math.max(200, Math.min(360, W - 48)), h = 260, sp = freeSpot(w, h);
+    var w = Math.max(EMB_MIN_W, Math.min(360, (W - 48) / view.z)), h = 260, sp = freeSpot(w, h);
     var el = cleanEmbed({ x: sp.x, y: sp.y, w: w, h: h, url: o.url, title: o.title, pending: o.pending });
     if (!el) return null;
     el.id = newId();
