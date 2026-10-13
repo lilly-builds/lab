@@ -390,6 +390,7 @@
 <script src="sync.js"></script>
 <script src="auth.js"></script>
 <script src="team.js"></script>
+<script src="templates.js"></script>
 <script>
 (function () {
   'use strict';
@@ -2758,6 +2759,19 @@
     cXErr.hidden = true;
     var btn = document.getElementById('cSubmit');
     btn.disabled = true; cMsg.textContent = '';
+    if (window.AIWB_TEMPLATES) {
+      try {
+        var dbr = await AIWB_TEMPLATES.submit({ title: f.title, why: f.why, love: f.love, author: f.author, x: f.x, elements: snapshot(false) });
+        if (dbr && dbr.ok) {
+          if (!cOpen) return;
+          btn.disabled = false;
+          cDone.querySelector('p').textContent = 'Shared. It joins the gallery once it is approved.';
+          cForm.hidden = true; cDone.hidden = false;
+          document.getElementById('cDoneBtn').focus();
+          return;
+        }
+      } catch (err) { /* fall through to the issue flow */ }
+    }
     var url = '';
     try {
       for (var pass = 0; pass < 2 && !url; pass++) {
@@ -2784,10 +2798,12 @@
       var raw = sessionStorage.getItem('aiwb.pendingTemplate');
       sessionStorage.removeItem('aiwb.pendingTemplate');
       return raw ? JSON.parse(raw) : null;
-    }) : fetch('../templates/templates.json').then(function (r) { return r.json(); }).then(function (list) {
-      var t = (Array.isArray(list) ? list : []).filter(function (x) { return x && x.id === id && typeof x.file === 'string' && /^[\w.-]+\.json$/.test(x.file); })[0];
-      if (!t) return null;
-      return fetch('../templates/' + t.file).then(function (r) { return r.json(); });
+    }) : (window.AIWB_TEMPLATES ? AIWB_TEMPLATES.loadPayload(id) : Promise.resolve(null)).then(function (dbPayload) {
+      return dbPayload || fetch('../templates/templates.json').then(function (r) { return r.json(); }).then(function (list) {
+        var t = (Array.isArray(list) ? list : []).filter(function (x) { return x && x.id === id && typeof x.file === 'string' && /^[\w.-]+\.json$/.test(x.file); })[0];
+        if (!t) return null;
+        return fetch('../templates/' + t.file).then(function (r) { return r.json(); });
+      });
     })).then(function (tpl) {
       if (!Array.isArray(tpl)) return;
       tpl = loadEls(tpl);

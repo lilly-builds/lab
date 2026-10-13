@@ -93,6 +93,8 @@
   <div class="add"><a id="add" href="#" rel="noopener">Add yours</a></div>
 </div>
 
+<script src="../ai-whiteboard/supabase-config.js"></script>
+<script src="../ai-whiteboard/templates.js"></script>
 <script>
 (function () {
   'use strict';
@@ -291,13 +293,17 @@
   function builtinCard(t) {
     var c = card(t, { href: '../ai-whiteboard/?template=' + encodeURIComponent(t.id) });
     if (t.id === 'dream-board') { var flag = document.createElement('span'); flag.className = 'flag'; flag.textContent = 'Start here'; c.box.appendChild(flag); }
-    fetch(t.file).then(function (r) { return r.json(); }).then(function (els) {
+    (t.payload ? Promise.resolve(t.payload) : fetch(t.file).then(function (r) { return r.json(); })).then(function (els) {
       if (!Array.isArray(els)) return;
       drawLater(c.cv, els.filter(function (e) { return e && typeof e === 'object' && e.type; }));
     }).catch(function () {});
   }
-  fetch('templates.json').then(function (r) { return r.json(); }).then(function (list) {
-    if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && t.file && !t.mine) builtinCard(t); });
+  var staticList = function () { return fetch('templates.json').then(function (r) { return r.json(); }); };
+  (window.AIWB_TEMPLATES
+    ? AIWB_TEMPLATES.list().then(function (db) { return db || staticList(); })
+    : staticList()
+  ).then(function (list) {
+    if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && (t.file || t.payload) && !t.mine) builtinCard(t); });
   }).catch(function () {});
 
   /* ---------- submitted templates (open issues in lilly-builds/lab) ---------- */

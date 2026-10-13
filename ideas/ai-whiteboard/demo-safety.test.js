@@ -15,7 +15,7 @@ const t = (name, cond) => { n++; assert(cond, name); console.log('ok  ' + name);
 t('committed config defaults to enabled:false (flag-off is the shipped default)', /enabled:\s*false/.test(cfg));
 t('config carries no service-role key', !/service_role|service-key/i.test(cfg));
 
-const order = ['loop1.js', 'supabase-config.js', 'sync-engine.js', 'sync.js'];
+const order = ['loop1.js', 'supabase-config.js', 'sync-engine.js', 'sync.js', 'auth.js', 'team.js', 'templates.js'];
 let at = -1;
 order.forEach((tag) => {
   const i = html.indexOf('src="' + tag + '"');
