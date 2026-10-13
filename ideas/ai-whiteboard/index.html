@@ -385,6 +385,9 @@
 
 <script src="juice.js"></script>
 <script src="loop1.js"></script>
+<script src="supabase-config.js"></script>
+<script src="sync-engine.js"></script>
+<script src="sync.js"></script>
 <script>
 (function () {
   'use strict';
@@ -822,11 +825,11 @@
   els.forEach(function (e) { if (!e.id) e.id = 'e' + (nextId++); });
 
   function ser(v) { return JSON.stringify(v, function (k, x) { return k === 'tainted' ? undefined : x; }); }
-  function save() { lsSet(KEY_SCENE, ser(els)); }
+  function save() { lsSet(KEY_SCENE, ser(els)); if (window.AIWB && AIWB.afterSave) AIWB.afterSave(); }
   function saveView() { lsSet(KEY_VIEW, JSON.stringify(view)); }
   function snap() { undoStack.push(ser(els)); if (undoStack.length > 60) undoStack.shift(); syncUndo(); }
   function syncUndo() { document.getElementById('undo').disabled = !undoStack.length; }
-  function newId() { return 'e' + (nextId++); }
+  function newId() { return (window.AIWB && AIWB.newId) ? AIWB.newId() : 'e' + (nextId++); }
   function selEl() {
     if (!selId) return null;
     for (var i = 0; i < els.length; i++) if (els[i].id === selId) return els[i];
@@ -2793,6 +2796,7 @@
     if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
   }
   function adoptBoard(tpl) {
+    if (window.AIWB && AIWB.adoptBoard && AIWB.adoptBoard(tpl)) return; /* synced: merge by id instead of replacing */
     {
       els = tpl; selId = null; nextId = 1; undoStack = []; syncUndo();
       els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
@@ -4095,6 +4099,17 @@
       if (e >= tFin) finish(true); else raf = requestAnimationFrame(frame);
     })(performance.now());
   }
+  /* sync integration surface (U4): the only door out of this IIFE. Null hooks
+     mean "no sync" - sync.js fills them when the flag is on. */
+  window.AIWB = {
+    getEls: function () { return els; },
+    setEls: function (v) { els = v; },
+    draw: draw,
+    loadEls: loadEls,
+    save: save,
+    clearUndo: function () { undoStack = []; syncUndo(); },
+    afterSave: null, newId: null, adoptBoard: null
+  };
   if (tplId) loadTemplate(tplId);
   else if (location.hash.indexOf('#board=') === 0) loadFromHash();
   else seedWelcome();

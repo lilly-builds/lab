@@ -55,6 +55,11 @@
     var onConflict = opts.onConflict || function () {};
 
     var P = 'aiwb.sync.' + boardId + '.';
+    function rebindBoardId(newId) {  /* first sync: the server assigns the board id */
+      boardId = newId;
+      P = 'aiwb.sync.' + boardId + '.';
+      persist();
+    }
     function load(key, fallback) {
       try { var s = storage.get(P + key); return s ? JSON.parse(s) : fallback; } catch (e) { return fallback; }
     }
@@ -88,10 +93,11 @@
         scene.push(Object.assign({}, el, { id: newKey() }));
       });
       engine.scene = scene;
-      if (transport.importBoard) await transport.importBoard(boardId, scene, importKey);
+      var serverBoardId = boardId;
+      if (transport.importBoard) serverBoardId = (await transport.importBoard(boardId, scene, importKey)) || boardId;
       scene.forEach(function (el) { snapshot[el.id] = { v: 1, h: hash(el) }; });
       persist();
-      return { scene: scene, importKey: importKey };
+      return { scene: scene, importKey: importKey, boardId: serverBoardId };
     }
 
     /* attach to a board that already exists server-side (second device) */
@@ -309,6 +315,7 @@
     engine.deadLetters = deadLetters;
     engine.retryDeadLetters = retryDeadLetters;
     engine.nextFlushAt = nextFlushAt;
+    engine.rebindBoardId = rebindBoardId;
     engine.newKey = newKey;
     engine._snapshot = snapshot;
     return engine;
