@@ -39,3 +39,12 @@ paid add-on. Revisit when real user data accumulates.
 
 `migrations/` and `tests/` are plain SQL and node scripts; see `tests/README` notes
 in each test header for running against a scratch Postgres.
+
+## Tests
+
+`tests/policy_tests.sql` holds the U2/U3 assertion suite (schema constraints,
+RLS role-split, RPC semantics; 86 assertions). It runs against any scratch
+Postgres with a stubbed `auth` schema (auth.users, auth.uid(), auth.jwt()) plus
+`authenticated` and `anon` roles, or against `supabase start` locally. CI (U10)
+runs it on every PR. A throwaway embedded-Postgres runner used during
+development lives outside the repo; ask for it if you want the same setup.
