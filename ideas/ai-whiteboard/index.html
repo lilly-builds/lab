@@ -3817,13 +3817,25 @@
       'Tap the sparkle in the toolbar and ask anything about your board. The first time, it will ask for your own AI key (Anthropic or OpenAI). Your key never leaves this device.',
       'Try it: write one idea on a note, tap the sparkle, and ask for a plan. Delete these notes whenever you like.'
     ];
-    var y = 72;
+    /* dream board, coordinates inlined from ideas/templates/dream-board.json */
+    [[480, 60], [0, 120], [960, 120]].forEach(function (p) { els.push({ id: newId(), type: 'ellipse', x: p[0], y: p[1], w: 440, h: 440 }); });
+    [['Dream', 678, 9, 24], ['Have to do', 175, 69, 24], ['Want to do', 1135, 69, 24],
+     ["Write down your have-to's - the board gets them done.", 80, 580, 16]].forEach(function (t) {
+      els.push({ id: newId(), type: 'text', x: t[1], y: t[2], text: t[0], size: t[3], w: 280 });
+    });
+    var x = 20;
     copy.forEach(function (text) {
-      var n = { id: newId(), type: 'note', x: 20, y: y, w: NOTE, h: NOTE, text: text, fill: cur.noteFill };
+      var n = { id: newId(), type: 'note', x: x, y: 680, w: NOTE, h: NOTE, text: text, fill: cur.noteFill };
       fitNote(n);
       els.push(n);
-      y += n.h + 16;
+      x += n.w + 16;
     });
+    /* the moment: an amber have-to slaps into the middle of the Have to do circle */
+    var hn = { id: newId(), type: 'note', x: 0, y: 0, w: NOTE, h: NOTE, text: 'Email the landlord about the leak', fill: '#ffec99' };
+    fitNote(hn);
+    hn.x = 220 - hn.w / 2; hn.y = 340 - hn.h / 2;
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    els.push(hn);
     /* frame the notes: fit their box above the dock with a small margin, zoom out only (never past 1) */
     var bb = boardBounds(), bot = 110;
     try { var dr = dock.getBoundingClientRect(); if (dr && dr.height > 0) bot = Math.max(110, dr.height + 32); } catch (e) {}
@@ -3835,6 +3847,23 @@
     }
     lsSet('aiwb.welcomed', '1');
     save(); saveView(); draw();
+    if (still) return;
+    /* animate the landing: the note is held out of els (unclickable) and painted over draw() each frame */
+    els.pop(); lsSet(KEY_SCENE, ser(els.concat([hn])));
+    var fy = hn.y, t0 = performance.now(), DUR = 800;
+    (function step(now) {
+      var u = Math.min(1, (now - t0) / DUR), k, y0 = view.y - hn.h * 1.4;
+      if (u < 0.75) { k = 1 - Math.pow(1 - u / 0.75, 3); hn.y = y0 + (fy + 10 - y0) * k; }
+      else { k = 1; hn.y = fy + 10 * (1 - Math.sin((u - 0.75) / 0.25 * Math.PI / 2)); }
+      draw();
+      var sc = 1 + 0.25 * (1 - k), cx = hn.x + hn.w / 2 - view.x, cy = hn.y + hn.h / 2 - view.y;
+      ctx.setTransform(dpr * view.z, 0, 0, dpr * view.z, 0, 0);
+      ctx.translate(cx, cy); ctx.rotate(10 * Math.PI / 180 * (1 - k)); ctx.scale(sc, sc); ctx.translate(-cx, -cy);
+      drawEl(ctx, hn, view.x, view.y);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (u < 1) requestAnimationFrame(step);
+      else { hn.y = fy; if (els.indexOf(hn) < 0) els.push(hn); save(); draw(); }
+    })(performance.now());
   }
   if (tplId) loadTemplate(tplId);
   else if (location.hash.indexOf('#board=') === 0) loadFromHash();
