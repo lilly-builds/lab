@@ -3950,10 +3950,18 @@
     var notes = [na, nb, nc, nd, ne, nf];
     /* the punchline: an amber have-to slaps into the Have to do circle beside (c) and (d) */
     var hn = mk('Email the landlord about the leak', Y, Math.max(225, nc.x + nc.w + 14), 350);
+    /* the thesis: the biggest note of the sequence lands in the Dream circle (clear of the landlord note in Have to do) */
+    var MANIFESTO = "here's why this exists: so you can dream and make your dreams real. so you spend more life in 'want to' instead of 'have to' moments.";
+    var man = mk(MANIFESTO, G, 604, 184);
+    man.w = man.h = Math.round(NOTE * 1.6);
+    /* the final beat: a blank sticky answering the (c) question note; the one constant to swap for another spot */
+    var BLANK_AT = { x: 40, y: 190 };
+    var blank = mk('', Y, BLANK_AT.x, BLANK_AT.y);
     var fin = [];
     rings.forEach(function (r) { fin.push(r.ring, r.label); });
-    fin = fin.concat(notes, [hn]);
+    fin = fin.concat(notes, [hn, man, blank]);
     var full = notes.map(function (n) { return n.text; });
+    var labelFull = rings.map(function (r) { return r.label.text; });
     var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     /* frame the board up front: fit its box above the dock with a small margin, zoom out only (never past 1) */
     els = fin.slice();
@@ -3968,18 +3976,23 @@
     lsSet('aiwb.welcomed', '1');
     save(); saveView(); draw();
     if (still) return;
-    /* replay toward the saved end state (ms): rings sweep 0.8s staggered, each sticky types at 40 chars/s, then the slap.
+    /* replay toward the saved end state (ms): rings sweep 0.8s staggered, each sticky types at 40 chars/s, then the slap,
+       then the manifesto slam + typing, then a blank note with the editor open. Circle labels type in during their own draw-in.
        Any tap or key jumps straight to the end; input is never blocked. */
     var RING = 800, CPS = 40, SLAP = 800, tt = RING + 2 * 250 + 300, starts = [];
     notes.forEach(function (n) { starts.push(tt); tt += n.text.length * 1000 / CPS + 350; });
-    var tSlap = tt, tEnd = tSlap + SLAP, t0 = performance.now(), raf = 0, seen = {}, done = false, fy = hn.y;
-    function finish() {
+    var MSLAM = 1100, tSlap = tt, tEnd = tSlap + SLAP, tManEnd = tEnd + MSLAM, tFin = tManEnd + MANIFESTO.length * 1000 / CPS + 250;
+    var t0 = performance.now(), raf = 0, seen = {}, done = false, fy = hn.y, my = man.y;
+    function finish(open) {
       if (done) return;
       done = true; cancelAnimationFrame(raf);
       window.removeEventListener('pointerdown', finish, true); window.removeEventListener('keydown', finish, true);
       notes.forEach(function (n, i) { n.text = full[i]; });
-      hn.y = fy; els = fin.slice(); fade = null;
+      rings.forEach(function (r, i) { r.label.text = labelFull[i]; });
+      man.text = MANIFESTO;
+      hn.y = fy; man.y = my; els = fin.slice(); fade = null;
       save(); draw();
+      if (open === true) editNote(blank); /* a tap-skip leaves the editor closed so that tap can't discard the blank note */
     }
     window.addEventListener('pointerdown', finish, true); window.addEventListener('keydown', finish, true);
     (function frame(now) {
@@ -3987,7 +4000,11 @@
       var e = now - t0, vis = [], born = {}, any = false;
       var add = function (el) { vis.push(el); if (!seen[el.id]) { seen[el.id] = born[el.id] = any = true; } };
       var ease = function (i) { var u = Math.max(0, Math.min(1, (e - i * 250) / RING)); return u * u * (3 - 2 * u); };
-      rings.forEach(function (r, i) { if (ease(i) >= 1) { add(r.ring); add(r.label); } });
+      rings.forEach(function (r, i) {
+        if (ease(i) >= 1) add(r.ring);
+        var nl = Math.floor(Math.max(0, Math.min(1, (e - i * 250) / RING)) * labelFull[i].length);
+        if (nl > 0) { r.label.text = labelFull[i].slice(0, nl); add(r.label); }
+      });
       notes.forEach(function (n, i) {
         if (e < starts[i]) return;
         n.text = full[i].slice(0, Math.floor((e - starts[i]) * CPS / 1000));
@@ -3995,6 +4012,7 @@
       });
       if (any) fade = { t0: now, ids: born };
       if (e >= tEnd) vis.push(hn);
+      if (e >= tManEnd) { man.text = MANIFESTO.slice(0, Math.floor((e - tManEnd) * CPS / 1000)); vis.push(man); }
       els = vis;
       draw();
       rings.forEach(function (r, i) {
@@ -4005,18 +4023,36 @@
         ctx.beginPath(); ctx.ellipse(q.x + q.w / 2 - view.x, q.y + q.h / 2 - view.y, q.w / 2, q.h / 2, 0, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); ctx.stroke(); ctx.restore();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       });
-      if (e >= tSlap && e < tEnd) {
-        /* the landing: held out of els (unclickable) and painted over draw() each frame */
-        var u = (e - tSlap) / SLAP, k, y0 = view.y - hn.h * 1.4;
-        if (u < 0.75) { k = 1 - Math.pow(1 - u / 0.75, 3); hn.y = y0 + (fy + 10 - y0) * k; }
-        else { k = 1; hn.y = fy + 10 * (1 - Math.sin((u - 0.75) / 0.25 * Math.PI / 2)); }
-        var sc = 1 + 0.25 * (1 - k), cx = hn.x + hn.w / 2 - view.x, cy = hn.y + hn.h / 2 - view.y;
+      /* the landings: held out of els (unclickable) and painted over draw() each frame */
+      var paint = function (el, y, rot, sx, sy) {
+        var cx = el.x + el.w / 2 - view.x, cy = y + el.h / 2 - view.y, oy = el.y;
         ctx.setTransform(dpr * view.z, 0, 0, dpr * view.z, 0, 0);
-        ctx.translate(cx, cy); ctx.rotate(10 * Math.PI / 180 * (1 - k)); ctx.scale(sc, sc); ctx.translate(-cx, -cy);
-        drawEl(ctx, hn, view.x, view.y);
+        ctx.translate(cx, cy); ctx.rotate(rot * Math.PI / 180); ctx.scale(sx, sy); ctx.translate(-cx, -cy);
+        el.y = y; drawEl(ctx, el, view.x, view.y); el.y = oy;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      };
+      if (e >= tSlap && e < tEnd) {
+        var u = (e - tSlap) / SLAP, k, y0 = view.y - hn.h * 1.4, hy;
+        if (u < 0.75) { k = 1 - Math.pow(1 - u / 0.75, 3); hy = y0 + (fy + 10 - y0) * k; }
+        else { k = 1; hy = fy + 10 * (1 - Math.sin((u - 0.75) / 0.25 * Math.PI / 2)); }
+        var sc = 1 + 0.25 * (1 - k);
+        paint(hn, hy, 10 * (1 - k), sc, sc);
+      } else if (e >= tEnd && e < tManEnd) {
+        /* the thesis: falls in big and tilted, accelerating, hits hard, squashes, then rings out a damped bounce and wobble */
+        var mu = (e - tEnd) / MSLAM, DROP = 0.45, my0 = view.y - man.h * 2, my1, mr, msx, msy;
+        if (mu < DROP) {
+          var f = mu / DROP, g2 = f * f;
+          my1 = my0 + (my - my0) * g2; mr = -16 * (1 - g2); msx = msy = 1.55 - 0.55 * g2;
+        } else {
+          var v = (mu - DROP) / (1 - DROP), dk = Math.exp(-4.2 * v), sq = 0.16 * Math.exp(-7 * v) * Math.cos(v * Math.PI * 4);
+          my1 = my - 34 * dk * Math.abs(Math.sin(v * Math.PI * 2.2));
+          mr = 6 * dk * Math.sin(v * Math.PI * 3);
+          msx = 1 + sq; msy = 1 - sq;
+        }
+        man.text = ''; /* types in only after it lands */
+        paint(man, my1, mr, msx, msy);
       }
-      if (e >= tEnd) finish(); else raf = requestAnimationFrame(frame);
+      if (e >= tFin) finish(true); else raf = requestAnimationFrame(frame);
     })(performance.now());
   }
   if (tplId) loadTemplate(tplId);
