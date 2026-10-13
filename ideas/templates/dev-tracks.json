@@ -1,0 +1,38 @@
+[
+  { "id": "t1", "type": "text", "x": 160, "y": 60, "text": "Dev workflow, as train tracks", "size": 32, "color": "#1e1e1e", "w": 520 },
+  { "id": "l1", "type": "line", "x": 200, "y": 400, "w": 2600, "h": 0, "strokeColor": "#1e1e1e", "strokeWidth": 4 },
+  { "id": "l2", "type": "line", "x": 1500, "y": 400, "w": 40, "h": 100, "strokeColor": "#1e1e1e", "strokeWidth": 4 },
+  { "id": "l3", "type": "line", "x": 1540, "y": 500, "w": 110, "h": 40, "strokeColor": "#1e1e1e", "strokeWidth": 4 },
+  { "id": "l4", "type": "line", "x": 1650, "y": 540, "w": 70, "h": -40, "strokeColor": "#1e1e1e", "strokeWidth": 4 },
+  { "id": "l5", "type": "line", "x": 1720, "y": 500, "w": 40, "h": -100, "strokeColor": "#1e1e1e", "strokeWidth": 4 },
+  { "id": "t2", "type": "text", "x": 1530, "y": 560, "text": "loops until done", "size": 18, "color": "#1e1e1e", "w": 210 },
+
+  { "id": "s1", "type": "ellipse", "x": 182, "y": 382, "w": 36, "h": 36, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+  { "id": "s2", "type": "ellipse", "x": 442, "y": 382, "w": 36, "h": 36, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+  { "id": "s3", "type": "ellipse", "x": 702, "y": 382, "w": 36, "h": 36, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+  { "id": "s4", "type": "ellipse", "x": 962, "y": 382, "w": 36, "h": 36, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+  { "id": "s5", "type": "ellipse", "x": 1222, "y": 382, "w": 36, "h": 36, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+  { "id": "s6", "type": "ellipse", "x": 1482, "y": 382, "w": 36, "h": 36, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+  { "id": "s7", "type": "ellipse", "x": 1742, "y": 382, "w": 36, "h": 36, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+  { "id": "s8", "type": "ellipse", "x": 2002, "y": 382, "w": 36, "h": 36, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+  { "id": "s9", "type": "ellipse", "x": 2262, "y": 382, "w": 36, "h": 36, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+  { "id": "s10", "type": "ellipse", "x": 2522, "y": 382, "w": 36, "h": 36, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+  { "id": "s11o", "type": "ellipse", "x": 2748, "y": 348, "w": 104, "h": 104, "strokeColor": "#1e1e1e", "fill": "none", "strokeWidth": 2 },
+  { "id": "s11", "type": "ellipse", "x": 2760, "y": 360, "w": 80, "h": 80, "strokeColor": "#1e1e1e", "fill": "#ffffff", "strokeWidth": 4 },
+
+  { "id": "n1", "type": "text", "x": 176, "y": 345, "text": "Idea", "size": 20, "color": "#1e1e1e", "w": 80 },
+  { "id": "n2", "type": "text", "x": 406, "y": 345, "text": "Plan/spec", "size": 20, "color": "#1e1e1e", "w": 120 },
+  { "id": "n3", "type": "text", "x": 660, "y": 345, "text": "Doc review", "size": 20, "color": "#1e1e1e", "w": 130 },
+  { "id": "n4", "type": "text", "x": 902, "y": 345, "text": "Tests defined", "size": 20, "color": "#1e1e1e", "w": 160 },
+  { "id": "n5", "type": "text", "x": 1210, "y": 345, "text": "Build", "size": 20, "color": "#1e1e1e", "w": 80 },
+  { "id": "n6", "type": "text", "x": 1434, "y": 345, "text": "Code review", "size": 20, "color": "#1e1e1e", "w": 140 },
+  { "id": "n7", "type": "text", "x": 1688, "y": 345, "text": "Fix/optimize", "size": 20, "color": "#1e1e1e", "w": 150 },
+  { "id": "n8", "type": "text", "x": 2008, "y": 345, "text": "PR", "size": 20, "color": "#1e1e1e", "w": 50 },
+  { "id": "n9", "type": "text", "x": 2268, "y": 345, "text": "CI", "size": 20, "color": "#1e1e1e", "w": 50 },
+  { "id": "n10", "type": "text", "x": 2528, "y": 345, "text": "CD", "size": 20, "color": "#1e1e1e", "w": 50 },
+  { "id": "n11", "type": "text", "x": 2766, "y": 305, "text": "LIVE", "size": 28, "color": "#1e1e1e", "w": 90 },
+
+  { "id": "w1", "type": "note", "x": 654, "y": 150, "w": 132, "h": 132, "text": "Example: new onboarding", "fill": "#ffec99" },
+  { "id": "w2", "type": "note", "x": 1174, "y": 150, "w": 132, "h": 132, "text": "Example: search bug", "fill": "#b2f2bb" },
+  { "id": "w3", "type": "note", "x": 1954, "y": 150, "w": 132, "h": 132, "text": "Example: billing spike", "fill": "#ffc9c9" }
+]
