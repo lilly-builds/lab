@@ -33,12 +33,17 @@
   .card .pic { flex: 0 0 58%; position: relative; margin: 8px 0 8px 8px; }
   .card .pic canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; background: var(--paper); }
   .card .msg { flex: 1 1 0; min-width: 0; margin: 8px 8px 8px 12px; padding: 76px 8px 0 12px; border-left: 1px solid rgba(0,0,0,.55); }
-  .card .title { display: block; margin-bottom: 14px; font-size: 20px; line-height: 1.2; font-style: italic; transform: rotate(-1.5deg); transform-origin: left; overflow-wrap: anywhere; }
+  .card .title { display: block; margin-bottom: 14px; font-size: 20px; line-height: 1.2; font-style: italic; overflow-wrap: anywhere; }
+  .card .title span { display: block; transform: rotate(-1.5deg); transform-origin: left; }
   .card .author .xlink { color: inherit; text-transform: none; }
   .card .author .xlink:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
   .card .author { display: block; font: 400 13px/26px var(--mono); border-bottom: 1px solid rgba(0,0,0,.25); overflow-wrap: anywhere; }
   .card .rule { height: 26px; border-bottom: 1px solid rgba(0,0,0,.25); }
-  .card .story { margin-top: 12px; }
+  .card .lines { position: relative; }
+  .card .desc { position: absolute; top: 0; left: 0; right: 0; max-height: 78px; margin: 0; font: 400 15px/26px var(--serif); color: var(--ink); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; pointer-events: none; }
+  /* the title link covers the whole card; the X link sits above it */
+  .card .title::after { content: ""; position: absolute; inset: 0; }
+  .card .author .xlink { position: relative; z-index: 1; }
   /* top-right corner: one flex row (postmark, 12px gap, stamp), 16px inset, clear of the title (starts 76px down) and the thumbnail */
   .corner { position: absolute; top: 16px; right: 16px; display: flex; align-items: flex-start; gap: 12px; pointer-events: none; }
   .stamp { flex: 0 0 auto; width: 56px; height: 68px; padding: 6px; border: 2px dashed #000; background: var(--paper); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; overflow: hidden; white-space: nowrap; font: 400 10px/1.1 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
@@ -79,12 +84,7 @@
 <div class="app">
   <h1>Templates</h1>
   <div class="grid" id="grid"></div>
-  <section class="section" aria-labelledby="community-h">
-    <h2 id="community-h">Community</h2>
-    <p class="note" id="cnote" role="status">Loading community templates</p>
-    <div class="grid" id="cgrid"></div>
-    <div class="more-wrap" id="cmorewrap" hidden><button type="button" class="more" id="cmore">Show more</button></div>
-  </section>
+  <div class="more-wrap" id="cmorewrap" hidden><button type="button" class="more" id="cmore">Show more</button></div>
   <div class="add"><a id="add" href="#" rel="noopener">Add yours</a></div>
 </div>
 
@@ -234,44 +234,70 @@
     corner.appendChild(pm); corner.appendChild(st);
     box.appendChild(corner);
   }
-  function rules() {
-    var f = document.createDocumentFragment();
-    for (var i = 0; i < 3; i++) { var r = document.createElement('div'); r.className = 'rule'; f.appendChild(r); }
-    return f;
+  /* three ruled lines under the author; the description is written on top of them */
+  function rules(text) {
+    var box = document.createElement('div'); box.className = 'lines';
+    for (var i = 0; i < 3; i++) { var r = document.createElement('div'); r.className = 'rule'; box.appendChild(r); }
+    if (text) { var d = document.createElement('p'); d.className = 'desc'; d.textContent = text; box.appendChild(d); }
+    return box;
+  }
+  function authorLine(name, x, byline) {
+    var author = document.createElement('span'); author.className = 'author';
+    var n = typeof name === 'string' ? name.trim() : '';
+    if (n && n.toLowerCase() !== 'anonymous') author.textContent = byline ? 'by ' + n : n;
+    else if (!x) author.textContent = byline ? 'by anonymous' : '';
+    if (typeof x === 'string' && /^[A-Za-z0-9_]{1,15}$/.test(x)) {
+      var xl = document.createElement('a');
+      xl.className = 'xlink'; xl.textContent = '@' + x;
+      xl.href = 'https://x.com/' + x; xl.target = '_blank'; xl.rel = 'noopener noreferrer nofollow';
+      xl.setAttribute('aria-label', 'Open @' + x + ' on X');
+      if (author.textContent) author.appendChild(document.createTextNode(' '));
+      author.appendChild(xl);
+    }
+    return author;
   }
 
-  /* ---------- gallery ---------- */
+  /* ---------- gallery: one grid, community submissions first, then templates.json ---------- */
   var grid = document.getElementById('grid');
-  function card(t) {
-    var a = document.createElement('a');
-    a.className = 'card';
-    a.href = '../ai-whiteboard/?template=' + encodeURIComponent(t.id);
+  var firstBuiltin = null;
+  function card(t, opts) {
+    var box = document.createElement('div');
+    box.className = 'card';
     var cv = document.createElement('canvas');
     cv.setAttribute('role', 'img');
     cv.setAttribute('aria-label', t.title);
-    var title = document.createElement('span'); title.className = 'title'; title.textContent = t.title;
-    var author = document.createElement('span'); author.className = 'author'; author.textContent = t.author || '';
-    decorate(a, cv, [title, author, rules()]);
-    grid.appendChild(a);
+    var title = document.createElement('a'); title.className = 'title';
+    var tt = document.createElement('span'); tt.textContent = t.title; title.appendChild(tt);
+    title.href = opts.href;
+    if (opts.onOpen) title.addEventListener('click', opts.onOpen);
+    var author = authorLine(t.author, t.x, opts.byline);
+    decorate(box, cv, [title, author, rules(t.desc || t.why)]);
+    if (opts.community) grid.insertBefore(box, firstBuiltin);
+    else { grid.appendChild(box); if (!firstBuiltin) firstBuiltin = box; }
+    return { cv: cv, box: box };
+  }
+  function drawLater(cv, els) {
+    var go = function () { preview(cv, els); };
+    go();
+    if (document.fonts && document.fonts.load) document.fonts.load('16px "Special Elite"').then(go, go);
+    var timer;
+    window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(go, 100); });
+  }
+  function builtinCard(t) {
+    var c = card(t, { href: '../ai-whiteboard/?template=' + encodeURIComponent(t.id) });
     fetch(t.file).then(function (r) { return r.json(); }).then(function (els) {
       if (!Array.isArray(els)) return;
-      els = els.filter(function (e) { return e && typeof e === 'object' && e.type; });
-      var go = function () { preview(cv, els); };
-      go();
-      if (document.fonts && document.fonts.load) document.fonts.load('16px "Special Elite"').then(go, go);
-      var timer;
-      window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(go, 100); });
+      drawLater(c.cv, els.filter(function (e) { return e && typeof e === 'object' && e.type; }));
     }).catch(function () {});
   }
   fetch('templates.json').then(function (r) { return r.json(); }).then(function (list) {
-    if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && t.file) card(t); });
+    if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && t.file) builtinCard(t); });
   }).catch(function () {});
 
-  /* ---------- community templates (open issues in lilly-builds/lab) ---------- */
+  /* ---------- submitted templates (open issues in lilly-builds/lab) ---------- */
   var API = 'https://api.github.com/repos/lilly-builds/lab/issues?state=open&per_page=100';
   var CACHE_KEY = 'labtpl.community.v1', CACHE_MS = 5 * 60 * 1000, PAGE = 24;
   var MARKER = /<!--\s*lab-template:v1:([A-Za-z0-9_-]+)\s*-->/;
-  var cgrid = document.getElementById('cgrid'), cnote = document.getElementById('cnote');
   var cmoreWrap = document.getElementById('cmorewrap'), cmore = document.getElementById('cmore');
   var community = [], shown = 0;
 
@@ -359,45 +385,15 @@
   }
 
   function communityCard(t) {
-    var box = document.createElement('div');
-    box.className = 'card';
-    var cv = document.createElement('canvas');
-    cv.setAttribute('role', 'img');
-    cv.setAttribute('aria-label', t.title);
-    var title = document.createElement('span'); title.className = 'title'; title.textContent = t.title;
-    var author = document.createElement('span'); author.className = 'author'; author.textContent = t.author && t.author.toLowerCase() !== 'anonymous' ? 'by ' + t.author : (t.x ? '' : 'by anonymous');
-    if (t.x && /^[A-Za-z0-9_]{1,15}$/.test(t.x)) {
-      var xl = document.createElement('a');
-      xl.className = 'xlink'; xl.textContent = '@' + t.x;
-      xl.href = 'https://x.com/' + t.x; xl.target = '_blank'; xl.rel = 'noopener noreferrer nofollow';
-      xl.setAttribute('aria-label', 'Open @' + t.x + ' on X');
-      if (author.textContent) author.appendChild(document.createTextNode(' '));
-      author.appendChild(xl);
-    }
-    var story = document.createElement('button');
-    story.type = 'button'; story.className = 'story'; story.setAttribute('aria-expanded', 'false');
-    [['Why I made it', t.why], ['Why I love it', t.love]].forEach(function (qa) {
-      var q = document.createElement('span'); q.className = 'q'; q.textContent = qa[0];
-      var a = document.createElement('span'); a.className = 'a'; a.textContent = qa[1];
-      story.appendChild(q); story.appendChild(a);
+    var c = card(t, {
+      community: true,
+      byline: true,
+      href: '../ai-whiteboard/?template=pending',
+      onOpen: function () {
+        try { sessionStorage.setItem('aiwb.pendingTemplate', JSON.stringify(t.elements)); } catch (e) {}
+      }
     });
-    story.addEventListener('click', function () {
-      story.setAttribute('aria-expanded', story.getAttribute('aria-expanded') === 'true' ? 'false' : 'true');
-    });
-    var use = document.createElement('button');
-    use.type = 'button'; use.className = 'use'; use.textContent = 'Use this template';
-    use.addEventListener('click', function () {
-      try { sessionStorage.setItem('aiwb.pendingTemplate', JSON.stringify(t.elements)); } catch (e) {}
-      location.href = '../ai-whiteboard/?template=pending';
-    });
-    decorate(box, cv, [title, author, rules(), story, use]);
-    cgrid.appendChild(box);
-    var els = previewEls(t.elements);
-    var go = function () { preview(cv, els); };
-    go();
-    if (document.fonts && document.fonts.load) document.fonts.load('16px "Special Elite"').then(go, go);
-    var timer;
-    window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(go, 100); });
+    drawLater(c.cv, previewEls(t.elements));
   }
   function showMore() {
     community.slice(shown, shown + PAGE).forEach(communityCard);
@@ -407,17 +403,8 @@
   cmore.addEventListener('click', showMore);
   loadCommunity().then(function (items) {
     community = items;
-    if (!items.length) {
-      cnote.textContent = 'No community templates yet. Be the first. ';
-      var a = document.createElement('a'); a.href = '../ai-whiteboard/'; a.textContent = 'Open the whiteboard';
-      cnote.appendChild(a);
-      return;
-    }
-    cnote.hidden = true;
     showMore();
-  }).catch(function () {
-    cnote.textContent = 'Community templates are resting. Try again in a bit.';
-  });
+  }).catch(function () {});
 })();
 </script>
 </body>
