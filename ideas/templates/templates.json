@@ -1,8 +1,8 @@
 [
   { "id": "dream-board", "title": "Dream board", "author": "Priya N.", "x": "priya_makes", "desc": "Sort what you dream of from what you have to do and what you want to do, all on one page.", "sample": true, "file": "dream-board.json" },
-  { "id": "dreamspace-plan", "title": "Dreamspace plan", "author": "Lilly Field", "desc": "The whole plan for one calm creative space, from the core loop to the vision, with what is shipped and what is next.", "file": "dreamspace-plan.json" },
-  { "id": "idea-map", "title": "Idea map", "author": "Lilly Field", "desc": "Every part of the product on one map, tagged shipped, building, queued or idea, so you see what comes next.", "file": "idea-map.json" },
-  { "id": "metro-map", "title": "Metro map", "author": "Lilly Field", "desc": "The same plan drawn like a transit map, with lines for the loop, the canvas, sharing and the gallery.", "file": "metro-map.json" },
+  { "id": "dreamspace-plan", "title": "Dreamspace plan", "author": "Lilly Field", "mine": true, "desc": "The whole plan for one calm creative space, from the core loop to the vision, with what is shipped and what is next.", "file": "dreamspace-plan.json" },
+  { "id": "idea-map", "title": "Idea map", "author": "Lilly Field", "mine": true, "desc": "Every part of the product on one map, tagged shipped, building, queued or idea, so you see what comes next.", "file": "idea-map.json" },
+  { "id": "metro-map", "title": "Metro map", "author": "Lilly Field", "mine": true, "desc": "The same plan drawn like a transit map, with lines for the loop, the canvas, sharing and the gallery.", "file": "metro-map.json" },
   { "id": "our-week", "title": "Our week, together", "author": "Tomás R.", "desc": "Everyone drops what they need, then the AI turns it into a fair plan for who takes what this week.", "sample": true, "file": "our-week.json" },
   { "id": "friends-trip", "title": "Plan a trip with friends", "author": "Amara O.", "x": "amara_wanders", "desc": "Put dates, budgets and wishes side by side, see where you all overlap, and pick the place by Wednesday.", "sample": true, "file": "friends-trip.json" },
   { "id": "group-party", "title": "Party everyone pitches in on", "author": "Mara & Joe", "desc": "Lay out the party, let each person claim a job on a blue note, then get a countdown for the day.", "sample": true, "file": "group-party.json" },

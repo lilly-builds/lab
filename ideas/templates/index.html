@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Templates</title>
+<title>Community</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
@@ -21,6 +21,9 @@
   :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
 
   .app { max-width: 1040px; margin: 0 auto; padding: 24px 16px 56px; }
+  .spaces { display: flex; justify-content: center; gap: 12px; }
+  .spaces a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 0; font: 400 15px/1 var(--serif); text-decoration: none; }
+  .spaces a[aria-current="page"] { border-color: var(--ink); }
   h1 { font: 400 clamp(26px, 6vw, 38px)/1.2 var(--serif); margin: 10px 0 28px; text-align: center; }
 
   .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px 28px; max-width: 640px; margin-left: auto; margin-right: auto; }
@@ -82,7 +85,8 @@
 </head>
 <body>
 <div class="app">
-  <h1>Templates</h1>
+  <nav class="spaces" aria-label="Spaces"><a href="../my-boards/">My boards</a><a href="./" aria-current="page">Community</a></nav>
+  <h1>Community</h1>
   <div class="grid" id="grid"></div>
   <div class="more-wrap" id="cmorewrap" hidden><button type="button" class="more" id="cmore">Show more</button></div>
   <div class="add"><a id="add" href="#" rel="noopener">Add yours</a></div>
@@ -291,7 +295,7 @@
     }).catch(function () {});
   }
   fetch('templates.json').then(function (r) { return r.json(); }).then(function (list) {
-    if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && t.file) builtinCard(t); });
+    if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && t.file && !t.mine) builtinCard(t); });
   }).catch(function () {});
 
   /* ---------- submitted templates (open issues in lilly-builds/lab) ---------- */

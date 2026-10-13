@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My boards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #000;
+    --paper: #fff;
+    --serif: "Special Elite", "Courier New", monospace;
+    --mono: "Special Elite", "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; overflow-x: hidden; }
+  body { background: var(--paper); color: var(--ink); font: 400 17px/1.45 var(--serif); font-synthesis: none; min-height: 100vh; }
+  a { color: inherit; text-decoration: none; }
+  :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+
+  .app { max-width: 1040px; margin: 0 auto; padding: 24px 16px 56px; }
+  .spaces { display: flex; justify-content: center; gap: 12px; }
+  .spaces a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 16px; border: 1px solid transparent; border-radius: 0; font: 400 15px/1 var(--serif); text-decoration: none; }
+  .spaces a[aria-current="page"] { border-color: var(--ink); }
+  h1 { font: 400 clamp(26px, 6vw, 38px)/1.2 var(--serif); margin: 10px 0 28px; text-align: center; }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px 28px; max-width: 640px; margin-left: auto; margin-right: auto; }
+  @media (min-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: none; } }
+  .card { position: relative; display: flex; min-width: 0; min-height: 340px; aspect-ratio: 3 / 2; padding: 8px; background: var(--paper); border: 1px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); container-type: inline-size; transition: transform 120ms, box-shadow 120ms; }
+  .card::before { content: ""; position: absolute; inset: 8px; border: 1px solid rgba(0,0,0,.12); pointer-events: none; }
+  .card:hover, .card:focus-visible, .card:focus-within { transform: translate(-2px, -2px); }
+  .card:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); }
+  .card:focus-visible, .card:focus-within { outline: 2px solid var(--ink); outline-offset: 3px; }
+  .card .pic { flex: 0 0 58%; position: relative; margin: 8px 0 8px 8px; }
+  .card .pic canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; background: var(--paper); }
+  .card .msg { flex: 1 1 0; min-width: 0; margin: 8px 8px 8px 12px; padding: 76px 8px 0 12px; border-left: 1px solid rgba(0,0,0,.55); }
+  .card .title { display: block; margin-bottom: 14px; font-size: 20px; line-height: 1.2; font-style: italic; overflow-wrap: anywhere; }
+  .card .title span { display: block; transform: rotate(-1.5deg); transform-origin: left; }
+  .card .author { display: block; min-height: 26px; font: 400 13px/26px var(--mono); border-bottom: 1px solid rgba(0,0,0,.25); overflow-wrap: anywhere; }
+  .card .rule { height: 26px; border-bottom: 1px solid rgba(0,0,0,.25); }
+  .card .lines { position: relative; }
+  .card .desc { position: absolute; top: 0; left: 0; right: 0; max-height: 78px; margin: 0; font: 400 15px/26px var(--serif); color: var(--ink); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; pointer-events: none; }
+  /* the title link covers the whole card */
+  .card .title::after { content: ""; position: absolute; inset: 0; }
+  /* top-right corner: one flex row (postmark, 12px gap, stamp), 16px inset, clear of the title (starts 76px down) and the thumbnail */
+  .corner { position: absolute; top: 16px; right: 16px; display: flex; align-items: flex-start; gap: 12px; pointer-events: none; }
+  .stamp { flex: 0 0 auto; width: 56px; height: 68px; padding: 6px; border: 2px dashed #000; background: var(--paper); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; overflow: hidden; white-space: nowrap; font: 400 10px/1.1 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+  .stamp svg { display: block; flex: none; }
+  .postmark { display: none; flex: none; width: 136px; height: 64px; }
+  /* side by side: the postmark only shows when it fits right of the thumbnail; stacked: whenever the card is at least 280px wide */
+  @container (min-width: 600px) { .postmark { display: block; } }
+  @media (max-width: 519px) {
+    .card { display: block; aspect-ratio: auto; min-height: 0; }
+    .card .pic { margin: 84px 8px 0; aspect-ratio: 4 / 3; }
+    .card .msg { margin: 12px 8px 8px; padding: 12px 0 0; border-left: 0; border-top: 1px solid rgba(0,0,0,.55); }
+    @container (min-width: 280px) { .postmark { display: block; } }
+  }
+  @media (hover: none) { .card:hover, .card:focus-visible, .card:focus-within { transform: none; } .card:active { transform: translate(3px, 3px); } }
+  @media (prefers-reduced-motion: reduce) { .card, .card:hover, .card:focus-visible, .card:focus-within, .card:active { transition: none; transform: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="spaces" aria-label="Spaces"><a href="./" aria-current="page">My boards</a><a href="../templates/">Community</a></nav>
+  <h1>My boards</h1>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* To add a board: add one line here. */
+  var STATIC_BOARDS = [
+    { title: 'Metro map (interactive page)', desc: 'The plan drawn like a transit map you can click through, one line for each part of the product.', href: '../metro-map/', author: 'Lilly Field' },
+    { title: 'Idea map', desc: 'Every idea on one page, tagged shipped, building, queued or idea, so you see what comes next.', href: '../idea-map/', author: 'Lilly Field' },
+    { title: 'Future city', desc: 'A page for imagining the city you want to live in, one place and one wish at a time.', href: '../as-someone-who-wants-to-s3h6/', author: 'Lilly Field' }
+  ];
+
+  var FAMILY = '"Special Elite", "Courier New", monospace';
+  var FONT = '400 16px ' + FAMILY;
+  var FONT_BIG = '400 22px ' + FAMILY;
+  var probe = document.createElement('canvas').getContext('2d');
+
+  /* ---------- the whiteboard's element format ---------- */
+  function wrap(g, text, maxW, font) {
+    g.font = font;
+    var out = [];
+    String(text || '').split('\n').forEach(function (para) {
+      var words = para.split(/\s+/).filter(Boolean), line = '';
+      if (!words.length) { out.push(''); return; }
+      words.forEach(function (w) {
+        var t = line ? line + ' ' + w : w;
+        if (line && g.measureText(t).width > maxW) { out.push(line); line = w; } else line = t;
+      });
+      out.push(line);
+    });
+    return out;
+  }
+  function textBox(el) {
+    var lines = wrap(probe, el.text, 280, FONT_BIG), w = 0;
+    lines.forEach(function (l) { w = Math.max(w, probe.measureText(l).width); });
+    return { lines: lines, w: Math.max(20, w), h: Math.max(1, lines.length) * 28 };
+  }
+  function bbox(el) {
+    if (el.type === 'pen') {
+      var a = 1e9, b = 1e9, c = -1e9, d = -1e9;
+      el.pts.forEach(function (p) { a = Math.min(a, p[0]); b = Math.min(b, p[1]); c = Math.max(c, p[0]); d = Math.max(d, p[1]); });
+      return { x: el.x + a, y: el.y + b, w: c - a, h: d - b };
+    }
+    if (el.type === 'text') { var t = textBox(el); return { x: el.x, y: el.y, w: t.w, h: t.h }; }
+    if (el.type === 'line' || el.type === 'arrow') return { x: Math.min(el.x, el.x + el.w), y: Math.min(el.y, el.y + el.h), w: Math.abs(el.w), h: Math.abs(el.h) };
+    return { x: el.x, y: el.y, w: el.w, h: el.h };
+  }
+  function label(g, el, cx, cy, maxW) {
+    if (!el.text) return;
+    g.setLineDash([]); g.fillStyle = '#000'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    var ls = wrap(g, el.text, Math.max(30, maxW), FONT);
+    g.font = FONT;
+    ls.forEach(function (l, i) { g.fillText(l, cx, cy + (i - (ls.length - 1) / 2) * 20); });
+    g.textAlign = 'left';
+  }
+  function drawEl(g, el, onImage) {
+    g.save();
+    g.lineWidth = el.type === 'pen' ? 2.2 : 1.5;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = el.ai ? '#555' : '#000'; g.fillStyle = g.strokeStyle;
+    if (el.ai && el.type !== 'pen') g.setLineDash([7, 5]);
+    var x = el.x, y = el.y;
+    if (el.type === 'pen') {
+      var p = el.pts;
+      g.beginPath();
+      if (p.length === 1) { g.arc(x + p[0][0], y + p[0][1], 1.4, 0, Math.PI * 2); g.closePath(); g.fill(); }
+      else {
+        g.moveTo(x + p[0][0], y + p[0][1]);
+        for (var i = 1; i < p.length - 1; i++) g.quadraticCurveTo(x + p[i][0], y + p[i][1], x + (p[i][0] + p[i + 1][0]) / 2, y + (p[i][1] + p[i + 1][1]) / 2);
+        g.lineTo(x + p[p.length - 1][0], y + p[p.length - 1][1]);
+        g.stroke();
+      }
+    } else if (el.type === 'note') {
+      g.fillStyle = '#bfd7ff'; g.fillRect(x, y, el.w, el.h);
+      g.lineWidth = 1; g.setLineDash(el.ai ? [4, 3] : []);
+      g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
+      g.setLineDash([]);
+      /* same note fit as the whiteboard: 16px, shrinking to 12px when the square is too small */
+      var nf, nlh, ls;
+      for (var fs = 16; fs >= 12; fs--) {
+        nf = '400 ' + fs + 'px ' + FAMILY; nlh = Math.round(fs * 1.25);
+        ls = wrap(g, el.text, el.w - 16, nf);
+        if (ls.length * nlh <= el.h - 16) break;
+      }
+      g.fillStyle = '#000'; g.textBaseline = 'top'; g.font = nf;
+      ls.slice(0, Math.floor((el.h - 16) / nlh)).forEach(function (l, i) { g.fillText(l, x + 8, y + i * nlh + 8); });
+    } else if (el.type === 'text') {
+      var t = textBox(el);
+      g.font = FONT_BIG; g.textBaseline = 'top';
+      t.lines.forEach(function (l, i) { g.fillText(l, x, y + i * 28 + 3); });
+    } else if (el.type === 'rect') {
+      g.strokeRect(x, y, el.w, el.h); label(g, el, x + el.w / 2, y + el.h / 2, el.w - 12);
+    } else if (el.type === 'ellipse') {
+      g.beginPath(); g.ellipse(x + el.w / 2, y + el.h / 2, Math.abs(el.w / 2), Math.abs(el.h / 2), 0, 0, Math.PI * 2); g.closePath(); g.stroke();
+      label(g, el, x + el.w / 2, y + el.h / 2, el.w * 0.7);
+    } else if (el.type === 'line' || el.type === 'arrow') {
+      var x2 = x + el.w, y2 = y + el.h;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
+      if (el.type === 'arrow') {
+        var a = Math.atan2(el.h, el.w), hl = 12;
+        g.setLineDash([]);
+        g.beginPath(); g.moveTo(x2 - hl * Math.cos(a - 0.45), y2 - hl * Math.sin(a - 0.45)); g.lineTo(x2, y2); g.lineTo(x2 - hl * Math.cos(a + 0.45), y2 - hl * Math.sin(a + 0.45)); g.stroke();
+      }
+    } else if (el.type === 'image' && /^https?:\/\//i.test(el.url || '')) {
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function () { onImage(img, el); };
+      img.src = el.url;
+    }
+    g.restore();
+  }
+
+  /* ---------- preview ---------- */
+  function preview(cv, els) {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var W = cv.clientWidth || 260, H = cv.clientHeight || 195;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    var g = cv.getContext('2d');
+    var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    els.forEach(function (el) {
+      var b = bbox(el);
+      x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
+    });
+    if (x1 < x0) return;
+    var pad = 12, k = Math.min((W - pad * 2) / Math.max(1, x1 - x0), (H - pad * 2) / Math.max(1, y1 - y0));
+    var tx = (W - (x1 - x0) * k) / 2 - x0 * k, ty = (H - (y1 - y0) * k) / 2 - y0 * k;
+    function setup() { g.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty); }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    setup();
+    els.forEach(function (el) {
+      drawEl(g, el, function (img, e) { setup(); g.drawImage(img, e.x, e.y, e.w, e.h); });
+    });
+  }
+  function drawLater(cv, els) {
+    var go = function () { preview(cv, els); };
+    go();
+    if (document.fonts && document.fonts.load) document.fonts.load('16px "Special Elite"').then(go, go);
+    var timer;
+    window.addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(go, 100); });
+  }
+
+  /* postcard furniture: stamp and postmark */
+  function decorate(box, cv, kids) {
+    var pic = document.createElement('div'); pic.className = 'pic'; pic.appendChild(cv);
+    var msg = document.createElement('div'); msg.className = 'msg';
+    kids.forEach(function (k) { msg.appendChild(k); });
+    box.appendChild(pic); box.appendChild(msg);
+    var corner = document.createElement('div'); corner.className = 'corner'; corner.setAttribute('aria-hidden', 'true');
+    var pm = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    pm.setAttribute('class', 'postmark'); pm.setAttribute('viewBox', '0 0 136 64'); pm.setAttribute('fill', 'none'); pm.setAttribute('stroke', '#000'); pm.setAttribute('stroke-width', '1.2');
+    pm.innerHTML = '<g opacity=".35"><circle cx="104" cy="32" r="31"/><path d="M1 24 q8 -6 16 0 t16 0 t16 0 t16 0"/><path d="M1 36 q8 -6 16 0 t16 0 t16 0 t16 0"/></g>';
+    var st = document.createElement('div'); st.className = 'stamp';
+    st.innerHTML = '<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#000" stroke-width="1.5"><circle cx="11" cy="11" r="9"/><circle cx="11" cy="11" r="4"/></svg><span>Lab</span><span>12 Oct</span>';
+    corner.appendChild(pm); corner.appendChild(st);
+    box.appendChild(corner);
+  }
+  /* three ruled lines under the author; the description is written on top of them */
+  function rules(text) {
+    var box = document.createElement('div'); box.className = 'lines';
+    for (var i = 0; i < 3; i++) { var r = document.createElement('div'); r.className = 'rule'; box.appendChild(r); }
+    if (text) { var d = document.createElement('p'); d.className = 'desc'; d.textContent = text; box.appendChild(d); }
+    return box;
+  }
+
+  /* ---------- my boards ---------- */
+  var grid = document.getElementById('grid');
+  function card(t) {
+    var box = document.createElement('div');
+    box.className = 'card';
+    var cv = document.createElement('canvas');
+    cv.setAttribute('role', 'img');
+    cv.setAttribute('aria-label', t.title);
+    var title = document.createElement('a'); title.className = 'title';
+    var tt = document.createElement('span'); tt.textContent = t.title; title.appendChild(tt);
+    title.href = t.href;
+    var author = document.createElement('span'); author.className = 'author';
+    author.textContent = t.author || '';
+    decorate(box, cv, [title, author, rules(t.desc)]);
+    grid.appendChild(box);
+    return cv;
+  }
+
+  /* a simple drawn placeholder for the standalone pages: a frame, a heading and a few lines */
+  var PLACEHOLDER = [
+    { type: 'rect', x: 0, y: 0, w: 280, h: 200 },
+    { type: 'line', x: 20, y: 40, w: 150, h: 0 },
+    { type: 'line', x: 20, y: 80, w: 240, h: 0 },
+    { type: 'line', x: 20, y: 110, w: 200, h: 0 },
+    { type: 'line', x: 20, y: 140, w: 220, h: 0 },
+    { type: 'ellipse', x: 200, y: 20, w: 60, h: 36 }
+  ];
+  var NEW_BOARD = [
+    { type: 'rect', x: 0, y: 0, w: 280, h: 200 },
+    { type: 'line', x: 140, y: 70, w: 0, h: 60 },
+    { type: 'line', x: 110, y: 100, w: 60, h: 0 }
+  ];
+
+  function baseName(s) { return String(s).replace(/\s*\(.*\)\s*$/, '').toLowerCase(); }
+  var taken = {};
+  function addStart() {
+    drawLater(card({ title: 'Start a new board', desc: 'A blank page to draw on, write on and think out loud.', href: '../ai-whiteboard/', author: '' }), NEW_BOARD);
+  }
+
+  STATIC_BOARDS.forEach(function (t) { if (t && t.title && t.href) taken[baseName(t.title)] = true; });
+
+  /* static pages are drawn first and the "Start a new board" card goes last, after templates.json answers (or fails) */
+  var statics = STATIC_BOARDS.filter(function (t) { return t && t.title && t.href; });
+  statics.forEach(function (t) { drawLater(card(t), PLACEHOLDER); });
+
+  fetch('../templates/templates.json').then(function (r) { return r.json(); }).then(function (list) {
+    var mine = Array.isArray(list) ? list.filter(function (t) { return t && t.id && t.file && t.mine === true; }) : [];
+    return Promise.all(mine.map(function (t) {
+      return fetch('../templates/' + t.file).then(function (r) { return r.json(); }).catch(function () { return []; }).then(function (els) {
+        return { t: t, els: Array.isArray(els) ? els.filter(function (e) { return e && typeof e === 'object' && e.type; }) : [] };
+      });
+    }));
+  }).catch(function () { return []; }).then(function (items) {
+    var seen = {};
+    items.forEach(function (it) {
+      var key = baseName(it.t.title);
+      var title = taken[key] || seen[key] ? it.t.title + ' (board)' : it.t.title;
+      seen[key] = true;
+      var cv = card({ title: title, desc: it.t.desc, href: '../ai-whiteboard/?template=' + encodeURIComponent(it.t.id), author: 'Lilly Field' });
+      drawLater(cv, it.els);
+    });
+    addStart();
+  });
+})();
+</script>
+</body>
+</html>
