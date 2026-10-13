@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everything, everywhere, all at once</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #000; --paper: #fff; --f: "Special Elite", "Courier New", monospace; }
+  * { box-sizing: border-box; border-radius: 0; box-shadow: none; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--f); font-weight: normal; font-style: normal; }
+  body { padding: 16px 12px 150px; }
+  h1, h2 { font-weight: normal; margin: 0; }
+  h1 { font-size: 24px; letter-spacing: 0.5px; padding-right: 110px; line-height: 1.2; margin-bottom: 16px; }
+  button { font-family: var(--f); font-weight: normal; color: var(--ink); background: var(--paper); border: 1px solid var(--ink); cursor: pointer; }
+
+  #focus { position: fixed; top: 10px; right: 10px; z-index: 5; display: flex; background: var(--paper); }
+  #focus button { font-size: 12px; width: 30px; height: 30px; padding: 0; margin-left: -1px; }
+  #focus button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+  #board { display: grid; grid-template-columns: 1fr; gap: 0; border: 1px solid var(--ink); }
+  .area { padding: 12px; border: 1px solid var(--ink); margin: -1px 0 0 -1px; scroll-margin-top: 12px; min-height: 140px; transition: opacity .12s; }
+  .area h2 { font-size: 18px; padding-bottom: 6px; border-bottom: 1px solid var(--ink); margin-bottom: 10px; }
+  .notes { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+  .note { position: relative; width: 100%; max-width: 220px; min-height: 64px; border: 1px solid var(--ink); background: var(--paper); padding: 8px 28px 8px 9px; font-size: 16px; line-height: 1.3; }
+  .note:nth-child(odd) { transform: rotate(-0.6deg); }
+  .note:nth-child(even) { transform: rotate(0.5deg); }
+  .txt { outline: none; min-height: 1.3em; word-break: break-word; white-space: pre-wrap; }
+  div.txt:focus { text-decoration: underline; }
+  .note a { color: var(--ink); }
+  .note .x, .note .ed { position: absolute; top: 0; right: 0; width: 28px; height: 28px; border: 0; background: none; font-size: 16px; padding: 0; line-height: 1; }
+  .note .ed { top: 28px; font-size: 13px; }
+  .add { margin-top: 10px; font-size: 14px; min-height: 36px; padding: 0 12px; border-style: dashed; }
+
+  body.m-B .area:not(.sel) { display: none; }
+  body.m-B .area.sel { min-height: 60vh; }
+  body.m-B .note { max-width: 320px; }
+  body.m-C .area:not(.sel) { opacity: .25; }
+
+  #idx { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--paper); border-top: 1px solid var(--ink); padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); }
+  #idx .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  #idx button { flex: 1 1 auto; min-height: 44px; padding: 4px 10px; font-size: 14px; line-height: 1.15; }
+  #idx button[aria-current="true"] { background: var(--ink); color: var(--paper); }
+  #idx .now { font-size: 10px; display: block; letter-spacing: 1px; }
+  #foot { margin-top: 14px; font-size: 12px; }
+  #foot a { color: var(--ink); }
+
+  @media (min-width: 700px) {
+    body { padding: 24px 24px 130px; }
+    h1 { font-size: 32px; }
+    #board { grid-template-columns: repeat(2, 1fr); }
+    body.m-B #board { grid-template-columns: 1fr; }
+    .area { min-height: 220px; }
+    #idx .row { flex-wrap: nowrap; }
+  }
+  @media (min-width: 1100px) { #board { grid-template-columns: repeat(3, 1fr); } body.m-B #board { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>Everything, everywhere, all at once.</h1>
+<div id="focus" role="group" aria-label="Focus">
+  <button data-m="A" aria-label="Now bar">A</button><button data-m="B" aria-label="Solo">B</button><button data-m="C" aria-label="Dim">C</button>
+</div>
+<div id="board"></div>
+<div id="foot"><a href="../my-boards/">Index</a></div>
+<nav id="idx" aria-label="Areas"><div class="row"></div></nav>
+
+<script>
+/* SEED shape (edit this block to change what a fresh board starts with):
+   SEED = {
+     areas: [ { id: "slug-used-as-url-hash", name: "Title shown on the board and index bar",
+                notes: [ { id: "unique-note-id", text: "sticky note text", url: "optional; makes it a link-note" } ] } ],
+     now:  "id of the area marked NOW (focus take A)",
+     mode: "A" | "B" | "C"   // A = Now bar, B = Solo, C = Dim
+   }
+   Saved to localStorage under KEY in the same shape. Bump KEY's version if the shape changes. */
+const KEY = "everything.v1";
+const SEED = {
+  areas: [
+    { id: "work", name: "Work coding project", notes: [] },
+    { id: "pickleball", name: "Pickleball plans", notes: [] },
+    { id: "coliving", name: "Biohacker coliving hub - SF", notes: [{ id: "n-sponsor", text: "Getting sponsorships" }] },
+    { id: "whiteboard", name: "Whiteboard project", notes: [
+      { id: "n-wb", text: "Open the whiteboard", url: "https://lilly-builds.github.io/lab/ideas/ai-whiteboard/" },
+      { id: "n-mm", text: "Metro map", url: "https://lilly-builds.github.io/lab/ideas/metro-map/" } ] },
+    { id: "health-beauty", name: "Health & beauty", notes: [] }
+  ],
+  now: "work",
+  mode: "A"
+};
+
+let S;
+try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
+if (!S || !Array.isArray(S.areas) || !S.areas.length) S = JSON.parse(JSON.stringify(SEED));
+if (!["A", "B", "C"].includes(S.mode)) S.mode = "A";
+const has = id => S.areas.some(a => a.id === id);
+if (!has(S.now)) S.now = S.areas[0].id;
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+
+const board = document.getElementById("board");
+const idxRow = document.querySelector("#idx .row");
+let sel = S.now;
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+const uid = () => "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+function editable(note) {
+  const t = el("div", "txt", note.text);
+  t.contentEditable = "true";
+  t.spellcheck = false;
+  t.addEventListener("input", () => { note.text = t.textContent; save(); });
+  return t;
+}
+
+function noteEl(area, note) {
+  const n = el("div", "note");
+  n.dataset.id = note.id;
+  if (note.url) {
+    const a = el("a", "txt", note.text);
+    a.href = note.url; a.target = "_blank"; a.rel = "noopener";
+    n.appendChild(a);
+    const ed = el("button", "ed", "✎"); ed.setAttribute("aria-label", "Edit");
+    ed.onclick = () => {
+      const t = editable(note);
+      n.replaceChild(t, a); ed.remove(); t.focus();
+      t.addEventListener("blur", () => { if (!note.text.trim()) note.text = note.url; save(); renderBoard(); });
+    };
+    n.appendChild(ed);
+  } else {
+    const t = editable(note);
+    t.addEventListener("blur", () => { if (!note.text.trim()) { area.notes = area.notes.filter(x => x !== note); save(); renderBoard(); } });
+    n.appendChild(t);
+  }
+  const x = el("button", "x", "×"); x.setAttribute("aria-label", "Delete");
+  x.onclick = () => { area.notes = area.notes.filter(m => m !== note); save(); renderBoard(); };
+  n.appendChild(x);
+  return n;
+}
+
+function renderBoard(focusId) {
+  board.textContent = "";
+  S.areas.forEach(area => {
+    const sec = el("section", "area" + (area.id === sel ? " sel" : ""));
+    sec.id = "area-" + area.id;
+    sec.dataset.id = area.id;
+    sec.appendChild(el("h2", null, area.name));
+    const list = el("div", "notes");
+    area.notes.forEach(note => list.appendChild(noteEl(area, note)));
+    sec.appendChild(list);
+    const add = el("button", "add", "+ note");
+    add.onclick = () => {
+      const note = { id: uid(), text: "" };
+      area.notes.push(note); save(); renderBoard(note.id);
+    };
+    sec.appendChild(add);
+    board.appendChild(sec);
+  });
+  if (focusId) { const t = board.querySelector('.note[data-id="' + focusId + '"] .txt'); if (t) t.focus(); }
+}
+
+function renderChrome() {
+  document.body.className = "m-" + S.mode;
+  document.querySelectorAll("#focus button").forEach(b => b.setAttribute("aria-pressed", b.dataset.m === S.mode));
+  idxRow.textContent = "";
+  S.areas.forEach(area => {
+    const b = el("button", null, area.name);
+    if (area.id === sel) b.setAttribute("aria-current", "true");
+    if (S.mode === "A" && area.id === S.now) b.appendChild(el("span", "now", "NOW"));
+    b.onclick = () => go(area.id);
+    idxRow.appendChild(b);
+  });
+  board.querySelectorAll(".area").forEach(s => s.classList.toggle("sel", s.dataset.id === sel));
+}
+
+function reveal() {
+  const s = document.getElementById("area-" + sel);
+  if (S.mode === "B") window.scrollTo(0, 0);
+  else if (s) s.scrollIntoView({ block: "start" });
+}
+
+function show(id) {
+  sel = has(id) ? id : S.now;
+  if (S.mode === "A" && S.now !== sel) { S.now = sel; save(); }
+  renderChrome();
+  reveal();
+}
+
+function go(id) {
+  if (location.hash !== "#" + id) history.pushState(null, "", "#" + id);
+  show(id);
+}
+
+window.addEventListener("hashchange", () => show(location.hash.slice(1)));
+
+document.querySelectorAll("#focus button").forEach(b => b.onclick = () => {
+  S.mode = b.dataset.m;
+  if (S.mode === "A") S.now = sel;
+  save(); renderChrome(); reveal();
+});
+
+/* boot: a hash link lands on its area; otherwise the now area */
+const h = location.hash.slice(1);
+sel = has(h) ? h : S.now;
+if (S.mode === "A" && S.now !== sel) { S.now = sel; save(); }
+if (!has(h)) history.replaceState(null, "", "#" + sel);
+renderBoard();
+renderChrome();
+if (has(h)) reveal();
+</script>
+</body>
+</html>
