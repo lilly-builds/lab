@@ -106,6 +106,7 @@
 //   status is exactly one of: SHIPPED, BUILDING, QUEUED, IDEA.
 //   also (optional) is a second line id: the station is an interchange and sits on the
 //   lane of `line`; the other line bends over to touch it. List it once, never twice.
+// TERMINUS: {text, tagline?}  tagline (optional) is a small mixed-case line under the terminus text.
 // Unknown line or status ends up on the "Loose" line at the bottom so nothing is dropped.
 var LINES = [
   {id: "core", name: "Core loop", pattern: "solid"},
@@ -150,7 +151,7 @@ var STATIONS = [
   {id: "havetos", line: "vision", text: "Have-to's picked up and relentlessly done by an agent", status: "IDEA", note: "a background agent that takes the have-to list and keeps working it until done"},
   {id: "testreal", line: "vision", text: "Tested in a real browser", status: "IDEA"}
 ];
-var TERMINUS = {text: "One fluid creative dreamspace"};
+var TERMINUS = {text: "One fluid creative dreamspace", tagline: "For the dream you haven't touched in months"};
 // ===== END DATA BLOCK =====
 
 var STATUSES = ["SHIPPED", "BUILDING", "QUEUED", "IDEA"];
@@ -527,8 +528,10 @@ function build() {
   // terminus geometry
   var yMid = (lines[0].y + lines[n - 1].y) / 2;
   var tLines = wrap(String(TERMINUS.text).toUpperCase(), 13);
+  var tagLines = TERMINUS.tagline ? wrap(String(TERMINUS.tagline), 26) : [];
+  var tagH = tagLines.length ? tagLines.length * 14 + 10 : 0;
   var TW = 210;
-  var TH = Math.max(140, (n - 1) * ATT + 70, tLines.length * 24 + 50);
+  var TH = Math.max(140, (n - 1) * ATT + 70, tLines.length * 24 + 50 + tagH);
   var tTop = yMid - TH / 2;
   var minY = Math.min(lines[0].y - TAG_H / 2, tTop - 6, lines[0].y - 60) - 14;
   var maxY = Math.max(lines[n - 1].y + 62, tTop + TH + 6) + 14;
@@ -594,7 +597,10 @@ function build() {
   gT.appendChild(S("rect", {x: xB - 6, y: tTop - 6, width: TW + 12, height: TH + 12, fill: "none", stroke: "#000", "stroke-width": 1}));
   gT.appendChild(S("rect", {x: xB, y: tTop, width: TW, height: TH, fill: "#fff", stroke: "#000", "stroke-width": 2}));
   tLines.forEach(function (t, i) {
-    gT.appendChild(S("text", {x: xB + TW / 2, y: yMid - (tLines.length - 1) * 12 + i * 24 + 6, "text-anchor": "middle", "font-size": 17}, t));
+    gT.appendChild(S("text", {x: xB + TW / 2, y: yMid - (tLines.length - 1) * 12 + i * 24 + 6 - tagH / 2, "text-anchor": "middle", "font-size": 17}, t));
+  });
+  tagLines.forEach(function (t, i) {
+    gT.appendChild(S("text", {x: xB + TW / 2, y: yMid + (tLines.length - 1) * 12 + 6 - tagH / 2 + 22 + i * 14, "text-anchor": "middle", "font-size": 11}, t));
   });
 
   // stations
