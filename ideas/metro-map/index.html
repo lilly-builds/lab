@@ -45,6 +45,26 @@
   #card .ct { font-size: 15px; margin-bottom: 6px; }
   #card .cl { font-size: 11px; margin-top: 6px; }
   #card .cn { margin-top: 7px; }
+  #map { user-select: none; -webkit-user-select: none; }
+  #map .st { touch-action: none; }
+  #map .st .shadow, #map .st .more { display: none; }
+  #map .st.drag .shadow { display: block; }
+  #map .st.drag { cursor: grabbing; }
+  #map .st.sel .more { display: block; }
+  #map .more, #map .addb { cursor: pointer; }
+  #map .addb:focus { outline: none; }
+  #map .addb:focus rect, #map .more:focus rect { stroke-width: 3; }
+  button.tog:disabled { opacity: 0.4; cursor: default; }
+  button.quiet { font-family: var(--f); font-size: 11px; font-weight: normal; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 3px 7px; cursor: pointer; }
+  #resetbox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: -8px 0 16px; }
+  input.ed { position: absolute; z-index: 4; width: 220px; font-family: var(--f); font-size: 14px; background: var(--paper); color: var(--ink); border: 2px solid var(--ink); padding: 4px 6px; outline: none; }
+  #menu { position: absolute; z-index: 4; width: 190px; background: var(--paper); border: 1px solid var(--ink); padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+  #menu[hidden] { display: none; }
+  #menu .mh { font-size: 11px; }
+  button.mi { font-family: var(--f); font-size: 12px; font-weight: normal; text-align: left; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 5px 8px; cursor: pointer; }
+  button.mi[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  #toast { position: fixed; left: 16px; bottom: 16px; z-index: 10; display: flex; align-items: center; gap: 12px; background: var(--paper); border: 1px solid var(--ink); padding: 8px 10px; font-size: 13px; }
+  #toast[hidden] { display: none; }
   .lists { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
   .block { border: 1px solid var(--ink); padding: 12px; }
   .block h3 { display: flex; align-items: center; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--ink); margin-bottom: 8px; }
@@ -62,16 +82,20 @@
 <div class="bar">
   <div class="row" id="legend"></div>
   <div class="row" id="filters"><span class="label">Show only</span></div>
+  <div class="row" id="tools"></div>
 </div>
+<div id="resetbox"></div>
 <div id="scroller">
   <div id="wrap">
     <svg id="map" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Metro map of the dreamspace plan. A list version follows below the map."></svg>
     <div id="card" role="status" hidden></div>
+    <div id="menu" role="group" aria-label="Station menu" hidden></div>
   </div>
 </div>
 <h2>As a list</h2>
 <div class="lists" id="lists"></div>
 <div class="end" id="endnote"></div>
+<div id="toast" role="status" hidden></div>
 
 <script>
 // ===== DATA BLOCK: the only part future edits touch =====
@@ -260,6 +284,99 @@ var lineEls = {};         // line id -> [elements] to dim together
   });
 })();
 
+// ---- the user's edits: overrides kept in localStorage, layered on top of the data block ----
+// The data block above is never written to. Anything added there later still shows up.
+var EDITS_KEY = "metro-map-edits-v1";
+var MAX_NAME = 60, MAX_NOTE = 200, MAX_HIST = 50, GRID = 10;
+function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+function emptyEdits() { return {pos: {}, text: {}, status: {}, note: {}, deleted: {}, added: []}; }
+function isEmptyEdits(e) {
+  return !Object.keys(e.pos).length && !Object.keys(e.text).length && !Object.keys(e.status).length &&
+    !Object.keys(e.note).length && !Object.keys(e.deleted).length && !e.added.length;
+}
+function isObj(o) { return o && typeof o === "object" && !Array.isArray(o); }
+function cleanEdits(raw) {
+  var e = emptyEdits();
+  if (!isObj(raw)) return e;
+  if (isObj(raw.pos)) Object.keys(raw.pos).forEach(function (id) {
+    var p = raw.pos[id];
+    if (isObj(p) && typeof p.x === "number" && typeof p.y === "number" && isFinite(p.x) && isFinite(p.y)) e.pos[id] = {x: p.x, y: p.y};
+  });
+  if (isObj(raw.text)) Object.keys(raw.text).forEach(function (id) {
+    if (typeof raw.text[id] === "string" && raw.text[id].trim()) e.text[id] = raw.text[id].slice(0, MAX_NAME);
+  });
+  if (isObj(raw.status)) Object.keys(raw.status).forEach(function (id) {
+    if (STATUSES.indexOf(raw.status[id]) >= 0) e.status[id] = raw.status[id];
+  });
+  if (isObj(raw.note)) Object.keys(raw.note).forEach(function (id) {
+    if (typeof raw.note[id] === "string") e.note[id] = raw.note[id].slice(0, MAX_NOTE);
+  });
+  if (isObj(raw.deleted)) Object.keys(raw.deleted).forEach(function (id) { if (raw.deleted[id]) e.deleted[id] = true; });
+  if (Array.isArray(raw.added)) raw.added.forEach(function (a) {
+    if (isObj(a) && typeof a.id === "string" && typeof a.line === "string" && typeof a.text === "string" && a.text.trim()) {
+      e.added.push({id: a.id, line: a.line, text: a.text.slice(0, MAX_NAME),
+        status: STATUSES.indexOf(a.status) >= 0 ? a.status : "IDEA"});
+    }
+  });
+  return e;
+}
+function loadEdits() {
+  try { return cleanEdits(JSON.parse(localStorage.getItem(EDITS_KEY))); } catch (err) { return emptyEdits(); }
+}
+function saveEdits() {
+  try {
+    if (isEmptyEdits(edits)) localStorage.removeItem(EDITS_KEY);
+    else localStorage.setItem(EDITS_KEY, JSON.stringify(edits));
+  } catch (err) { /* storage unavailable: edits last for this visit only */ }
+}
+var edits = loadEdits();
+
+// data block + overrides, as fresh copies
+function effectiveStations() {
+  var out = [];
+  STATIONS.concat(edits.added).forEach(function (s) {
+    if (has(edits.deleted, s.id)) return;
+    var c = {id: s.id, line: s.line, text: s.text, status: s.status, note: s.note, also: s.also};
+    if (has(edits.text, s.id)) c.text = edits.text[s.id];
+    if (has(edits.status, s.id)) c.status = edits.status[s.id];
+    if (has(edits.note, s.id)) c.note = edits.note[s.id];
+    out.push(c);
+  });
+  return out;
+}
+
+// ---- session history (undo / redo) ----
+var undoStack = [], redoStack = [];
+var focusId = null;       // station to focus after the next rebuild
+function snapshot() { return JSON.stringify(edits); }
+function commit(next) {
+  undoStack.push(snapshot());
+  if (undoStack.length > MAX_HIST) undoStack.shift();
+  redoStack = [];
+  edits = next;
+  saveEdits();
+  build();
+}
+function mutate(fn) {
+  var next = cleanEdits(JSON.parse(snapshot()));
+  fn(next);
+  commit(next);
+}
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(snapshot());
+  edits = cleanEdits(JSON.parse(undoStack.pop()));
+  saveEdits();
+  build();
+}
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(snapshot());
+  edits = cleanEdits(JSON.parse(redoStack.pop()));
+  saveEdits();
+  build();
+}
+
 // ---- model: resolve lines, interchanges, columns ----
 function buildModel() {
   var lines = LINES.map(function (l) { return {id: l.id, name: l.name, pattern: l.pattern, items: [], visits: []}; });
@@ -267,7 +384,7 @@ function buildModel() {
   lines.forEach(function (l) { byId[l.id] = l; });
   var loose = {id: "__loose", name: "Loose", pattern: "solid", items: [], visits: [], loose: true};
   var recs = [];
-  STATIONS.forEach(function (s) {
+  effectiveStations().forEach(function (s) {
     var okStatus = STATUSES.indexOf(s.status) >= 0;
     var ok = byId[s.line] && okStatus;
     var host = ok ? byId[s.line] : loose;
@@ -300,65 +417,148 @@ function buildModel() {
   recs.forEach(function (r) {
     r.x = X0 + r.col * DX;
     r.y = r.host.y;
+    r.x0 = r.x; r.y0 = r.y;       // where the data block alone would put it
+    r.moved = false;
+    if (has(edits.pos, r.src.id)) {
+      r.x = edits.pos[r.src.id].x;
+      r.y = edits.pos[r.src.id].y;
+      r.moved = true;
+    }
   });
   return {lines: lines, recs: recs};
 }
 
 var model = null;
+var ATT = 16;            // spacing of the lines where they meet the terminus
+var gLinesEl = null;
+
+// append a point, bending with 0 / 45 / 90 degree segments only.
+// A bend sits next to the end that is off its lane, so a station dragged away
+// from its lane gets a straight run on the lane and a 45 degree leg to the station.
+function addTo(pts, p, lane) {
+  var a = pts[pts.length - 1];
+  if (a) {
+    var dx = p[0] - a[0], dy = p[1] - a[1], adx = Math.abs(dx), ady = Math.abs(dy);
+    if (dx && dy && adx !== ady) {
+      var sx = dx < 0 ? -1 : 1, sy = dy < 0 ? -1 : 1, m;
+      if (a[1] !== lane && p[1] === lane) m = adx > ady ? [a[0] + sx * ady, p[1]] : [p[0], a[1] + sy * adx];
+      else m = adx > ady ? [p[0] - sx * ady, a[1]] : [a[0], a[1] + sy * (ady - adx)];
+      pts.push(m);
+    }
+  }
+  pts.push(p);
+}
+
+// the line from its label through every station it serves, in order
+function routeLine(l) {
+  var ev = [];
+  l.items.forEach(function (r) { ev.push({col: r.col, rec: r, visit: false}); });
+  l.visits.forEach(function (r) { ev.push({col: r.col, rec: r, visit: true}); });
+  ev.sort(function (a, b) { return a.col - b.col; });
+  var pts = [[TAG_X + TAG_W, l.y]];
+  ev.forEach(function (e) {
+    var r = e.rec;
+    if (e.visit && !r.moved) {
+      // interchange on another lane: this line bends over to touch it
+      var run = Math.abs(r.y - l.y);
+      addTo(pts, [r.x - run, l.y], l.y);
+      addTo(pts, [r.x, r.y], l.y);
+      addTo(pts, [r.x + run, l.y], l.y);
+    } else addTo(pts, [r.x, r.y], l.y);
+  });
+  l.pts = pts;
+}
+function finishLine(l, xB) {
+  var pts = l.pts.slice();
+  addTo(pts, [l.run > 0 ? xB - l.run : xB, l.y], l.y);
+  pts.push([xB, l.ay]);
+  return pts;
+}
+function drawLine(l) { return patternPath(finishLine(l, model.xB), l.pattern); }
+function redrawLines() {
+  model.lines.forEach(function (l) {
+    routeLine(l);
+    var g = drawLine(l);
+    gLinesEl.replaceChild(g, lineEls[l.id][0]);
+    lineEls[l.id][0] = g;
+  });
+  refresh();
+}
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function bounds(r) {
+  var run = Math.max(r.host.run || 0, r.also ? r.also.run || 0 : 0);
+  var vb = model.vb;
+  return {x0: TAG_X + TAG_W + 30, x1: Math.max(TAG_X + TAG_W + 30, model.xB - 60 - run),
+    y0: vb.y + 24, y1: vb.y + vb.h - 24};
+}
+function svgScale() { return document.getElementById("map").getBoundingClientRect().width / model.vb.w; }
+function toPx(x, y) {
+  var s = svgScale();
+  return {x: (x - model.vb.x) * s, y: (y - model.vb.y) * s};
+}
+function placeStation(rec, x, y) {
+  var b = bounds(rec);
+  rec.x = clamp(x, b.x0, b.x1);
+  rec.y = clamp(y, b.y0, b.y1);
+}
+function commitMove(rec) {
+  var id = rec.src.id, x = rec.x, y = rec.y;
+  focusId = id;
+  mutate(function (e) {
+    if (x === rec.x0 && y === rec.y0) delete e.pos[id];
+    else e.pos[id] = {x: x, y: y};
+  });
+}
 
 function build() {
   var svg = document.getElementById("map");
   while (svg.firstChild) svg.removeChild(svg.firstChild);
+  closeEditor();
+  var selId = selected ? selected.src.id : null;
   model = buildModel();
+  selected = null;
+  model.recs.forEach(function (r) { if (r.src.id === selId) selected = r; });
+  if (menuFor && menuFor !== selected) closeMenu();
   var lines = model.lines;
   var n = lines.length;
 
-  // paths
-  var maxEnd = 0;
-  lines.forEach(function (l) {
-    var ev = [];
-    l.items.forEach(function (r) { ev.push({col: r.col, rec: r, visit: false}); });
-    l.visits.forEach(function (r) { ev.push({col: r.col, rec: r, visit: true}); });
-    ev.sort(function (a, b) { return a.col - b.col; });
-    var pts = [[TAG_X + TAG_W, l.y]];
-    ev.forEach(function (e) {
-      var x = X0 + e.col * DX;
-      if (e.visit) {
-        var run = Math.abs(e.rec.y - l.y);
-        pts.push([x - run, l.y], [x, e.rec.y], [x + run, l.y]);
-      } else pts.push([x, l.y]);
-    });
-    l.pts = pts;
-  });
-  var yMid = (lines[0].y + lines[n - 1].y) / 2;
-  var ATT = 16;
-  var maxNeed = 0;
-  lines.forEach(function (l, i) {
-    l.ay = yMid + (i - (n - 1) / 2) * ATT;
-    l.run = Math.abs(l.ay - l.y);
-    var last = l.pts[l.pts.length - 1];
-    maxNeed = Math.max(maxNeed, last[0] + l.run);
-  });
-  var xB = maxNeed + 60;
-  lines.forEach(function (l) {
-    var last = l.pts[l.pts.length - 1];
-    var pts = l.pts.slice();
-    if (l.run > 0) pts.push([xB - l.run, l.y]);
-    else pts.push([xB, l.y]);
-    pts.push([xB, l.ay]);
-    l.pts = pts;
-  });
-
   // terminus geometry
+  var yMid = (lines[0].y + lines[n - 1].y) / 2;
   var tLines = wrap(String(TERMINUS.text).toUpperCase(), 13);
   var TW = 210;
   var TH = Math.max(140, (n - 1) * ATT + 70, tLines.length * 24 + 50);
   var tTop = yMid - TH / 2;
+  var minY = Math.min(lines[0].y - TAG_H / 2, tTop - 6, lines[0].y - 60) - 14;
+  var maxY = Math.max(lines[n - 1].y + 62, tTop + TH + 6) + 14;
+  model.vb = {x: 0, y: minY, w: 0, h: maxY - minY};
 
-  var gLines = S("g"), gTags = S("g"), gSt = S("g");
+  lines.forEach(function (l, i) {
+    l.ay = yMid + (i - (n - 1) / 2) * ATT;
+    l.run = Math.abs(l.ay - l.y);
+  });
+  // saved positions are kept inside the map
+  model.recs.forEach(function (r) {
+    if (r.moved) {
+      r.y = clamp(r.y, model.vb.y + 24, model.vb.y + model.vb.h - 24);
+      r.x = Math.max(r.x, TAG_X + TAG_W + 30);
+    }
+  });
+
+  // paths
+  var maxNeed = 0;
+  lines.forEach(function (l) {
+    routeLine(l);
+    l.pts.forEach(function (p) { maxNeed = Math.max(maxNeed, p[0] + l.run); });
+  });
+  var xB = maxNeed + 60;
+  model.xB = xB;
+
+  var gLines = S("g"), gTags = S("g"), gSt = S("g"), gAdd = S("g");
+  gLinesEl = gLines;
   lines.forEach(function (l) {
     lineEls[l.id] = [];
-    var g = patternPath(l.pts, l.pattern);
+    var g = drawLine(l);
     gLines.appendChild(g);
     lineEls[l.id].push(g);
 
@@ -372,6 +572,20 @@ function build() {
     tg.appendChild(patternPath([[TAG_X + 10, l.y + TAG_H / 2 - 8], [TAG_X + TAG_W - 10, l.y + TAG_H / 2 - 8]], l.pattern));
     gTags.appendChild(tg);
     lineEls[l.id].push(tg);
+
+    // "+ Station" at the end of the line label
+    if (!l.loose) {
+      var ab = S("g", {"class": "addb", tabindex: 0, role: "button", "aria-label": "Add a station to " + l.name,
+        transform: "translate(" + (TAG_X + TAG_W + 6) + " " + (l.y + 5) + ")"});
+      ab.appendChild(S("rect", {x: 0, y: 0, width: 64, height: 18, fill: "#fff", stroke: "#000", "stroke-width": 1}));
+      ab.appendChild(S("text", {x: 32, y: 13, "text-anchor": "middle", "font-size": 11}, "+ Station"));
+      var line = l;
+      ab.addEventListener("click", function (ev) { ev.stopPropagation(); addStation(line); });
+      ab.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); ev.stopPropagation(); addStation(line); }
+      });
+      gAdd.appendChild(ab);
+    }
   });
 
   // terminus
@@ -391,6 +605,7 @@ function build() {
       transform: "translate(" + r.x + " " + r.y + ")",
       "aria-label": r.src.text + ", " + String(r.src.status) + (isX ? ", interchange with " + r.also.name : "") + ", on " + r.host.name});
     g.appendChild(S("rect", {"class": "ring", x: -half - 5, y: -half - 5, width: half * 2 + 10, height: half * 2 + 10}));
+    g.appendChild(S("rect", {"class": "shadow", x: -half + 4, y: -half + 4, width: half * 2, height: half * 2, fill: "#000"}));
     g.appendChild(isX ? interchange(half, r.status === "IDEA") : marker(r.status, half));
     // label side: away from the line that bends over to touch an interchange,
     // otherwise alternate along the lane
@@ -404,31 +619,43 @@ function build() {
       g.appendChild(S("text", {"class": "halo", x: 0, y: by, "text-anchor": "middle", "font-size": 14}, t));
     });
     var rec = r;
-    g.addEventListener("click", function (ev) { ev.stopPropagation(); toggle(rec); });
-    g.addEventListener("keydown", function (ev) {
-      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); ev.stopPropagation(); toggle(rec); }
-    });
+    // "..." opens the station menu (visible on the selected station)
+    var more = S("g", {"class": "more", role: "button", "aria-label": "Station menu"});
+    more.appendChild(S("rect", {x: half + 8, y: -8, width: 24, height: 16, fill: "#fff", stroke: "#000", "stroke-width": 1.5}));
+    more.appendChild(S("text", {x: half + 20, y: 4, "text-anchor": "middle", "font-size": 14}, "..."));
+    more.addEventListener("pointerdown", function (ev) { ev.stopPropagation(); });
+    more.addEventListener("click", function (ev) { ev.stopPropagation(); openMenu(rec); });
+    g.appendChild(more);
+
+    g.addEventListener("pointerdown", function (ev) { dragStart(ev, rec, g); });
+    g.addEventListener("pointermove", dragMove);
+    g.addEventListener("pointerup", dragEnd);
+    g.addEventListener("pointercancel", dragCancel);
+    g.addEventListener("touchmove", function (ev) { ev.preventDefault(); }, {passive: false});
+    g.addEventListener("click", function (ev) { ev.stopPropagation(); stationClick(rec); });
+    g.addEventListener("keydown", function (ev) { stationKey(ev, rec); });
     gSt.appendChild(g);
     stationEls.push({rec: r, g: g});
   });
 
   svg.appendChild(gLines);
   svg.appendChild(gTags);
+  svg.appendChild(gAdd);
   svg.appendChild(gT);
   svg.appendChild(gSt);
 
   // viewBox from content
-  var minX = 0;
-  var maxX = xB + TW + 6 + TAG_X;
-  var minY = Math.min(lines[0].y - TAG_H / 2, tTop - 6, lines[0].y - 60) - 14;
-  var maxY = Math.max(lines[n - 1].y + 62, tTop + TH + 6) + 14;
-  var vb = {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
-  model.vb = vb;
-  svg.setAttribute("viewBox", vb.x + " " + vb.y + " " + vb.w + " " + vb.h);
-  svg.style.minWidth = Math.max(900, Math.round(vb.w * 0.75)) + "px";
+  model.vb.w = xB + TW + 6 + TAG_X;
+  svg.setAttribute("viewBox", model.vb.x + " " + model.vb.y + " " + model.vb.w + " " + model.vb.h);
+  svg.style.minWidth = Math.max(900, Math.round(model.vb.w * 0.75)) + "px";
 
   buildList();
   refresh();
+  updateTools();
+  if (focusId) {
+    stationEls.forEach(function (s) { if (s.rec.src.id === focusId) s.g.focus({preventScroll: true}); });
+    focusId = null;
+  }
 }
 
 // ---- list view ----
@@ -465,6 +692,7 @@ function buildList() {
 function anyFilter() { return STATUSES.some(function (s) { return activeFilters[s]; }); }
 
 function toggle(rec) {
+  closeMenu();
   selected = selected === rec ? null : rec;
   refresh();
 }
@@ -486,7 +714,8 @@ function refresh() {
     var r = s.rec;
     var onLine = !hl || hl[r.host.id] || (r.also && hl[r.also.id]);
     var match = !f || activeFilters[r.src.status];
-    var cls = "st" + (!onLine || !match ? " dim" : "") + (r === selected ? " sel" : "");
+    var cls = "st" + (!onLine || !match ? " dim" : "") + (r === selected ? " sel" : "") +
+      (drag && drag.moving && drag.rec === r ? " drag" : "");
     s.g.setAttribute("class", cls);
     s.g.setAttribute("aria-pressed", r === selected ? "true" : "false");
   });
@@ -496,7 +725,7 @@ function refresh() {
 function showCard() {
   var card = document.getElementById("card");
   while (card.firstChild) card.removeChild(card.firstChild);
-  if (!selected) { card.hidden = true; return; }
+  if (!selected || menuFor || (drag && drag.moving)) { card.hidden = true; return; }
   var r = selected;
   card.appendChild(el("div", "ct", r.src.text));
   card.appendChild(statusTag(r.src.status));
@@ -515,11 +744,320 @@ function showCard() {
   card.style.top = top + "px";
 }
 
-document.addEventListener("click", function () { if (selected) { selected = null; refresh(); } });
+// ---- dragging a station (mouse, touch, pen) ----
+var drag = null;
+var suppressUntil = 0;     // a drag ends with a click; swallow it
+function snap(v) { return Math.round(v / GRID) * GRID; }
+
+function dragStart(ev, rec, g) {
+  if (ev.button > 0) return;
+  drag = {rec: rec, g: g, pid: ev.pointerId, sx: ev.clientX, sy: ev.clientY, ox: rec.x, oy: rec.y, moving: false};
+  try { g.setPointerCapture(ev.pointerId); } catch (err) { /* not capturable: window events still arrive */ }
+}
+function dragMove(ev) {
+  if (!drag || ev.pointerId !== drag.pid) return;
+  var dx = ev.clientX - drag.sx, dy = ev.clientY - drag.sy;
+  if (!drag.moving) {
+    if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;     // still a tap
+    drag.moving = true;
+    closeMenu();
+    closeEditor();
+  }
+  var s = svgScale();
+  var rec = drag.rec;
+  placeStation(rec, snap(drag.ox + dx / s), snap(drag.oy + dy / s));
+  rec.moved = true;
+  drag.g.setAttribute("transform", "translate(" + rec.x + " " + rec.y + ")");
+  redrawLines();
+}
+function dragEnd(ev) {
+  if (!drag || ev.pointerId !== drag.pid) return;
+  var d = drag;
+  drag = null;
+  try { d.g.releasePointerCapture(ev.pointerId); } catch (err) { /* already released */ }
+  if (!d.moving) return;                   // a tap: the click handler does the highlight
+  suppressUntil = Date.now() + 400;
+  if (d.rec.x === d.ox && d.rec.y === d.oy) { build(); return; }
+  commitMove(d.rec);
+}
+function dragCancel(ev) {
+  if (!drag || ev.pointerId !== drag.pid) return;
+  drag = null;
+  build();
+}
+document.addEventListener("click", function (ev) {
+  if (Date.now() < suppressUntil) { ev.stopPropagation(); ev.preventDefault(); }
+}, true);
+
+// ---- clicks and keys on a station ----
+var lastTap = {id: null, t: 0};
+function stationClick(rec) {
+  var now = Date.now(), id = rec.src.id;
+  if (lastTap.id === id && now - lastTap.t < 400) {      // double click / double tap
+    lastTap = {id: null, t: 0};
+    closeMenu();
+    selected = rec;
+    refresh();
+    editName(rec);
+    return;
+  }
+  lastTap = {id: id, t: now};
+  toggle(rec);
+}
+
+function stationKey(ev, rec) {
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  var k = ev.key, dx = 0, dy = 0;
+  if (k === "ArrowLeft") dx = -1;
+  else if (k === "ArrowRight") dx = 1;
+  else if (k === "ArrowUp") dy = -1;
+  else if (k === "ArrowDown") dy = 1;
+  if (dx || dy) {
+    ev.preventDefault(); ev.stopPropagation();
+    var ox = rec.x, oy = rec.y;
+    var x = dx > 0 ? Math.floor(rec.x / GRID) * GRID + GRID : dx < 0 ? Math.ceil(rec.x / GRID) * GRID - GRID : rec.x;
+    var y = dy > 0 ? Math.floor(rec.y / GRID) * GRID + GRID : dy < 0 ? Math.ceil(rec.y / GRID) * GRID - GRID : rec.y;
+    placeStation(rec, x, y);
+    if (rec.x === ox && rec.y === oy) return;
+    rec.moved = true;
+    commitMove(rec);
+  } else if (k === "Enter") {
+    ev.preventDefault(); ev.stopPropagation();
+    selected = rec; refresh();
+    editName(rec);
+  } else if (k === " ") {
+    ev.preventDefault(); ev.stopPropagation();
+    toggle(rec);
+  } else if (k === "Delete") {
+    ev.preventDefault(); ev.stopPropagation();
+    removeStation(rec);
+  } else if (k === "ContextMenu" || k === "m" || k === "M" || (k === "F10" && ev.shiftKey)) {
+    ev.preventDefault(); ev.stopPropagation();
+    selected = rec; refresh();
+    openMenu(rec);
+  }
+}
+
+// ---- inline text entry (names, notes, new stations) ----
+var editor = null;
+function closeEditor() {
+  if (!editor) return;
+  var inp = editor.inp;
+  editor.done = true;
+  editor = null;
+  if (inp.parentNode) inp.parentNode.removeChild(inp);
+}
+function focusStation(id) {
+  stationEls.forEach(function (s) { if (s.rec.src.id === id) s.g.focus({preventScroll: true}); });
+}
+// x,y: map position to anchor on; dy: pixel offset below it
+function openEditor(x, y, dy, initial, max, label, onSave, returnId) {
+  closeEditor();
+  var inp = el("input", "ed");
+  inp.type = "text";
+  inp.maxLength = max;
+  inp.value = initial;
+  inp.setAttribute("aria-label", label);
+  inp.placeholder = label;
+  var p = toPx(x, y);
+  var wrapW = document.getElementById("map").getBoundingClientRect().width;
+  inp.style.left = clamp(p.x - 110, 4, Math.max(4, wrapW - 230)) + "px";
+  inp.style.top = Math.max(2, p.y + dy) + "px";
+  var ed = {inp: inp, done: false};
+  function finish(save, refocus) {
+    if (ed.done) return;
+    closeEditor();
+    var v = inp.value.replace(/\s+/g, " ").trim().slice(0, max);
+    if (save && v !== initial) onSave(v);
+    if (refocus && returnId) focusStation(returnId);
+  }
+  inp.addEventListener("keydown", function (ev) {
+    ev.stopPropagation();
+    if (ev.key === "Enter") { ev.preventDefault(); finish(true, true); }
+    else if (ev.key === "Escape") { ev.preventDefault(); finish(false, true); }
+  });
+  inp.addEventListener("blur", function () { finish(true, false); });
+  inp.addEventListener("click", function (ev) { ev.stopPropagation(); });
+  inp.addEventListener("pointerdown", function (ev) { ev.stopPropagation(); });
+  editor = ed;
+  document.getElementById("wrap").appendChild(inp);
+  inp.focus();
+  inp.select();
+}
+
+function editName(rec) {
+  var id = rec.src.id;
+  openEditor(rec.x, rec.y, rec.up ? -52 : 20, rec.src.text, MAX_NAME, "Station name", function (v) {
+    if (!v) return;
+    focusId = id;
+    mutate(function (e) { e.text[id] = v; });
+  }, id);
+}
+function editNote(rec) {
+  var id = rec.src.id;
+  openEditor(rec.x, rec.y, rec.up ? -52 : 20, rec.src.note || "", MAX_NOTE, "Note", function (v) {
+    focusId = id;
+    mutate(function (e) { e.note[id] = v; });
+  }, id);
+}
+function addStation(l) {
+  closeMenu();
+  openEditor(TAG_X + TAG_W + 38, l.y, 28, "", MAX_NAME, "New station name", function (v) {
+    if (!v) return;
+    var id = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    focusId = id;
+    mutate(function (e) { e.added.push({id: id, line: l.id, text: v, status: "IDEA"}); });
+  }, null);
+}
+
+function removeStation(rec) {
+  var id = rec.src.id, name = rec.src.text;
+  closeMenu();
+  if (selected === rec) selected = null;
+  mutate(function (e) {
+    var at = -1;
+    e.added.forEach(function (a, i) { if (a.id === id) at = i; });
+    if (at >= 0) e.added.splice(at, 1);
+    else e.deleted[id] = true;
+    delete e.pos[id]; delete e.text[id]; delete e.status[id]; delete e.note[id];
+  });
+  showToast("Deleted " + name, undoStack.length);
+}
+
+// ---- the "..." menu ----
+var menuFor = null;
+function closeMenu() {
+  menuFor = null;
+  document.getElementById("menu").hidden = true;
+}
+function openMenu(rec) {
+  var m = document.getElementById("menu");
+  while (m.firstChild) m.removeChild(m.firstChild);
+  menuFor = rec;
+  var id = rec.src.id;
+  m.appendChild(el("div", "mh", "Status"));
+  STATUSES.forEach(function (s) {
+    var b = el("button", "mi", s);
+    b.type = "button";
+    b.setAttribute("aria-pressed", rec.status === s ? "true" : "false");
+    b.onclick = function (ev) {
+      ev.stopPropagation();
+      closeMenu();
+      if (rec.src.status === s) { refresh(); return; }
+      focusId = id;
+      mutate(function (e) { e.status[id] = s; });
+    };
+    m.appendChild(b);
+  });
+  var nb = el("button", "mi", "Edit note");
+  nb.type = "button";
+  nb.onclick = function (ev) { ev.stopPropagation(); closeMenu(); refresh(); editNote(rec); };
+  m.appendChild(nb);
+  var db = el("button", "mi", "Delete station");
+  db.type = "button";
+  db.onclick = function (ev) { ev.stopPropagation(); removeStation(rec); };
+  m.appendChild(db);
+  m.hidden = false;
+  var p = toPx(rec.x, rec.y);
+  var wrapW = document.getElementById("map").getBoundingClientRect().width;
+  m.style.left = clamp(p.x + 40, 4, Math.max(4, wrapW - 200)) + "px";
+  m.style.top = Math.max(4, p.y - 20) + "px";
+  refresh();
+  var first = m.querySelector("button[aria-pressed=true]") || m.querySelector("button");
+  if (first) first.focus({preventScroll: true});
+}
+
+// ---- undo toast ----
+var toastTimer = null;
+function hideToast() {
+  clearTimeout(toastTimer);
+  document.getElementById("toast").hidden = true;
+}
+function showToast(msg, depth) {
+  var t = document.getElementById("toast");
+  while (t.firstChild) t.removeChild(t.firstChild);
+  t.appendChild(el("span", null, msg));
+  var b = el("button", "tog", "Undo");
+  b.type = "button";
+  b.onclick = function (ev) {
+    ev.stopPropagation();
+    if (undoStack.length === depth) undo();
+    hideToast();
+  };
+  t.appendChild(b);
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 6000);
+}
+
+// ---- undo / redo buttons and "Reset my edits" ----
+var btnUndo = null, btnRedo = null;
+(function () {
+  var tools = document.getElementById("tools");
+  btnUndo = el("button", "tog", "Undo");
+  btnRedo = el("button", "tog", "Redo");
+  btnUndo.type = btnRedo.type = "button";
+  btnUndo.onclick = function (ev) { ev.stopPropagation(); undo(); };
+  btnRedo.onclick = function (ev) { ev.stopPropagation(); redo(); };
+  tools.appendChild(btnUndo);
+  tools.appendChild(btnRedo);
+})();
+function updateTools() {
+  btnUndo.disabled = !undoStack.length;
+  btnRedo.disabled = !redoStack.length;
+}
+
+function renderReset(confirming) {
+  var box = document.getElementById("resetbox");
+  while (box.firstChild) box.removeChild(box.firstChild);
+  if (!confirming) {
+    var b = el("button", "quiet", "Reset my edits");
+    b.type = "button";
+    b.onclick = function (ev) { ev.stopPropagation(); renderReset(true); };
+    box.appendChild(b);
+    return;
+  }
+  box.appendChild(el("span", "label", "Clear all your edits and go back to the original map?"));
+  var yes = el("button", "quiet", "Yes, reset");
+  var no = el("button", "quiet", "Keep my edits");
+  yes.type = no.type = "button";
+  yes.onclick = function (ev) {
+    ev.stopPropagation();
+    renderReset(false);
+    hideToast();
+    if (!isEmptyEdits(edits)) commit(emptyEdits());
+  };
+  no.onclick = function (ev) { ev.stopPropagation(); renderReset(false); };
+  box.appendChild(yes);
+  box.appendChild(no);
+}
+
+document.addEventListener("click", function () {
+  if (selected || menuFor) { closeMenu(); selected = null; refresh(); }
+});
 document.getElementById("card").addEventListener("click", function (ev) { ev.stopPropagation(); });
-document.addEventListener("keydown", function (ev) { if (ev.key === "Escape" && selected) { selected = null; refresh(); } });
+document.getElementById("menu").addEventListener("click", function (ev) { ev.stopPropagation(); });
+document.addEventListener("keydown", function (ev) {
+  var t = ev.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+  var k = String(ev.key).toLowerCase();
+  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (k === "z" || k === "y")) {
+    ev.preventDefault();
+    if (k === "y" || ev.shiftKey) redo(); else undo();
+    return;
+  }
+  if (k === "escape") {
+    if (menuFor) {
+      var id = menuFor.src.id;
+      closeMenu();
+      refresh();
+      focusStation(id);
+    } else if (selected) { selected = null; refresh(); }
+  }
+});
 window.addEventListener("resize", function () { if (selected) showCard(); });
 
+renderReset(false);
 build();
 </script>
 </body>
