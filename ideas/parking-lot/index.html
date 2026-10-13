@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parking lot - future ideas</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap">
+<style>
+  :root { --ink: #1e1e1e; --paper: #fdfcf9; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--paper); color: var(--ink); font-family: 'Special Elite', 'Courier New', monospace; padding: 32px 20px 64px; }
+  header { max-width: 860px; margin: 0 auto 28px; }
+  h1 { font-size: 34px; font-weight: normal; }
+  header p { margin-top: 8px; opacity: .75; font-size: 15px; }
+  .lot { max-width: 860px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 20px; }
+  .note { width: 240px; min-height: 170px; padding: 16px; border: 1.5px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); font-size: 15px; line-height: 1.5; }
+  .note:nth-child(4n+1) { background: #ffec99; transform: rotate(-1.2deg); }
+  .note:nth-child(4n+2) { background: #bfd7ff; transform: rotate(1deg); }
+  .note:nth-child(4n+3) { background: #b2f2bb; transform: rotate(-0.6deg); }
+  .note:nth-child(4n+4) { background: #ffc9c9; transform: rotate(1.4deg); }
+  .note .tag { display: inline-block; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; border: 1px solid var(--ink); padding: 1px 7px; margin-bottom: 10px; }
+  footer { max-width: 860px; margin: 40px auto 0; font-size: 13px; opacity: .6; }
+  footer a { color: var(--ink); }
+  @media (max-width: 560px) { .note { width: 100%; } h1 { font-size: 27px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Parking lot</h1>
+  <p>Future ideas park here so they don't die in chat. Not now, not never.</p>
+</header>
+<div class="lot">
+  <div class="note">
+    <span class="tag">later</span>
+    <p>MCP app that brings this visual interactive layer into ChatGPT, Claude, and Grok.</p>
+  </div>
+</div>
+<footer>Part of the <a href="../ai-whiteboard/">dreamspace</a> lab. Park an idea by dropping it in chat.</footer>
+</body>
+</html>
