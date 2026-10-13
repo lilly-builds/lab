@@ -383,6 +383,7 @@
   </div>
 </div>
 
+<script src="juice.js"></script>
 <script>
 (function () {
   'use strict';
@@ -3927,6 +3928,8 @@
     dreamSnap = {};
   });
   /* DREAM-LOOP-END */
+  /* juice.js: which circle a note sits in; the completion call site is Juice.earn(note) */
+  if (window.Juice) Juice.circleOf = function (n) { return inDream(n) ? 'dream' : inDream(n, 'want to do') ? 'want-to' : inDream(n, 'have to do') ? 'have-to' : null; };
 
   /* WANT-LOOP-BEGIN (additive: a note landing in the Want to do circle gets one playful team bubble; no AI, no key; delete this block to revert) */
   var WANT_DEFAULTS = { personality: 'voice' /* a voice from the board, no face */ };
