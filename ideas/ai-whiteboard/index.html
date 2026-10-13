@@ -3809,8 +3809,28 @@
   resize();
   pollTick();
   var tplId = new URLSearchParams(location.search).get('template');
+  /* first visit only: three ordinary notes explain the board; the flag keeps them from coming back */
+  function seedWelcome() {
+    if (els.length || lsGet(KEY_SCENE) || lsGet('aiwb.welcomed')) return;
+    var copy = [
+      'Welcome. This is a whiteboard with an AI behind it. Draw, type, or drop a sticky note - everything stays on your device.',
+      'Tap the sparkle in the toolbar and ask anything about your board. The first time, it will ask for your own AI key (Anthropic or OpenAI). Your key never leaves this device.',
+      'Try it: write one idea on a note, tap the sparkle, and ask for a plan. Delete these notes whenever you like.'
+    ];
+    var y = 72;
+    copy.forEach(function (text) {
+      var n = { id: newId(), type: 'note', x: 20, y: y, w: NOTE, h: NOTE, text: text, fill: cur.noteFill };
+      fitNote(n);
+      els.push(n);
+      y += n.h + 16;
+    });
+    view = { x: 0, y: 0, z: 1 };
+    lsSet('aiwb.welcomed', '1');
+    save(); saveView(); draw();
+  }
   if (tplId) loadTemplate(tplId);
-  else loadFromHash();
+  else if (location.hash.indexOf('#board=') === 0) loadFromHash();
+  else seedWelcome();
 })();
 </script>
 </body>
