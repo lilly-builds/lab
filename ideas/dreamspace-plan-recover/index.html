@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recover your dreamspace plan notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #000; --paper: #fff; --f: "Special Elite", "Courier New", monospace; }
+  * { box-sizing: border-box; border-radius: 0; box-shadow: none; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--f); font-size: 16px; line-height: 1.4; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 26px; font-weight: normal; margin: 0 0 16px; }
+  h2 { font-size: 20px; font-weight: normal; margin: 0 0 8px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
+  section { border: 2px solid var(--ink); padding: 12px; margin: 0 0 16px; }
+  section h2 { border-bottom: 2px solid var(--ink); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { border: 1px solid var(--ink); padding: 6px 8px; margin: 0 0 6px; overflow-wrap: anywhere; }
+  li.added { border-width: 3px; font-size: 22px; padding: 10px; }
+  .tag { display: inline-block; font-size: 12px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 0 6px; margin-right: 8px; vertical-align: middle; }
+  .empty { font-size: 14px; }
+  .bar { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 16px; }
+  button { font-family: var(--f); font-size: 16px; color: var(--ink); background: var(--paper); border: 2px solid var(--ink); padding: 8px 14px; cursor: pointer; }
+  button:hover, button:focus-visible { background: var(--ink); color: var(--paper); outline: none; }
+  a { color: var(--ink); }
+  footer { margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Your saved notes</h1>
+  <p id="none" hidden>Nothing saved in this browser. Try the browser you used before.</p>
+  <div id="found" hidden>
+    <div class="bar">
+      <button type="button" id="copy">Copy all as text</button>
+      <button type="button" id="open">Open as a board</button>
+    </div>
+    <div id="groups"></div>
+  </div>
+  <footer><a href="../dreamspace-plan/">Back to the dreamspace plan</a></footer>
+</main>
+<script>
+(function () {
+  var KEY = 'dreamspace-plan-v1';
+  var SEEDS = ["One input box", "One router that picks the right tool", "Make it real builds an app in the browser", "Save and reopen boards", "Works in a real browser (test it)", "Community templates", "Embeds that just work", "Bare images, no frames", "Gallery polish", "Use your own key, no setup", "One fluid creative dreamspace", "People make ideas real with zero admin", "No modes, no tool names, it just does the right thing"];
+  var CIRCLES = [
+    { name: 'Have to', x: 17.86, y: 70.21 },
+    { name: 'Dream', x: 50, y: 36.17 },
+    { name: 'Want to', x: 82.14, y: 70.21 }
+  ];
+
+  function load() {
+    var out = [];
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (!raw) return out;
+      var arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return out;
+      arr.forEach(function (n) {
+        if (!n || typeof n !== 'object' || typeof n.t !== 'string') return;
+        var t = n.t.trim().slice(0, 200);
+        var x = Number(n.x), y = Number(n.y);
+        if (!t || !isFinite(x) || !isFinite(y)) return;
+        var best = 0, bd = Infinity;
+        CIRCLES.forEach(function (c, i) {
+          var d = (c.x - x) * (c.x - x) + (c.y - y) * (c.y - y);
+          if (d < bd) { bd = d; best = i; }
+        });
+        out.push({ t: t, x: x, y: y, g: best, added: SEEDS.indexOf(t) < 0 });
+      });
+    } catch (e) { return []; }
+    return out;
+  }
+
+  var notes = load();
+  if (!notes.length) { document.getElementById('none').hidden = false; return; }
+  document.getElementById('found').hidden = false;
+
+  var groups = document.getElementById('groups');
+  var text = [];
+  CIRCLES.forEach(function (c, gi) {
+    var mine = notes.filter(function (n) { return n.g === gi; });
+    mine.sort(function (a, b) { return (b.added ? 1 : 0) - (a.added ? 1 : 0); });
+    var sec = document.createElement('section');
+    var h = document.createElement('h2');
+    h.textContent = c.name;
+    sec.appendChild(h);
+    text.push(c.name.toUpperCase());
+    if (!mine.length) {
+      var p = document.createElement('p');
+      p.className = 'empty';
+      p.textContent = 'No notes here.';
+      sec.appendChild(p);
+      text.push('(none)');
+    } else {
+      var ul = document.createElement('ul');
+      mine.forEach(function (n) {
+        var li = document.createElement('li');
+        if (n.added) {
+          li.className = 'added';
+          var tag = document.createElement('span');
+          tag.className = 'tag';
+          tag.textContent = 'added by you';
+          li.appendChild(tag);
+        }
+        li.appendChild(document.createTextNode(n.t));
+        ul.appendChild(li);
+        text.push('- ' + n.t + (n.added ? ' [added by you]' : ''));
+      });
+      sec.appendChild(ul);
+    }
+    text.push('');
+    groups.appendChild(sec);
+  });
+  var all = text.join('\n').replace(/\s+$/, '') + '\n';
+
+  var copyBtn = document.getElementById('copy');
+  copyBtn.addEventListener('click', function () {
+    function done() {
+      copyBtn.textContent = 'Copied';
+      setTimeout(function () { copyBtn.textContent = 'Copy all as text'; }, 2000);
+    }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = all;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(all).then(done, fallback);
+    } else fallback();
+  });
+
+  document.getElementById('open').addEventListener('click', function () {
+    var W = 1400, H = 940, S = 132, M = 16;
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+    var arr = [
+      { id: 'e1', type: 'ellipse', x: 480, y: 60, w: 440, h: 440 },
+      { id: 'e2', type: 'ellipse', x: 0, y: 120, w: 440, h: 440 },
+      { id: 'e3', type: 'ellipse', x: 960, y: 120, w: 440, h: 440 },
+      { id: 't1', type: 'text', x: 678, y: 9, text: 'Dream', size: 24, w: 280 },
+      { id: 't2', type: 'text', x: 175, y: 69, text: 'Have to do', size: 24, w: 280 },
+      { id: 't3', type: 'text', x: 1135, y: 69, text: 'Want to do', size: 24, w: 280 }
+    ];
+    notes.forEach(function (n, i) {
+      arr.push({
+        id: 'n' + (i + 1), type: 'note',
+        x: Math.round(clamp(n.x / 100 * W, M, W - S - M)),
+        y: Math.round(clamp(n.y / 100 * H, M, H - S - M)),
+        w: S, h: S, text: n.t, fill: '#bfd7ff'
+      });
+    });
+    try {
+      sessionStorage.setItem('aiwb.pendingTemplate', JSON.stringify(arr));
+    } catch (e) { return; }
+    location.href = '../ai-whiteboard/?template=pending';
+  });
+})();
+</script>
+</body>
+</html>
