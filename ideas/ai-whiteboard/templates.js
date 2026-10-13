@@ -14,6 +14,18 @@
   else if (root && root.document) root.AIWB_TEMPLATES = api.create({ win: root, session: root.AIWB_SYNC || null, fetchFn: root.fetch && root.fetch.bind(root) });
 })(typeof self !== 'undefined' ? self : this, function () {
   var CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+  var TIMEOUT_MS = 2500; /* fail open to the static files, like the board's circuit breaker */
+
+  function syncOff(win) {
+    try { return new URLSearchParams((win.location && win.location.search) || '').get('sync') === 'off'; }
+    catch (e) { return false; }
+  }
+  function withTimeout(p, ms) {
+    return Promise.race([
+      p,
+      new Promise(function (_, reject) { setTimeout(function () { reject(new Error('templates timeout')); }, ms); })
+    ]);
+  }
 
   function create(opts) {
     var win = opts.win || {}, session = opts.session || null, fetchFn = opts.fetchFn;
@@ -21,6 +33,7 @@
 
     function cfg() { return win.AIWB_SUPABASE || {}; }
     async function client() {
+      if (syncOff(win)) return null; /* the kill switch always wins */
       var s = session || win.AIWB_SYNC; /* the board creates its session after this file loads */
       if (s && s.client) return s.client;
       if (own) return own;
@@ -28,7 +41,7 @@
       if (!c.enabled) return null; /* gallery DB reads follow the same flag as the board */
       if (!c.url || !c.anonKey || c.url.indexOf('YOUR-PROJECT-REF') >= 0) return null;
       var load = opts.loadSupabase || function () { return import(CDN); };
-      try { own = (await load()).createClient(c.url, c.anonKey); return own; }
+      try { own = (await withTimeout(load(), TIMEOUT_MS)).createClient(c.url, c.anonKey); return own; }
       catch (e) { return null; }
     }
 
@@ -37,9 +50,9 @@
     async function list() {
       var c = await client(); if (!c) return null;
       try {
-        var r = await c.from('templates')
+        var r = await withTimeout(c.from('templates')
           .select('slug,title,description,author_name,author_x,is_sample,payload')
-          .eq('status', 'published').order('published_at', { ascending: true });
+          .eq('status', 'published').order('published_at', { ascending: true }), TIMEOUT_MS);
         if (r.error || !r.data) return null;
         return r.data.map(function (t) {
           return {
@@ -56,7 +69,7 @@
       if (!id || !/^[\w-]{1,60}$/.test(id)) return null;
       var c = await client(); if (!c) return null;
       try {
-        var r = await c.from('templates').select('payload,status').eq('slug', id);
+        var r = await withTimeout(c.from('templates').select('payload,status').eq('slug', id), TIMEOUT_MS);
         var row = r.data && r.data[0];
         if (r.error || !row || row.status !== 'published' || !Array.isArray(row.payload)) return null;
         return row.payload;
@@ -67,6 +80,7 @@
        the GitHub issue (R13). The per-author pending cap and policy rejections
        come back as mapped errors; offline callers fall back to the issue flow. */
     async function submit(t) {
+      if (syncOff(win)) return { ok: false, error: 'offline' }; /* ?sync=off: caller uses the issue flow */
       var s = session || win.AIWB_SYNC;
       if (!s || s.state !== 'online' || !s.client) return { ok: false, error: 'offline' };
       var c = s.client;
@@ -81,7 +95,7 @@
       if (!row.title || !row.payload.length) return { ok: false, error: 'empty' };
       for (var attempt = 0; attempt < 2; attempt++) {
         try {
-          var r = await c.from('templates').insert(row).select('slug');
+          var r = await withTimeout(c.from('templates').insert(row).select('slug'), TIMEOUT_MS);
           if (!r.error && r.data && r.data[0]) return { ok: true, mode: 'db', slug: r.data[0].slug };
           var msg = String((r.error && r.error.message) || '');
           if (/duplicate key/.test(msg) && attempt === 0) { row.slug = makeSlug(t.title); continue; }

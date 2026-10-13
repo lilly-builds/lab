@@ -95,6 +95,23 @@ const tests = [
     assert.strictEqual(r.ok, false);
     assert.strictEqual(server.inserted.length, 0, 'nothing attempted offline');
   }],
+  ['?sync=off forces the static fallback everywhere, even with an online session', async () => {
+    const server = mkServer();
+    const win = { location: { search: '?sync=off' } };
+    const tm = templates.create({ win, session: mkSession(server) });
+    assert.strictEqual(await tm.list(), null, 'gallery uses static files');
+    assert.strictEqual(await tm.loadPayload('dream-board'), null);
+    const r = await tm.submit({ title: 'T', why: 'w', elements: [{ id: 'a' }] });
+    assert.strictEqual(r.error, 'offline', 'share falls back to the issue flow');
+    assert.strictEqual(server.inserted.length, 0, 'nothing written');
+  }],
+  ['a hanging backend fails open to static within the timeout', async () => {
+    const win = { location: { search: '' }, AIWB_SUPABASE: { url: 'https://proj.supabase.co', anonKey: 'k', enabled: true } };
+    const tm = templates.create({ win, session: null, loadSupabase: () => new Promise(() => {}) });
+    const t0 = Date.now();
+    assert.strictEqual(await tm.list(), null, 'fell back to static');
+    assert(Date.now() - t0 < 4000, 'inside the fail-open budget, not a hung page');
+  }],
   ['seed rows match the static files in title, author, sample and payload', async () => {
     const seed = fs.readFileSync(path.join(__dirname, 'supabase/seed/templates_seed.sql'), 'utf8');
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '../templates/templates.json'), 'utf8'));

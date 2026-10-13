@@ -10,7 +10,11 @@ begin
     raise notice 'pg_cron unavailable; tombstone purge not scheduled here (hosted project only)';
     return;
   end;
-  perform cron.unschedule('purge-tombstones');
+  begin
+    perform cron.unschedule('purge-tombstones');  -- re-run idempotency
+  exception when others then
+    null;  -- first hosted push: nothing scheduled yet, and that is fine
+  end;
   perform cron.schedule('purge-tombstones', '17 4 * * *',
     $c$delete from public.board_elements where deleted_at is not null and deleted_at < now() - interval '30 days'$c$);
 end $$;

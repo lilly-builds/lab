@@ -252,14 +252,19 @@ begin
       element_key := v_key; version := null; status := 'conflict'; return next; continue;
     end if;
 
-    update public.board_elements e set
-      payload = case when v_el ? 'payload' then v_el->'payload' else e.payload end,
-      deleted_at = case
-        when not (v_el ? 'deleted') then e.deleted_at
-        when (v_el->>'deleted')::boolean then now()
-        else null end
-    where e.board_id = p_board_id and e.element_key = v_key and e.version = v_base
-    returning e.version into v_ver;
+    begin
+      update public.board_elements e set
+        payload = case when v_el ? 'payload' then v_el->'payload' else e.payload end,
+        deleted_at = case
+          when not (v_el ? 'deleted') then e.deleted_at
+          when (v_el->>'deleted')::boolean then now()
+          else null end
+      where e.board_id = p_board_id and e.element_key = v_key and e.version = v_base
+      returning e.version into v_ver;
+    exception when check_violation then
+      -- a table CHECK (e.g. payload bounds) rejects this op, not the batch
+      element_key := v_key; version := null; status := 'rejected'; return next; continue;
+    end;
     if found then
       element_key := v_key; version := v_ver; status := 'ok'; return next;
     else

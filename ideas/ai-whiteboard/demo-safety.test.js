@@ -26,7 +26,7 @@ console.log('ok  sync scripts load after the app, before the inline script');
 n++;
 t('the inline script follows the sync tags', html.indexOf('src="sync.js"') < html.indexOf('window.AIWB'));
 t('AIWB surface exists with null hooks (no sync until sync.js fills them)', /window\.AIWB\s*=\s*\{[\s\S]*?afterSave:\s*null,\s*newId:\s*null,\s*adoptBoard:\s*null/.test(html));
-t('save() calls the afterSave hook (every mutation path ends in save)', /function save\(\) \{ lsSet\(KEY_SCENE, ser\(els\)\); if \(window\.AIWB && AIWB\.afterSave\) AIWB\.afterSave\(\); \}/.test(html));
+t('save() calls the afterSave hook, wrapped so sync can never break save', /function save\(\) \{ lsSet\(KEY_SCENE, ser\(els\)\); if \(window\.AIWB && AIWB\.afterSave\) \{ try \{ AIWB\.afterSave\(\); \} catch \(e\) \{\} \} \}/.test(html));
 t('supabase-js loads lazily from the CDN, never top-level', !/^\s*import\s/m.test(syncjs) && syncjs.indexOf('import(CDN)') > 0 && syncjs.indexOf('loadSupabase') > 0);
 t('the kill switch ?sync=off is honored first in flag resolution', syncjs.indexOf("q.get('sync') === 'off'") < syncjs.indexOf("q.get('sync') === 'on'"));
 

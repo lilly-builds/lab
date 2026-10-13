@@ -828,7 +828,7 @@
   els.forEach(function (e) { if (!e.id) e.id = 'e' + (nextId++); });
 
   function ser(v) { return JSON.stringify(v, function (k, x) { return k === 'tainted' ? undefined : x; }); }
-  function save() { lsSet(KEY_SCENE, ser(els)); if (window.AIWB && AIWB.afterSave) AIWB.afterSave(); }
+  function save() { lsSet(KEY_SCENE, ser(els)); if (window.AIWB && AIWB.afterSave) { try { AIWB.afterSave(); } catch (e) {} } }
   function saveView() { lsSet(KEY_VIEW, JSON.stringify(view)); }
   function snap() { undoStack.push(ser(els)); if (undoStack.length > 60) undoStack.shift(); syncUndo(); }
   function syncUndo() { document.getElementById('undo').disabled = !undoStack.length; }
