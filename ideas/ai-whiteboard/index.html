@@ -152,6 +152,9 @@
   .ecard .cmid { margin: auto 0; }
   .ecard .cmsg { font-size: 18px; line-height: 1.3; }
   .ecard .chint { margin-top: 8px; font-size: 13px; line-height: 1.4; }
+  .ecard .chint.why:not([hidden]) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+  .ecard .cwhy { margin-top: 4px; font-size: 11px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ecard .cwhy[hidden] { display: none; }
   .ecard .copen { pointer-events: auto; display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 22px; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); text-decoration: none; font: 300 12px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
   .ecard .copen:hover, .ecard .copen:focus-visible { background: var(--ink); color: var(--paper); }
   @media (prefers-reduced-motion: reduce) { .epend rect { animation: none; } .ebody iframe { transition: none; } .ewhirl { transition: none; } }
@@ -361,16 +364,33 @@
   async function openStream(url, headers, body, signal) {
     var res;
     try { res = await fetch(url, { method: 'POST', signal: signal, headers: headers, body: JSON.stringify(body) }); }
-    catch (e) { if (signal && signal.aborted) throw e; throw noStreamErr(); }
-    if (res.status === 401 || res.status === 403) { var ae = new Error('Request failed (' + res.status + ')'); ae.status = res.status; throw ae; }
-    if (!res.ok || !res.body || !res.body.getReader) throw noStreamErr();
+    catch (e) { if (signal && signal.aborted) throw e; var ne = new Error('network'); ne.kind = 'network'; throw ne; }
+    if (!res.ok) { var d = null; try { d = await res.json(); } catch (e) {} throw httpErr(res, d); }
+    if (!res.body || !res.body.getReader) throw noStreamErr();
     return res;
   }
-  async function readSSE(res, onEvent) {
+  /* a failed answer carries what the failure card needs: kind, status, the API's own message, and retry-after seconds */
+  function httpErr(res, data) {
+    var e = new Error('Request failed (' + res.status + ')');
+    e.kind = 'http'; e.status = res.status;
+    e.apiMessage = data && data.error && typeof data.error.message === 'string' ? data.error.message : '';
+    var ra = parseFloat(res.headers && res.headers.get ? res.headers.get('retry-after') : '');
+    if (ra > 0) e.retryAfter = ra;
+    return e;
+  }
+  function kindErr(kind, msg, status, apiMessage) { var e = new Error(msg); e.kind = kind; if (status) e.status = status; e.apiMessage = apiMessage || ''; return e; }
+  /* an SSE error event: map the error type to the status the API would have used */
+  function sseErr(er) {
+    var t = er && er.type, m = er && typeof er.message === 'string' ? er.message : '';
+    var st = t === 'overloaded_error' ? 529 : t === 'rate_limit_error' ? 429 : t === 'api_error' ? 500 : t === 'not_found_error' ? 404 : t === 'invalid_request_error' ? 400 : 0;
+    return kindErr('http', 'Stream error', st, m);
+  }
+  async function readSSE(res, onEvent, onChunk) {
     var reader = res.body.getReader(), dec = new TextDecoder(), buf = '';
     for (;;) {
       var r = await reader.read();
       if (r.done) break;
+      if (onChunk) onChunk();
       buf += dec.decode(r.value, { stream: true });
       var lines = buf.split('\n'); buf = lines.pop();
       for (var i = 0; i < lines.length; i++) {
@@ -420,13 +440,15 @@
         var res = await openStream('https://api.anthropic.com/v1/messages', {
           'x-api-key': o.key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true'
         }, { model: o.model || this.defaults.model, max_tokens: o.maxTokens > 0 ? o.maxTokens : 2048, system: o.system, stream: true, messages: [{ role: 'user', content: [{ type: 'text', text: o.text }] }] }, o.signal);
-        var text = '', done = false;
+        var text = '', done = false, cut = false;
         await readSSE(res, function (ev) {
           if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta' && typeof ev.delta.text === 'string') { text += ev.delta.text; onText(text); }
+          else if (ev.type === 'message_delta' && ev.delta && ev.delta.stop_reason === 'max_tokens') cut = true;
           else if (ev.type === 'message_stop') done = true;
-          else if (ev.type === 'error') throw new Error('Stream error');
-        });
-        if (!done) throw new Error('Stream ended early');
+          else if (ev.type === 'error') throw sseErr(ev.error);
+        }, o.onChunk);
+        if (cut) throw kindErr('cut', 'Cut off', 0, 'max_tokens');
+        if (!done) throw kindErr('cut', 'Stream ended early', 0, 'ended early');
         return text;
       },
       complete: async function (o) {
@@ -436,9 +458,10 @@
         var r = await this.post(o.key, { model: o.model || this.defaults.model, max_tokens: o.maxTokens > 0 ? o.maxTokens : 2048, system: o.system, messages: [{ role: 'user', content: content }] }, o.signal);
         if (!r.res.ok) {
           var err = new Error((r.data && r.data.error && r.data.error.message) || ('Request failed (' + r.res.status + ')'));
-          err.status = r.res.status;
+          var he = httpErr(r.res, r.data); err.kind = 'http'; err.status = he.status; err.apiMessage = he.apiMessage; err.retryAfter = he.retryAfter;
           throw err;
         }
+        if (r.data && r.data.stop_reason === 'max_tokens') throw kindErr('cut', 'Cut off', 0, 'max_tokens');
         var blocks = (r.data && r.data.content) || [];
         return blocks.filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
       }
@@ -477,9 +500,17 @@
         await readSSE(res, function (ev) {
           if (ev.type === 'response.output_text.delta' && typeof ev.delta === 'string') { text += ev.delta; onText(text); }
           else if (ev.type === 'response.completed') done = true;
-          else if (ev.type === 'response.incomplete' || ev.type === 'response.failed' || ev.type === 'error') throw new Error('Stream error');
-        });
-        if (!done) throw new Error('Stream ended early');
+          else if (ev.type === 'response.incomplete') {
+            var ir = ev.response && ev.response.incomplete_details && ev.response.incomplete_details.reason;
+            throw kindErr('cut', 'Cut off', 0, typeof ir === 'string' ? ir : 'incomplete');
+          }
+          else if (ev.type === 'response.failed') {
+            var fe = ev.response && ev.response.error;
+            throw sseErr({ type: fe && fe.code === 'rate_limit_exceeded' ? 'rate_limit_error' : fe && fe.code === 'server_error' ? 'api_error' : '', message: fe && fe.message });
+          }
+          else if (ev.type === 'error') throw sseErr({ type: ev.code === 'rate_limit_exceeded' ? 'rate_limit_error' : ev.code === 'server_error' ? 'api_error' : '', message: ev.message });
+        }, o.onChunk);
+        if (!done) throw kindErr('cut', 'Stream ended early', 0, 'ended early');
         return text;
       },
       complete: async function (o) {
@@ -495,10 +526,13 @@
         var r = await this.post(o.key, body, o.signal);
         if (!r.res.ok) {
           var err = new Error((r.data && r.data.error && r.data.error.message) || ('Request failed (' + r.res.status + ')'));
-          err.status = r.res.status;
+          var he = httpErr(r.res, r.data); err.kind = 'http'; err.status = he.status; err.apiMessage = he.apiMessage; err.retryAfter = he.retryAfter;
           throw err;
         }
-        if (r.data && r.data.status === 'incomplete') throw new Error('Could not read the reply');
+        if (r.data && r.data.status === 'incomplete') {
+          var ir = r.data.incomplete_details && r.data.incomplete_details.reason;
+          throw kindErr('cut', 'Could not read the reply', 0, typeof ir === 'string' ? ir : 'incomplete');
+        }
         var out = (r.data && r.data.output) || [], parts = [];
         out.forEach(function (item) {
           if (!item || item.type !== 'message') return;
@@ -691,7 +725,11 @@
     };
     /* a frame saved mid-build was interrupted: it comes back failed, with Retry */
     if (o.pending === true) el.failed = 'error';
-    else if (['timeout', 'error', 'storage'].indexOf(o.failed) >= 0) el.failed = o.failed;
+    else if (['timeout', 'error', 'storage', 'noprompt'].indexOf(o.failed) >= 0) el.failed = o.failed;
+    if (el.failed && o.failInfo && typeof o.failInfo === 'object') {
+      el.failInfo = {};
+      ['provider', 'model', 'status', 'apiMessage', 'kind'].forEach(function (k) { el.failInfo[k] = str(typeof o.failInfo[k] === 'number' ? String(o.failInfo[k]) : o.failInfo[k], 240); });
+    }
     var pu = cleanUrl(o.publishedUrl);
     if (pu && pu.indexOf(PAGES) === 0) {
       el.publishedUrl = pu;
@@ -2684,7 +2722,7 @@
     n.card = mk('div', 'ecard', n.body); n.card.hidden = true;
     n.cName = mk('div', 'cname', n.card);
     var mid = mk('div', 'cmid', n.card);
-    n.cMsg = mk('div', 'cmsg', mid); n.cHint = mk('div', 'chint', mid);
+    n.cMsg = mk('div', 'cmsg', mid); n.cHint = mk('div', 'chint', mid); n.cWhy = mk('div', 'cwhy', mid); n.cWhy.hidden = true;
     n.cOpen = mk('a', 'copen', n.card); n.cOpen.textContent = 'Open'; n.cOpen.target = '_blank'; n.cOpen.rel = 'noopener noreferrer';
     n.cActs = mk('div', 'cacts', n.card); n.cActs.hidden = true;
     n.cRetry = mk('button', 'copen', n.cActs); n.cRetry.type = 'button'; n.cRetry.textContent = 'Retry';
@@ -2701,8 +2739,7 @@
       save(); draw();
     }
     n.cRemove.addEventListener('click', removeFrame);
-    n.cRetry.addEventListener('click', function () { startApp(id); });
-    n.stop.addEventListener('click', function () { var g = gens[id]; if (g) { g.stopped = true; g.ac.abort(); } });
+    n.cRetry.addEventListener('click', function () { startApp(id); });    n.stop.addEventListener('click', function () { var g = gens[id]; if (g) { g.stopped = true; g.ac.abort(); } });
     n.more.addEventListener('click', function () { var open = n.pop.hidden; closePops(); n.pop.hidden = !open; n.more.setAttribute('aria-expanded', String(open)); if (open) n.popBtn.focus(); });
     n.popBtn.addEventListener('click', function () { var e = embedById(id); closePops(); if (e) publishApp(e); });
     n.close.addEventListener('click', function () {
@@ -2784,8 +2821,29 @@
     }
   }
   /* ---------- app frames ---------- */
-  var gens = {}, APP_PHRASES = ['Sketching', 'Writing', 'Finishing'];
-  var APP_FAIL = { timeout: 'No response.', storage: 'Storage is full. Remove an app and retry.' };
+  var gens = {};
+  var APP_FAIL = { timeout: 'No response.', storage: 'Storage is full. Remove an app and retry.', noprompt: 'This idea was not saved. Type it again.' };
+  /* real elapsed time, nothing invented */
+  function appStatus(g) {
+    var s = Math.max(0, Math.floor((Date.now() - g.t0) / 1000));
+    return (g.retrying ? 'Trying again, ' : 'Building, ') + (s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + (s % 60) + 's');
+  }
+  /* failInfo to plain language: { msg: the reason, sub: small text under it } */
+  function failText(fi) {
+    var lab = (providers[fi.provider] && providers[fi.provider].label) || 'The service', st = fi.status, k = fi.kind;
+    var model = fi.model ? 'Model: ' + fi.model : '';
+    if (k === 'timeout-idle') return { msg: 'No answer for 60 seconds, so I stopped. The model may be busy.', sub: model };
+    if (k === 'timeout-cap') return { msg: 'This took longer than 5 minutes, so I stopped.', sub: model };
+    if (k === 'network') return { msg: 'Could not reach ' + lab + '. A network or browser block.', sub: model };
+    if (k === 'cut') return { msg: /max/i.test(fi.apiMessage) ? 'The answer was cut off at the length limit.' : 'The answer ended before it was finished.', sub: model };
+    if (k === 'invalid') return { msg: 'The answer was not a usable app.', sub: model };
+    var said = (fi.apiMessage ? lab + ' said: ' + fi.apiMessage.replace(/[.\s]+$/, '') : lab + ' refused the request') + (st ? ' (' + st + ').' : '.');
+    var n = Number(st);
+    if (n === 404) return { msg: said + ' The model name can be changed in the Connect manage view.', sub: model };
+    if (n === 429) return { msg: 'Your key hit its rate limit (429). Try again in a minute.', sub: model };
+    if (n >= 500) return { msg: lab + ' is busy right now (' + st + '). Try again in a minute.', sub: model };
+    return { msg: said, sub: model };
+  }
   function closePops() {
     Object.keys(embedNodes).forEach(function (id) { var n = embedNodes[id]; n.pop.hidden = true; n.more.setAttribute('aria-expanded', 'false'); });
   }
@@ -2803,7 +2861,7 @@
     n.stop.hidden = !pend;
     n.pend.style.display = pend ? '' : 'none';
     n.status.hidden = !pend;
-    if (pend) { n.sawPending = true; n.status.textContent = APP_PHRASES[gen.phase % APP_PHRASES.length]; }
+    if (pend) { n.sawPending = true; n.status.textContent = appStatus(gen); }
     var code = null;
     if (!pend && !fail) {
       if (n.appId !== el.appId) { dropFrame(n); n.appId = el.appId; }
@@ -2813,11 +2871,13 @@
       }
     } else { dropFrame(n); n.appId = null; }
     n.cActs.hidden = !fail; n.cOpen.hidden = true;
-    n.cRetry.hidden = fail === 'missing';
+    n.cRetry.hidden = fail === 'missing' || fail === 'noprompt';
     if (fail) {
       n.cName.textContent = el.title;
-      n.cMsg.textContent = fail === 'missing' ? "This app's code is not on this device." : (APP_FAIL[fail] || 'Could not build this.');
-      n.cHint.textContent = ''; n.cHint.hidden = true;
+      var ft = el.failInfo && fail !== 'noprompt' && fail !== 'storage' ? failText(el.failInfo) : null;
+      n.cMsg.textContent = fail === 'missing' ? "This app's code is not on this device." : ft ? 'Could not build this.' : (APP_FAIL[fail] || 'Could not build this.');
+      n.cHint.textContent = ft ? ft.msg : ''; n.cHint.hidden = !ft; n.cHint.classList.toggle('why', !!ft);
+      n.cWhy.textContent = ft ? ft.sub : ''; n.cWhy.hidden = !(ft && ft.sub);
       n.card.hidden = false;
     } else n.card.hidden = true;
     var ready = !pend && !fail;
@@ -3103,36 +3163,75 @@
   async function startApp(id, undoLen) {
     var el = embedById(id);
     if (!el || el.kind !== 'app' || gens[id]) return;
+    if (!el.prompt) { delete el.failInfo; settle(el, 'noprompt'); return; }
     var key = getKey(PROVIDER);
     if (!key) { openModal({ opener: magic }); return; }
     var prov = providers[PROVIDER], ac = new AbortController();
-    var g = gens[id] = { ac: ac, phase: 0, timedOut: false, stopped: false, removed: false, undoLen: undoLen };
-    g.timer = setTimeout(function () { g.timedOut = true; ac.abort(); }, 120000);
-    g.tick = setInterval(function () { g.phase++; var n = embedNodes[id]; if (n) n.status.textContent = APP_PHRASES[g.phase % APP_PHRASES.length]; }, 2500);
-    el.pending = true; delete el.failed; el.since = Date.now();
+    var g = gens[id] = { ac: ac, timedOut: '', stopped: false, removed: false, retrying: false, t0: Date.now(), undoLen: undoLen };
+    /* hard cap: 300s from the first attempt. idle: 60s with no stream data, re-armed on every chunk */
+    g.timer = setTimeout(function () { g.timedOut = 'cap'; ac.abort(); }, 300000);
+    g.armIdle = function () { clearTimeout(g.idle); g.idle = setTimeout(function () { g.timedOut = 'idle'; ac.abort(); }, 60000); };
+    g.tick = setInterval(function () { var n = embedNodes[id]; if (n) n.status.textContent = appStatus(g); }, 1000);
+    el.pending = true; delete el.failed; delete el.failInfo; el.since = Date.now();
     save(); draw();
     if (embedNodes[id]) whirl.begin(id, embedNodes[id], el);
-    var idea = el.prompt, outcome = null;
+    var idea = el.prompt, outcome = null, info = null, attempt = 1, model = modelFor(ROUTES.build.model);
+    /* strings only, each clamped; never the key or the prompt */
+    function scrub(t) { t = String(t || ''); if (key) t = t.split(key).join('[key]'); return t.replace(/sk-[A-Za-z0-9_-]{8,}/g, '[key]').slice(0, 240); }
+    function classify(e) {
+      var kind = g.timedOut ? (g.timedOut === 'idle' ? 'timeout-idle' : 'timeout-cap') : e && e.kind ? e.kind : e instanceof TypeError ? 'network' : 'invalid';
+      return { provider: scrub(PROVIDER), model: scrub(model), status: e && e.status ? String(e.status) : '', apiMessage: scrub(e && e.apiMessage), kind: kind };
+    }
+    function logFail(fi) { console.error('[makeItReal]', { provider: fi.provider, model: fi.model, status: fi.status, kind: fi.kind, apiMessage: fi.apiMessage, attempt: attempt, elapsedMs: Date.now() - g.t0 }); }
+    function pause(ms) {
+      return new Promise(function (res, rej) {
+        if (ac.signal.aborted) { rej(new Error('aborted')); return; }
+        var t = setTimeout(function () { ac.signal.removeEventListener('abort', h); res(); }, ms);
+        function h() { clearTimeout(t); rej(new Error('aborted')); }
+        ac.signal.addEventListener('abort', h, { once: true });
+      });
+    }
     try {
-      var req = { system: SYSTEM_APP, text: idea, model: modelFor(ROUTES.build.model), key: key, signal: ac.signal, maxTokens: 12000, plainText: true };
+      var req = { system: SYSTEM_APP, text: idea, model: model, key: key, signal: ac.signal, maxTokens: 9000, plainText: true, onChunk: g.armIdle };
       var reply = null, lastScan = 0;
-      if (prov.stream) {
+      for (;;) {
         try {
-          /* the partial text is only counted for the skeleton, never rendered */
-          reply = await prov.stream(req, function (text) {
-            var now = Date.now(); if (now - lastScan < 100) return;
-            lastScan = now; whirl.progress(id, lockCount(text));
-          });
-        } catch (se) {
-          if (!(se && se.noStream) || ac.signal.aborted) throw se;
           reply = null;
+          if (prov.stream) {
+            g.armIdle();
+            try {
+              /* the partial text is only counted for the skeleton, never rendered */
+              reply = await prov.stream(req, function (text) {
+                var now = Date.now(); if (now - lastScan < 100) return;
+                lastScan = now; whirl.progress(id, lockCount(text));
+              });
+            } catch (se) {
+              if (!(se && se.noStream) || ac.signal.aborted) throw se;
+              reply = null;
+            }
+          }
+          /* single-call fallback: no idle timer, only the 300s cap */
+          if (reply === null) { clearTimeout(g.idle); whirl.pace(id); reply = await prov.complete(req); }
+          clearTimeout(g.idle);
+          break;
+        } catch (ae) {
+          clearTimeout(g.idle);
+          if (g.removed || g.stopped) throw ae;
+          info = classify(ae); logFail(info);
+          var st = Number(info.status);
+          var again = info.kind === 'network' || (info.kind === 'http' && [429, 500, 502, 503, 504, 529].indexOf(st) >= 0);
+          if (attempt > 1 || !again || ac.signal.aborted) throw ae;
+          /* one retry of the same request; the storm keeps running */
+          var ra = ae && ae.retryAfter > 0 ? Math.min(10, Math.max(2, ae.retryAfter)) : 2;
+          g.retrying = true; lastScan = 0;
+          await pause(ra * 1000);
+          attempt++;
         }
       }
-      if (reply === null) { whirl.pace(id); reply = await prov.complete(req); }
       if (ac.signal.aborted) throw new Error('aborted');
       var clean = cleanReply(reply);
       var out = clean ? sanitizeApp(clean, DOMParser) : null;
-      if (!out || out.html.length > APP_MAX_CHARS) { outcome = 'error'; return; }
+      if (!out || out.html.length > APP_MAX_CHARS) { info = classify(kindErr('invalid', 'Unusable reply')); logFail(info); outcome = 'error'; return; }
       var cur = embedById(id);
       if (!cur) return;
       if (!storeApp(cur.appId, out.html)) { outcome = 'storage'; return; }
@@ -3141,12 +3240,12 @@
       await whirl.land(id);
     } catch (err) {
       if (g.removed) outcome = 'gone';
-      else if (g.timedOut) outcome = 'timeout';
+      else if (g.timedOut) { outcome = 'timeout'; info = classify(err); }
       else if (g.stopped) outcome = 'stopped';
       else if (err && (err.status === 401 || err.status === 403)) outcome = 'auth';
-      else outcome = 'error';
+      else { outcome = 'error'; if (!info) { info = classify(err); logFail(info); } }
     } finally {
-      clearTimeout(g.timer);
+      clearTimeout(g.timer); clearTimeout(g.idle);
       if (outcome === 'gone') whirl.kill(id); else if (outcome !== 'ok') await whirl.scatter(id);
       clearInterval(g.tick); delete gens[id];
       var f = embedById(id);
@@ -3159,7 +3258,10 @@
           if (!ask.value.trim()) ask.value = idea;
           if (outcome === 'auth') openModal({ opener: magic, resume: true, real: true, replace: true, message: "That key didn't work." });
           else openPanel();
-        } else if (outcome !== 'gone') settle(f, outcome === 'ok' ? null : outcome);
+        } else if (outcome !== 'gone') {
+          if ((outcome === 'error' || outcome === 'timeout') && info) f.failInfo = info; else delete f.failInfo;
+          settle(f, outcome === 'ok' ? null : outcome);
+        }
       }
       whirl.finish(id);
     }
