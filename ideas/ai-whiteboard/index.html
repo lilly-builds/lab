@@ -136,6 +136,11 @@
   .epop button { display: block; width: 100%; min-height: 36px; padding: 0 8px; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); font: 300 12px/1.2 var(--mono); text-align: left; cursor: pointer; }
   .epop button:hover, .epop button:focus-visible { background: var(--ink); color: var(--paper); }
   .epop p { margin: 8px 0 0; }
+  .epop button[hidden] { display: none; }
+  .epop button:disabled, .epop button:disabled:hover { background: var(--paper); color: var(--ink); border-color: transparent; cursor: default; padding-left: 0; margin-bottom: 6px; }
+  .ebuilt { position: absolute; left: 10px; bottom: 8px; z-index: 2; font: 300 13px/1 var(--mono); color: var(--ink); pointer-events: none; transition: opacity .4s linear; }
+  .ebuilt[hidden] { display: none; }
+  .ebuilt.out { opacity: 0; }
   .ebody { position: relative; flex: 1; min-height: 0; }
   .ebody iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--paper); pointer-events: none; transition: opacity .25s linear; }
   .ebody iframe.fade { opacity: 0; }
@@ -157,7 +162,7 @@
   .ecard .cwhy[hidden] { display: none; }
   .ecard .copen { pointer-events: auto; display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 22px; border: 1px solid var(--ink); background: var(--paper); color: var(--ink); text-decoration: none; font: 300 12px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
   .ecard .copen:hover, .ecard .copen:focus-visible { background: var(--ink); color: var(--paper); }
-  @media (prefers-reduced-motion: reduce) { .epend rect { animation: none; } .ebody iframe { transition: none; } .ewhirl { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .epend rect { animation: none; } .ebody iframe { transition: none; } .ewhirl { transition: none; } .ebuilt { transition: none; } }
 
   /* connect modal */
   #scrim, #cscrim { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(255,255,255,.88); }
@@ -730,6 +735,8 @@
       el.failInfo = {};
       ['provider', 'model', 'status', 'apiMessage', 'kind'].forEach(function (k) { el.failInfo[k] = str(typeof o.failInfo[k] === 'number' ? String(o.failInfo[k]) : o.failInfo[k], 240); });
     }
+    var bs = Number(o.builtSecs);
+    if (!el.failed && isFinite(bs) && bs >= 0 && bs <= 86400) el.builtSecs = Math.round(bs);
     var pu = cleanUrl(o.publishedUrl);
     if (pu && pu.indexOf(PAGES) === 0) {
       el.publishedUrl = pu;
@@ -2728,7 +2735,9 @@
     n.cRetry = mk('button', 'copen', n.cActs); n.cRetry.type = 'button'; n.cRetry.textContent = 'Retry';
     n.cRemove = mk('button', 'copen', n.cActs); n.cRemove.type = 'button'; n.cRemove.textContent = 'Remove';
     n.status = mk('div', 'estat', n.body); n.status.hidden = true; n.status.setAttribute('aria-live', 'polite');
+    n.built = mk('div', 'ebuilt', n.body); n.built.hidden = true;
     n.pop = mk('div', 'epop', n.root); n.pop.hidden = true;
+    n.popBuilt = mk('button', '', n.pop); n.popBuilt.type = 'button'; n.popBuilt.disabled = true; n.popBuilt.hidden = true;
     n.popBtn = mk('button', '', n.pop); n.popBtn.type = 'button'; n.popBtn.textContent = 'Publish to a link (needs GitHub)';
     mk('p', '', n.pop).textContent = 'Hosts a public copy. Opens GitHub.';
 
@@ -2824,10 +2833,24 @@
   var gens = {};
   var APP_FAIL = { timeout: 'No response.', storage: 'Storage is full. Remove an app and retry.', noprompt: 'This idea was not saved. Type it again.' };
   /* real elapsed time, nothing invented */
+  function clock(s) { s = Math.max(0, Math.floor(s)); var r = s % 60; return Math.floor(s / 60) + ':' + (r < 10 ? '0' : '') + r; }
   function appStatus(g) {
-    var s = Math.max(0, Math.floor((Date.now() - g.t0) / 1000));
-    return (g.retrying ? 'Trying again, ' : 'Building, ') + (s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + (s % 60) + 's');
+    return (g.retrying ? 'Trying again ' : 'Building ') + clock((Date.now() - g.t0) / 1000);
   }
+  /* a quiet beat: 4s visible, then a 400ms fade (none with reduced motion) */
+  function showBuilt(id, secs) {
+    var n = embedNodes[id]; if (!n) return;
+    clearTimeout(n.builtT1); clearTimeout(n.builtT2);
+    n.built.textContent = 'built in ' + clock(secs);
+    n.built.classList.remove('out'); n.built.hidden = false;
+    var rm = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    n.builtT1 = setTimeout(function () {
+      if (rm) { n.built.hidden = true; return; }
+      n.built.classList.add('out');
+      n.builtT2 = setTimeout(function () { n.built.hidden = true; }, 400);
+    }, 4000);
+  }
+  function hideBuilt(n) { clearTimeout(n.builtT1); clearTimeout(n.builtT2); n.built.hidden = true; }
   /* failInfo to plain language: { msg: the reason, sub: small text under it } */
   function failText(fi) {
     var lab = (providers[fi.provider] && providers[fi.provider].label) || 'The service', st = fi.status, k = fi.kind;
@@ -2861,7 +2884,10 @@
     n.stop.hidden = !pend;
     n.pend.style.display = pend ? '' : 'none';
     n.status.hidden = !pend;
-    if (pend) { n.sawPending = true; n.status.textContent = appStatus(gen); }
+    if (pend) { n.sawPending = true; n.status.textContent = appStatus(gen); hideBuilt(n); }
+    var hasBuilt = typeof el.builtSecs === 'number';
+    n.popBuilt.hidden = !hasBuilt;
+    if (hasBuilt) n.popBuilt.textContent = 'Built in ' + clock(el.builtSecs);
     var code = null;
     if (!pend && !fail) {
       if (n.appId !== el.appId) { dropFrame(n); n.appId = el.appId; }
@@ -3172,7 +3198,7 @@
     g.timer = setTimeout(function () { g.timedOut = 'cap'; ac.abort(); }, 300000);
     g.armIdle = function () { clearTimeout(g.idle); g.idle = setTimeout(function () { g.timedOut = 'idle'; ac.abort(); }, 60000); };
     g.tick = setInterval(function () { var n = embedNodes[id]; if (n) n.status.textContent = appStatus(g); }, 1000);
-    el.pending = true; delete el.failed; delete el.failInfo; el.since = Date.now();
+    el.pending = true; delete el.failed; delete el.failInfo; delete el.builtSecs; el.since = Date.now();
     save(); draw();
     if (embedNodes[id]) whirl.begin(id, embedNodes[id], el);
     var idea = el.prompt, outcome = null, info = null, attempt = 1, model = modelFor(ROUTES.build.model);
@@ -3248,6 +3274,7 @@
       clearTimeout(g.timer); clearTimeout(g.idle);
       if (outcome === 'gone') whirl.kill(id); else if (outcome !== 'ok') await whirl.scatter(id);
       clearInterval(g.tick); delete gens[id];
+      var builtSecs = Math.max(0, Math.round((Date.now() - g.t0) / 1000));
       var f = embedById(id);
       if (f && outcome) {
         if (outcome === 'stopped' || outcome === 'auth') {
@@ -3260,7 +3287,9 @@
           else openPanel();
         } else if (outcome !== 'gone') {
           if ((outcome === 'error' || outcome === 'timeout') && info) f.failInfo = info; else delete f.failInfo;
+          if (outcome === 'ok') f.builtSecs = builtSecs; else delete f.builtSecs;
           settle(f, outcome === 'ok' ? null : outcome);
+          if (outcome === 'ok') showBuilt(id, builtSecs);
         }
       }
       whirl.finish(id);
