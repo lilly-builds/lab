@@ -23,16 +23,34 @@
   .app { max-width: 1040px; margin: 0 auto; padding: 24px 16px 56px; }
   h1 { font: 400 clamp(26px, 6vw, 38px)/1.2 var(--serif); margin: 10px 0 28px; text-align: center; }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 32px 24px; }
-  .card { display: block; min-width: 0; min-height: 44px; padding: 16px; background: #faf8f2; border: 1px solid var(--ink); border-radius: 0; box-shadow: 0 1px 0 rgba(0,0,0,.06), 0 8px 18px -10px rgba(0,0,0,.28); transition: transform 150ms, box-shadow 150ms; }
-  .card:hover { transform: translateY(-2px); box-shadow: 0 1px 0 rgba(0,0,0,.08), 0 12px 22px -10px rgba(0,0,0,.36); }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px 24px; max-width: 640px; margin-left: auto; margin-right: auto; }
+  @media (min-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: none; } }
+  .card { position: relative; display: flex; min-width: 0; min-height: 340px; aspect-ratio: 3 / 2; padding: 8px; background: var(--paper); border: 1px solid rgba(0,0,0,.55); container-type: inline-size; transition: transform 150ms; }
+  .card::before { content: ""; position: absolute; inset: 8px; border: 1px solid rgba(0,0,0,.12); pointer-events: none; }
+  .card:hover { transform: translateY(-2px); }
   .card:focus-visible, .card:focus-within { outline: 2px solid var(--ink); outline-offset: 3px; }
-  .card canvas { display: block; width: 100%; aspect-ratio: 4 / 3; border: 1px solid rgba(0,0,0,.18); background: var(--paper); }
-  .card .title { display: block; margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(0,0,0,.25); font-size: 20px; line-height: 1.25; overflow-wrap: anywhere; }
+  .card .pic { flex: 0 0 58%; position: relative; margin: 8px 0 8px 8px; }
+  .card .pic canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; background: var(--paper); }
+  .card .msg { flex: 1 1 0; min-width: 0; margin: 8px 8px 8px 12px; padding: 76px 8px 0 12px; border-left: 1px solid rgba(0,0,0,.55); }
+  .card .title { display: block; margin-bottom: 14px; font-size: 20px; line-height: 1.2; font-style: italic; transform: rotate(-1.5deg); transform-origin: left; overflow-wrap: anywhere; }
   .card .author .xlink { color: inherit; text-transform: none; }
   .card .author .xlink:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
-  .card .author { display: block; margin-top: 4px; font: 400 13px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .06em; overflow-wrap: anywhere; }
-  @media (max-width: 479px) { .card { padding: 12px; } }
+  .card .author { display: block; font: 400 13px/26px var(--mono); border-bottom: 1px solid rgba(0,0,0,.25); overflow-wrap: anywhere; }
+  .card .rule { height: 26px; border-bottom: 1px solid rgba(0,0,0,.25); }
+  .card .story { margin-top: 12px; }
+  /* top-right corner: one flex row (postmark, 12px gap, stamp), 16px inset, clear of the title (starts 76px down) and the thumbnail */
+  .corner { position: absolute; top: 16px; right: 16px; display: flex; align-items: flex-start; gap: 12px; pointer-events: none; }
+  .stamp { flex: 0 0 auto; width: 56px; height: 68px; padding: 6px; border: 2px dashed #000; background: var(--paper); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; overflow: hidden; white-space: nowrap; font: 400 10px/1.1 var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+  .stamp svg { display: block; flex: none; }
+  .postmark { display: none; flex: none; width: 136px; height: 64px; }
+  /* side by side: the postmark only shows when it fits right of the thumbnail; stacked: whenever the card is at least 280px wide */
+  @container (min-width: 600px) { .postmark { display: block; } }
+  @media (max-width: 519px) {
+    .card { display: block; aspect-ratio: auto; min-height: 0; }
+    .card .pic { margin: 84px 8px 0; aspect-ratio: 4 / 3; }
+    .card .msg { margin: 12px 8px 8px; padding: 12px 0 0; border-left: 0; border-top: 1px solid rgba(0,0,0,.55); }
+    @container (min-width: 280px) { .postmark { display: block; } }
+  }
   @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
 
   .section { margin-top: 56px; }
@@ -199,6 +217,27 @@
     });
   }
 
+  /* postcard furniture: stamp and postmark */
+  function decorate(box, cv, kids) {
+    var pic = document.createElement('div'); pic.className = 'pic'; pic.appendChild(cv);
+    var msg = document.createElement('div'); msg.className = 'msg';
+    kids.forEach(function (k) { msg.appendChild(k); });
+    box.appendChild(pic); box.appendChild(msg);
+    var corner = document.createElement('div'); corner.className = 'corner'; corner.setAttribute('aria-hidden', 'true');
+    var pm = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    pm.setAttribute('class', 'postmark'); pm.setAttribute('viewBox', '0 0 136 64'); pm.setAttribute('fill', 'none'); pm.setAttribute('stroke', '#000'); pm.setAttribute('stroke-width', '1.2');
+    pm.innerHTML = '<g opacity=".35"><circle cx="104" cy="32" r="31"/><path d="M1 24 q8 -6 16 0 t16 0 t16 0 t16 0"/><path d="M1 36 q8 -6 16 0 t16 0 t16 0 t16 0"/></g>';
+    var st = document.createElement('div'); st.className = 'stamp';
+    st.innerHTML = '<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#000" stroke-width="1.5"><circle cx="11" cy="11" r="9"/><circle cx="11" cy="11" r="4"/></svg><span>Lab</span><span>12 Oct</span>';
+    corner.appendChild(pm); corner.appendChild(st);
+    box.appendChild(corner);
+  }
+  function rules() {
+    var f = document.createDocumentFragment();
+    for (var i = 0; i < 3; i++) { var r = document.createElement('div'); r.className = 'rule'; f.appendChild(r); }
+    return f;
+  }
+
   /* ---------- gallery ---------- */
   var grid = document.getElementById('grid');
   function card(t) {
@@ -210,7 +249,7 @@
     cv.setAttribute('aria-label', t.title);
     var title = document.createElement('span'); title.className = 'title'; title.textContent = t.title;
     var author = document.createElement('span'); author.className = 'author'; author.textContent = t.author || '';
-    a.appendChild(cv); a.appendChild(title); a.appendChild(author);
+    decorate(a, cv, [title, author, rules()]);
     grid.appendChild(a);
     fetch(t.file).then(function (r) { return r.json(); }).then(function (els) {
       if (!Array.isArray(els)) return;
@@ -349,8 +388,7 @@
       try { sessionStorage.setItem('aiwb.pendingTemplate', JSON.stringify(t.elements)); } catch (e) {}
       location.href = '../ai-whiteboard/?template=pending';
     });
-    box.appendChild(cv); box.appendChild(title); box.appendChild(author);
-    box.appendChild(story); box.appendChild(use);
+    decorate(box, cv, [title, author, rules(), story, use]);
     cgrid.appendChild(box);
     var els = previewEls(t.elements);
     var go = function () { preview(cv, els); };
