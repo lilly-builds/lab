@@ -4,14 +4,14 @@ project_id = "dreamspace-whiteboard"
 
 [auth]
 enabled = true
+# Anonymous sign-ins power the zero-friction first sync (plan KTD4).
+enable_anonymous_sign_ins = true
 
 [auth.email]
 enable_signup = true
 enable_confirmations = true
-
-# Anonymous sign-ins power the zero-friction first sync (plan KTD4).
-[auth.anonymous_users]
-enabled = true
+# Secure email change (U5): both the old and new address must confirm.
+double_confirm_changes = true
 
 # CAPTCHA on sign-in bounds bot abuse of anonymous accounts (plan R18).
 # Fill in the secret from the hCaptcha or Turnstile dashboard, then set enabled = true.
@@ -19,3 +19,8 @@ enabled = true
 enabled = false
 provider = "turnstile"
 secret = ""
+
+# The CLI runs seed files as plain SQL (no psql meta-commands like \ir).
+[db.seed]
+enabled = true
+sql_paths = ["./seed/templates_seed.sql"]
