@@ -5,3 +5,4 @@
 ideas/ai-whiteboard/supabase-config.local.js
 .DS_Store
 node_modules/
+ideas/ai-whiteboard/supabase/.temp/
