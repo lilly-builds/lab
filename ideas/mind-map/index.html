@@ -53,7 +53,7 @@
     { name: "Samarth call", b: 18,
       kids: [["her", "prep for the Samarth call"], ["ai", "prep notes ready"]] }
   ];
-  var CX = 500, CY = 500, RING = 300, ORBIT = 122;
+  var CX = 500, CY = 500, RING = 300, ORBIT = 122, BRANCH = 104;
 
   var view = { x: 0, y: 0, k: 1 };
   var svg = document.getElementById("art");
@@ -94,10 +94,12 @@
     T.spoke = el("line", { stroke: "#000", "stroke-width": 1, class: "fade" }, gLines);
     T.orbit = el("circle", { fill: "none", stroke: "#000", "stroke-width": 1, "stroke-dasharray": "2 6", class: "fade" }, gLines);
 
+    T.links = [];
     T.kidEls = T.kids.map(function (k) {
       var g = el("g", { class: "mv" }, gNodes);
       var inner = el("g", {}, g);
       var live = k[2];
+      T.links.push(k[0] === "ai" ? el("line", { stroke: "#000", "stroke-width": 1, class: "fade" }, gLines) : null);
       if (live) inner.setAttribute("class", "live");
       el("circle", { r: RS, fill: k[0] === "her" ? HER : AI, stroke: "#000", "stroke-width": 1 }, inner);
       if (live) {
@@ -122,10 +124,14 @@
   function outward(T) {
     return T.b * Math.PI / 180;
   }
+  // "her" kids sit on the thread orbit; each "ai" kid branches off the "her" before it.
   function kidPos(T, i) {
-    var p = pos(T);
-    var n = T.kids.length, ang = outward(T) + (i - (n - 1) / 2) * (72 * Math.PI / 180);
-    return { x: p.x + ORBIT * Math.cos(ang), y: p.y + ORBIT * Math.sin(ang) };
+    var p = pos(T), hers = 0, hi = -1;
+    T.kids.forEach(function (k, n) { if (k[0] === "her") { hers++; if (n <= i) hi++; } });
+    var ang = outward(T) + (hi - (hers - 1) / 2) * (72 * Math.PI / 180);
+    var q = { x: p.x + ORBIT * Math.cos(ang), y: p.y + ORBIT * Math.sin(ang) };
+    if (T.kids[i][0] === "her") return q;
+    return { x: q.x + BRANCH * Math.cos(ang), y: q.y + BRANCH * Math.sin(ang) };
   }
   function tr(x, y, s) { return "translate(" + x + "px," + y + "px) scale(" + s + ")"; }
 
@@ -138,7 +144,13 @@
       T.orbit.setAttribute("cx", p.x); T.orbit.setAttribute("cy", p.y); T.orbit.setAttribute("r", ORBIT);
       T.orbit.style.opacity = T.open ? 1 : 0;
       T.kidEls.forEach(function (g, i) {
-        var live = T.kids[i][2];
+        var live = T.kids[i][2], ln = T.links[i];
+        if (ln) {
+          var a = kidPos(T, i - 1), b = kidPos(T, i);
+          ln.setAttribute("x1", a.x); ln.setAttribute("y1", a.y);
+          ln.setAttribute("x2", b.x); ln.setAttribute("y2", b.y);
+          ln.style.opacity = T.open ? 1 : 0;
+        }
         if (T.open) { var q = kidPos(T, i); g.style.transform = tr(q.x, q.y, 1); g.style.opacity = 1; }
         else if (live) {
           // in-flight reply stays visible as a small pulsing badge on the node
