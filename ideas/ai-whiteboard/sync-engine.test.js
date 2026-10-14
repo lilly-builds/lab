@@ -132,6 +132,22 @@ tests.push(['new element gets base 0 create; removal sends tombstone op', async 
   assert(tombed, 'server row tombstoned');
 }]);
 
+tests.push(['undo before flush cancels both stale edits and stale deletions', async () => {
+  const server = fakeServer(), eng = mk(server);
+  const { scene } = await eng.importScene([note('e1', 0, { text: 'original' })]);
+  const saved = JSON.parse(JSON.stringify(scene[0]));
+  scene[0].text = 'temporary'; eng.diff(scene);
+  scene[0] = saved; eng.diff(scene);
+  assert.strictEqual(eng.outboxOps().length, 0, 'undone edit is not queued');
+  scene.splice(0, 1); eng.diff(scene);
+  scene.push(saved); eng.diff(scene);
+  assert.strictEqual(eng.outboxOps().length, 0, 'undone deletion is not queued');
+  const report = await eng.flush();
+  assert.strictEqual(report.sent, 0);
+  assert.strictEqual(server.rows.get(saved.id).version, 1, 'server never changed');
+  assert.strictEqual(server.rows.get(saved.id).deleted_at, null);
+}]);
+
 tests.push(['undo after a remote merge reverts only local changes; remote additions survive', async () => {
   const server = fakeServer(), engA = mk(server), engB = mk(server);
   const { scene } = engA.importScene([note('e1', 0, { text: 'mine' }), note('e2')]);

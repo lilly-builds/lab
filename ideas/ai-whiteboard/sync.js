@@ -18,6 +18,7 @@
   var CDN = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
   var TIMEOUT_MS = 2500;
   var BOARD_KEY = 'aiwb.board';
+  var SWITCH_KEY = 'aiwb.board.switching';
   var JUICE_Q_KEY = 'aiwb.juice.q';  /* persisted earn events awaiting the ledger (U6) */
   var FLUSH_DEBOUNCE_MS = 400;
   var PULL_PAGE_SIZE = 500;
@@ -71,6 +72,23 @@
 
     function lsGet(k) { try { return storage.getItem(k); } catch (e) { return null; } }
     function lsSet(k, v) { try { storage.setItem(k, v); } catch (e) {} }
+    function storedSceneMatches() {
+      try {
+        return lsGet('aiwb.scene') === JSON.stringify(app.getEls(), function (k, v) {
+          return k === 'tainted' ? undefined : v;
+        });
+      } catch (e) { return false; }
+    }
+    function storedSceneIsReadable() {
+      try {
+        var raw = lsGet('aiwb.scene');
+        if (raw === null) return false;
+        var saved = JSON.parse(raw);
+        if (!Array.isArray(saved)) return false;
+        var ids = function (arr) { return arr.map(function (e) { return e && e.id; }).sort(); };
+        return JSON.stringify(ids(saved)) === JSON.stringify(ids(app.getEls()));
+      } catch (e) { return false; }
+    }
 
     function badge(text) {
       /* quiet UI note; never an interruption */
@@ -121,21 +139,28 @@
           return r.data;
         },
         pull: async function (boardId, sinceMs, keys) {
-          var rows = [], afterKey = null, page, q, r;
+          var rows = [], afterKey = null, afterTs = null, page, q, r;
           do {
             q = sb.from('board_elements')
               .select('element_key,type,payload,version,updated_at,deleted_at')
               .eq('board_id', boardId)
               .gt('updated_at', new Date(sinceMs).toISOString())
+              .order('updated_at', { ascending: true })
               .order('element_key', { ascending: true })
               .limit(PULL_PAGE_SIZE);
             if (keys && keys.length) q = q.in('element_key', keys);
-            if (afterKey) q = q.gt('element_key', afterKey);
+            /* Both columns must advance together. A row edited after its key
+               was passed moves to a later timestamp and remains visible. */
+            if (afterKey) q = q.or('updated_at.gt.' + afterTs +
+              ',and(updated_at.eq.' + afterTs + ',element_key.gt.' + afterKey + ')');
             r = await withTimeout(q, timeoutMs);
             if (r.error) throw new Error(r.error.message);
             page = r.data || [];
             rows.push.apply(rows, page);
-            if (page.length) afterKey = page[page.length - 1].element_key;
+            if (page.length) {
+              afterKey = page[page.length - 1].element_key;
+              afterTs = page[page.length - 1].updated_at;
+            }
           } while (page.length === PULL_PAGE_SIZE);
           return rows.map(function (row) {
             return {
@@ -212,7 +237,11 @@
           engine.seedScene([]);
           await engine.pullFull();
           engine.reconcileImport(app.getEls());
-          await engine.flush();
+          engine.ensureDurable();
+          app.setEls(engine.scene);
+          app.save();
+          if (!storedSceneMatches()) throw new Error('imported scene could not be saved');
+          engine.markSceneSaved(app.getEls());
           engine.ensureDurable();
           lsSet(BOARD_KEY, res.boardId);
           if (lsGet(BOARD_KEY) !== res.boardId) throw new Error('board id could not be saved');
@@ -224,16 +253,30 @@
               try { storage.removeItem('aiwb.sync.local.' + key); } catch (e) {}
             });
           }
-          app.setEls(engine.scene);
-          app.save();
           app.draw();
+          /* The scene is now rebound, so edits made during the network flush
+             cannot be overwritten by a later wholesale setEls. */
+          await engine.flush();
+          engine.diff(app.getEls());
         } else {
           engine.attachRemote();
-          engine.seedScene(app.getEls()); /* delta rows merge into the device scene, never replace it */
-          await engine.pull();
+          /* An interrupted board switch may have saved the next board's scene
+             before its board ID. In that case the stored scene is untrusted. */
+          var switchingTo = lsGet(SWITCH_KEY);
+          var discardScene = !!(switchingTo && switchingTo !== lsGet(BOARD_KEY)) || !storedSceneIsReadable();
+          engine.seedScene(discardScene ? [] : app.getEls());
+          await engine.pullAll(discardScene);
           app.setEls(engine.scene);   /* remote rows won conflicts: show the merged scene */
           app.save();
+          engine.diff(app.getEls()); /* includes genuine saves made with ?sync=off */
+          if (storedSceneMatches() && !engine.outboxOps().length) {
+            engine.markSceneSaved(app.getEls());
+            engine.ensureDurable();
+          }
           app.draw();
+          if (switchingTo && storage.removeItem) {
+            try { storage.removeItem(SWITCH_KEY); } catch (e) {}
+          }
         }
         subscribe(engineBoardId());
         state = 'online';
@@ -252,20 +295,41 @@
       if (!started) await init();
       if (state !== 'online' || !sb || !engine) return false;
       try {
-        try { engine.diff(app.getEls()); await engine.flush(); } catch (e) {}
-        if (channel && sb.removeChannel) { try { sb.removeChannel(channel); } catch (e) {} }
-        channel = null;
-        engine = null;               /* realtime and saves ignore the gap */
-        lsSet(BOARD_KEY, boardId);
+        engine.diff(app.getEls());
+        await engine.flush();
+        if (engine.outboxOps().length) throw new Error('old board has pending changes');
         var next = makeEngine(boardId);
         next.attachRemote();
         next.seedScene([]);
         await next.pullFull();
+        /* A switch spans two localStorage keys. Mark it first, save and verify
+           the new scene, then bind the board ID. Reloads after an interruption
+           discard a scene that belongs to the not-yet-selected board. */
+        lsSet(SWITCH_KEY, boardId);
+        if (lsGet(SWITCH_KEY) !== boardId) throw new Error('switch marker could not be saved');
+        var oldScene = app.getEls();
+        engine = null; /* app.save must not diff the transitional scene */
+        app.setEls(next.scene);
+        app.save();
+        if (!storedSceneMatches()) {
+          app.setEls(oldScene);
+          engine = makeEngine(lsGet(BOARD_KEY));
+          if (storage.removeItem) { try { storage.removeItem(SWITCH_KEY); } catch (e) {} }
+          throw new Error('new board scene could not be saved');
+        }
+        lsSet(BOARD_KEY, boardId);
+        if (lsGet(BOARD_KEY) !== boardId) {
+          app.setEls(oldScene);
+          app.save();
+          engine = makeEngine(lsGet(BOARD_KEY));
+          throw new Error('board id could not be saved');
+        }
+        if (channel && sb.removeChannel) { try { sb.removeChannel(channel); } catch (e) {} }
+        channel = null;
         engine = next;
         app.clearUndo();
-        app.setEls(engine.scene);
-        app.save();
         app.draw();
+        if (storage.removeItem) { try { storage.removeItem(SWITCH_KEY); } catch (e) {} }
         subscribe(boardId);
         return true;
       } catch (e) {
@@ -333,6 +397,10 @@
       if (state !== 'online' || !engine) return;
       try {
         await engine.flush();
+        if (storedSceneMatches() && !engine.outboxOps().length) {
+          engine.markSceneSaved(app.getEls());
+          engine.ensureDurable();
+        }
         badge(engine.deadLetters().length ? 'some changes need a resync' : null);
         await flushJuice();
       }
@@ -347,7 +415,12 @@
     /* save() hook: diff the current scene and queue the flush. The first call
        with actual content is the first sync-worthy action (R18). */
     function onSave() {
-      if (state === 'offline') return;
+      if (state === 'offline') {
+        /* The app swallows storage errors. A missing scene is not a deletion;
+           only a scene actually saved on this device can express offline intent. */
+        if (engine && lsGet(BOARD_KEY) && storedSceneMatches()) engine.diff(app.getEls());
+        return;
+      }
       if (!started) {
         var hasContent = (app.getEls() || []).length > 0 || lsGet(BOARD_KEY);
         if (hasContent) init();
@@ -358,6 +431,9 @@
       scheduleFlush();
     }
 
+    /* Existing boards must be able to record verified local edits even when
+       auth or the network is unavailable at startup. */
+    if (lsGet(BOARD_KEY)) engine = makeEngine(lsGet(BOARD_KEY));
     hookJuice();
     app.afterSave = onSave;
     /* synced boards mint collision-resistant keys; the e<n> counter never

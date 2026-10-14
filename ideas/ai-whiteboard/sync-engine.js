@@ -44,6 +44,7 @@
     return JSON.stringify(el, function (k, v) { return k === 'tainted' ? undefined : v; });
   }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function deviceOnly(el) { return el && el.type === 'embed' && el.kind === 'app'; }
 
   function create(opts) {
     var boardId = opts.boardId;
@@ -73,6 +74,7 @@
         storage.set(P + 'importSource', JSON.stringify(importSource));
         storage.set(P + 'importMap', JSON.stringify(importMap));
         storage.set(P + 'importedScene', JSON.stringify(importedScene));
+        storage.set(P + 'sceneKeys', JSON.stringify(sceneKeys));
         return true;
       } catch (e) { return false; }
     }
@@ -84,7 +86,8 @@
           storage.get(P + 'importKey') !== JSON.stringify(importKey) ||
           storage.get(P + 'importSource') !== JSON.stringify(importSource) ||
           storage.get(P + 'importMap') !== JSON.stringify(importMap) ||
-          storage.get(P + 'importedScene') !== JSON.stringify(importedScene)) {
+          storage.get(P + 'importedScene') !== JSON.stringify(importedScene) ||
+          storage.get(P + 'sceneKeys') !== JSON.stringify(sceneKeys)) {
         throw new Error('local sync state could not be saved');
       }
     }
@@ -97,6 +100,7 @@
     var importSource = load('importSource', null);
     var importMap = load('importMap', null);
     var importedScene = load('importedScene', null);
+    var sceneKeys = load('sceneKeys', null); /* IDs in the last verified saved scene */
     var undoStack = [];                        /* element-scoped deltas, session-only */
 
     var engine = { scene: [] };
@@ -111,7 +115,7 @@
         importMap = Object.create(null);
         importedScene = [];
         importSource.forEach(function (el) {
-          if (!el || (el.type === 'embed' && el.kind === 'app')) return; /* built apps never travel */
+          if (!el || deviceOnly(el)) return; /* built apps never travel */
           var id = newKey();
           importMap[el.id] = id;
           importedScene.push(Object.assign({}, el, { id: id }));
@@ -134,22 +138,26 @@
     function reconcileImport(localEls) {
       if (!importSource || !importMap) return;
       var original = Object.create(null), current = Object.create(null);
+      var mapped = Object.create(null);
       importSource.forEach(function (el) { if (el && el.id) original[el.id] = el; });
       (localEls || []).forEach(function (el) { if (el && el.id) current[el.id] = el; });
       var next = engine.scene.slice();
       Object.keys(importMap).forEach(function (oldId) {
         var newId = importMap[oldId];
+        mapped[newId] = true;
         var i = next.findIndex(function (el) { return el.id === newId; });
-        if (!current[oldId]) {
+        var local = current[oldId] || current[newId];
+        if (!local) {
           if (i >= 0) next.splice(i, 1);
-        } else if (hash(current[oldId]) !== hash(original[oldId])) {
-          var updated = Object.assign({}, current[oldId], { id: newId });
+        } else if (hash(Object.assign({}, local, { id: oldId })) !== hash(original[oldId])) {
+          var updated = Object.assign({}, local, { id: newId });
           if (i >= 0) next[i] = updated;
         }
       });
       Object.keys(current).forEach(function (oldId) {
         var el = current[oldId];
-        if (original[oldId] || (el.type === 'embed' && el.kind === 'app')) return;
+        if (deviceOnly(el)) { next.push(el); return; }
+        if (original[oldId] || mapped[oldId]) return;
         next.push(Object.assign({}, el, { id: newKey() }));
       });
       engine.scene = next;
@@ -170,6 +178,11 @@
        replaces the whole board, and the next diff() tombstones every key the
        snapshot knows but the scene lacks - for every member. */
     function seedScene(els) { engine.scene = (els || []).slice(); }
+    function markSceneSaved(els) {
+      sceneKeys = {};
+      (els || []).forEach(function (el) { if (el && el.id) sceneKeys[el.id] = true; });
+      persist();
+    }
 
     /* save() hook: diff the current scene against the last-synced snapshot.
        Returns the ops queued by this call. One queued op per key; latest intent wins. */
@@ -179,15 +192,22 @@
       for (i = 0; i < scene.length; i++) {
         el = scene[i];
         if (!el || !el.id) continue;
+        if (deviceOnly(el)) continue;
         seen[el.id] = true;
         h = hash(el);
         snap = snapshot[el.id];
         if (!snap) {
+          if (outbox[el.id] && !outbox[el.id].deleted && hash(outbox[el.id].payload) === h) continue;
           op = { element_key: el.id, base_version: 0, type: el.type, payload: clone(el), tries: 0, nextAt: 0 };
           outbox[el.id] = op; ops.push(op);
         } else if (snap.h !== h) {
+          if (outbox[el.id] && !outbox[el.id].deleted && hash(outbox[el.id].payload) === h) continue;
           op = { element_key: el.id, base_version: snap.v, payload: clone(el), tries: 0, nextAt: 0 };
           outbox[el.id] = op; ops.push(op);
+        } else if (outbox[el.id]) {
+          /* Undo before a flush returned to the acknowledged state. Sending
+             the stale edit or delete would contradict what is now visible. */
+          delete outbox[el.id];
         }
       }
       Object.keys(snapshot).forEach(function (k) {
@@ -196,6 +216,7 @@
           delete outbox[k]; /* created and removed before ever syncing: cancel */
           return;
         }
+        if (outbox[k] && outbox[k].deleted && outbox[k].base_version === snapshot[k].v) return;
         op = { element_key: k, base_version: snapshot[k].v, deleted: true, tries: 0, nextAt: 0 };
         outbox[k] = op; ops.push(op);
       });
@@ -272,7 +293,15 @@
           return;
         }
         var snap = snapshot[key];
-        if (!force && snap && snap.v >= row.version) { ignored++; return; }
+        if (!force && snap && snap.v >= row.version) {
+          /* A scene write can fail while the snapshot/cursor still persist.
+             A full pull must put that row back before diff can mistake the
+             missing local copy for a user deletion. */
+          if (!(opts && opts.restoreMissing) ||
+              engine.scene.some(function (e) { return e.id === key; }) ||
+              (sceneKeys && sceneKeys[key] && !(opts && opts.discardScene)) ||
+              (outbox[key] && outbox[key].deleted)) { ignored++; return; }
+        }
         var el = Object.assign({}, row.payload, { id: key, type: row.type });
         var j = engine.scene.findIndex(function (e) { return e.id === key; });
         if (j >= 0) engine.scene[j] = el; else engine.scene.push(el);
@@ -284,15 +313,33 @@
     }
 
     /* pull deltas since the cursor (minus overlap) and merge them */
-    async function pull() {
-      var rows = await transport.pull(boardId, Math.max(0, cursor - OVERLAP_MS));
+    async function pull(full, discardScene) {
+      var rows = await transport.pull(boardId, full ? 0 : Math.max(0, cursor - OVERLAP_MS));
       var maxTs = cursor;
       (rows || []).forEach(function (r) { if (r.updated_at > maxTs) maxTs = r.updated_at; });
-      var res = applyRemoteRows(rows);
+      var res = applyRemoteRows(rows, { restoreMissing: !!full, discardScene: !!discardScene });
+      if (full) {
+        /* Tombstones may have been hard-deleted while a device was away.
+           Only keys already known to be server-backed can be absent here;
+           unsynced local creations and device-only apps are left alone. */
+        var present = {};
+        (rows || []).forEach(function (r) { present[r.element_key] = true; });
+        Object.keys(snapshot).forEach(function (key) {
+          if (present[key]) return;
+          engine.scene = engine.scene.filter(function (el) { return el.id !== key; });
+          delete snapshot[key];
+          delete outbox[key];
+        });
+        res.scene = engine.scene;
+      }
       cursor = maxTs;
       persist();
       return res;
     }
+
+    /* A returning device may have lost its last scene write independently of
+       its snapshot. Recheck every row without throwing away pending edits. */
+    function pullAll(discardScene) { return pull(true, discardScene); }
 
     /* opening a board this engine has no trusted local state for: forget any
        persisted snapshot/outbox/cursor and fetch everything */
@@ -307,6 +354,15 @@
     async function reconcile(keys) {
       var rows = await transport.pull(boardId, 0, keys);
       applyRemoteRows(rows, { force: true });
+      var present = {};
+      (rows || []).forEach(function (r) { present[r.element_key] = true; });
+      (keys || []).forEach(function (key) {
+        if (present[key]) return;
+        engine.scene = engine.scene.filter(function (el) { return el.id !== key; });
+        delete snapshot[key];
+        delete outbox[key];
+      });
+      persist();
     }
 
     /* attempt everything queued. Explicit calls ignore advisory backoff;
@@ -386,8 +442,10 @@
     engine.diff = diff;
     engine.flush = flush;
     engine.pull = pull;
+    engine.pullAll = pullAll;
     engine.pullFull = pullFull;
     engine.seedScene = seedScene;
+    engine.markSceneSaved = markSceneSaved;
     engine.applyRemoteRows = applyRemoteRows;
     engine.recordLocalChange = recordLocalChange;
     engine.undoLast = undoLast;

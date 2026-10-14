@@ -827,6 +827,17 @@
   els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
   els.forEach(function (e) { if (!e.id) e.id = 'e' + (nextId++); });
 
+  /* Older synced boards predate the scene-key checkpoint. Record what this
+     device actually loaded before any edits, including when ?sync=off; that
+     lets a later sync distinguish a deliberate local delete from a failed
+     scene write without making a backend call while sync is disabled. */
+  var savedBoard = lsGet('aiwb.board');
+  if (savedBoard && lsGet('aiwb.sync.' + savedBoard + '.sceneKeys') === null) {
+    var savedKeys = {};
+    els.forEach(function (e) { if (e && e.id) savedKeys[e.id] = true; });
+    lsSet('aiwb.sync.' + savedBoard + '.sceneKeys', JSON.stringify(savedKeys));
+  }
+
   function ser(v) { return JSON.stringify(v, function (k, x) { return k === 'tainted' ? undefined : x; }); }
   function save() { lsSet(KEY_SCENE, ser(els)); if (window.AIWB && AIWB.afterSave) { try { AIWB.afterSave(); } catch (e) {} } }
   function saveView() { lsSet(KEY_VIEW, JSON.stringify(view)); }

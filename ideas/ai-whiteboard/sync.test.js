@@ -23,6 +23,14 @@ function fakeApp(scene) {
     afterSave: null, newId: null, adoptBoard: null
   };
 }
+function savingApp(scene, storage) {
+  const app = fakeApp(scene);
+  app.save = function () {
+    try { storage.setItem('aiwb.scene', JSON.stringify(this._els)); } catch (e) {}
+    if (this.afterSave) this.afterSave();
+  };
+  return app;
+}
 function fakeSupabaseModule(server) {
   /* mirrors the RPC + table API surface sync.js uses, over an in-memory store */
   const rows = server.rows;
@@ -57,6 +65,7 @@ function fakeSupabaseModule(server) {
         return { data: [{ event_id: server.earnSeq, amount: 1, already_earned: false }], error: null };
       }
       if (fn === 'upsert_elements') {
+        if (server.beforeUpsert) await server.beforeUpsert(args);
         const out = args.p_elements.map((op) => {
           const cur = rows.get(op.element_key);
           if (!op.base_version) {
@@ -77,12 +86,17 @@ function fakeSupabaseModule(server) {
     from: (table) => table === 'juice_balances' ? ({
       select: () => ({ eq: () => ({ eq: () => ({ then: (res) => Promise.resolve({ data: [{ balance: server.juiceBalance }], error: null }).then(res) }) }) })
     }) : ({ select: () => {
-      const q = { boardId: null, sinceIso: null, afterKey: null, keys: null, max: null };
+      const q = { boardId: null, sinceIso: null, afterKey: null, afterTs: null, keys: null, max: null, sort: [] };
       const builder = {
         eq(k, v) { if (k === 'board_id') q.boardId = v; return this; },
         gt(k, v) { if (k === 'updated_at') q.sinceIso = v; if (k === 'element_key') q.afterKey = v; return this; },
         in(k, v) { q.keys = v; return this; },
-        order() { return this; },
+        order(k) { q.sort.push(k); return this; },
+        or(filter) {
+          const m = /^updated_at\.gt\.([^,]+),and\(updated_at\.eq\.([^,]+),element_key\.gt\.([A-Za-z0-9_-]+)\)$/.exec(filter);
+          if (!m || m[1] !== m[2]) throw new Error('bad composite cursor: ' + filter);
+          q.afterTs = m[1]; q.afterKey = m[3]; return this;
+        },
         limit(n) { q.max = n; return this; },
         then(resolve, reject) { return exec(q).then(resolve, reject); }
       };
@@ -92,12 +106,20 @@ function fakeSupabaseModule(server) {
   };
   async function exec(q) {
     if (server.down) throw new Error('down');
+    if (server.failPullBoardOnce === q.boardId) {
+      server.failPullBoardOnce = null;
+      throw new Error('pull failed');
+    }
     const since = Date.parse(q.sinceIso);
     let out = [...rows.values()].filter((r) => (!r.board_id || r.board_id === q.boardId) && Date.parse(r.updated_at) > since);
     if (q.keys) out = out.filter((r) => q.keys.includes(r.element_key));
-    if (q.afterKey) out = out.filter((r) => r.element_key > q.afterKey);
-    out.sort((a, b) => a.element_key.localeCompare(b.element_key));
-    out = out.slice(0, Math.min(q.max || 1000, server.maxRows || 1000));
+    if (q.afterTs) out = out.filter((r) => r.updated_at > q.afterTs || (r.updated_at === q.afterTs && r.element_key > q.afterKey));
+    else if (q.afterKey) out = out.filter((r) => r.element_key > q.afterKey);
+    out.sort((a, b) => q.sort[0] === 'updated_at'
+      ? a.updated_at.localeCompare(b.updated_at) || a.element_key.localeCompare(b.element_key)
+      : a.element_key.localeCompare(b.element_key));
+    out = out.slice(0, Math.min(q.max || 1000, server.maxRows || 1000)).map((r) => JSON.parse(JSON.stringify(r)));
+    if (server.afterPull) server.afterPull(q, out);
     return { data: out, error: null };
   }
   return { createClient: () => client };
@@ -117,8 +139,9 @@ function openDevice(server, storage, app) {
 }
 /* a device that has done its first sync: 3 notes imported, ids remapped */
 async function firstDevice(server) {
-  const dev = openDevice(server, memStorage(), fakeApp([mkNote('e1', 'one'), mkNote('e2', 'two'), mkNote('e3', 'three')]));
-  dev.sess.onSave();
+  const storage = memStorage();
+  const dev = openDevice(server, storage, savingApp([mkNote('e1', 'one'), mkNote('e2', 'two'), mkNote('e3', 'three')], storage));
+  dev.app.save();
   await until(() => dev.sess.state === 'online');
   dev.boardId = dev.storage.getItem('aiwb.board');
   return dev;
@@ -201,17 +224,17 @@ const tests = [
   }],
   ['first sync: scene imports, ids remap, board id stored; raced import dedupes', async () => {
     const server = mkServer();
-    const app = fakeApp([
+    const storage = memStorage();
+    const app = savingApp([
       { id: 'e1', type: 'note', x: 0, y: 0, w: 1, h: 1, text: 'a' },
       { id: 'e2', type: 'note', x: 5, y: 5, w: 1, h: 1, text: 'b' }
-    ]);
-    const storage = memStorage();
+    ], storage);
     storage.setItem('aiwb.juice', '3');
     const sess = sync.createSession({
       config: { url: 'https://x.supabase.co', anonKey: 'k' }, app, storage,
       loadSupabase: async () => fakeSupabaseModule(server), timeoutMs: 100
     });
-    sess.onSave();
+    app.save();
     await new Promise((r) => setTimeout(r, 150));
     assert.strictEqual(sess.state, 'online');
     const boardId = storage.getItem('aiwb.board');
@@ -228,9 +251,9 @@ const tests = [
   ['committed import with lost reply reuses the same key and board after reload', async () => {
     const server = mkServer(); server.dropImportReplyOnce = true;
     const storage = memStorage();
-    const app = fakeApp([mkNote('e1', 'once'), mkNote('e9', 'remove while offline')]);
+    const app = savingApp([mkNote('e1', 'once'), mkNote('e9', 'remove while offline')], storage);
     const first = openDevice(server, storage, app);
-    first.sess.onSave();
+    app.save();
     await until(() => first.sess.state === 'offline');
     assert.strictEqual(server.imports.size, 1, 'server committed once');
     assert.strictEqual(storage.getItem('aiwb.board'), null, 'no board id before a reply');
@@ -252,6 +275,37 @@ const tests = [
     assert.strictEqual([...server.rows.values()].filter((r) => r.deleted_at).length, 1, 'offline deletion is retained');
     assert.strictEqual(storage.getItem('aiwb.sync.local.importSource'), null, 'temporary import copy released');
   }],
+  ['failed remapped-scene save does not duplicate imported notes on retry', async () => {
+    const server = mkServer(); const base = memStorage(); let failScene = false;
+    const storage = { ...base, setItem(k, v) { if (failScene && k === 'aiwb.scene') throw new Error('quota'); base.setItem(k, v); } };
+    const app = savingApp([mkNote('e1', 'one'), mkNote('e2', 'two')], storage);
+    app.save(); failScene = true;
+    const first = openDevice(server, storage, app);
+    first.sess.onSave(); await until(() => first.sess.state === 'offline');
+    assert.strictEqual(storage.getItem('aiwb.board'), null, 'not bound before scene is durable');
+    assert.strictEqual(server.imports.size, 1, 'server import did commit');
+    failScene = false;
+    const returned = openDevice(server, storage, savingApp(JSON.parse(storage.getItem('aiwb.scene')), storage));
+    returned.sess.onSave(); await until(() => returned.sess.state === 'online');
+    assert.strictEqual(server.imports.size, 1, 'same server board reused');
+    assert.strictEqual(live(server, storage.getItem('aiwb.board')).length, 2);
+    assert(returned.app._els.every((e) => server.rows.has(e.id)), 'legacy IDs were not uploaded');
+  }],
+  ['failed board-id save after remapping retries without reimporting or duplicating', async () => {
+    const server = mkServer(); const base = memStorage(); let failBoard = true;
+    const storage = { ...base, setItem(k, v) { if (failBoard && k === 'aiwb.board') throw new Error('quota'); base.setItem(k, v); } };
+    const app = savingApp([mkNote('e1', 'one'), mkNote('e2', 'two')], storage);
+    const first = openDevice(server, storage, app);
+    app.save(); await until(() => first.sess.state === 'offline');
+    assert.strictEqual(storage.getItem('aiwb.board'), null);
+    assert(app._els.every((e) => server.rows.has(e.id)), 'remapped scene was saved first');
+    failBoard = false;
+    const returned = openDevice(server, storage, savingApp(JSON.parse(storage.getItem('aiwb.scene')), storage));
+    returned.sess.onSave(); await until(() => returned.sess.state === 'online');
+    assert.strictEqual(server.imports.size, 1);
+    assert.strictEqual(live(server, storage.getItem('aiwb.board')).length, 2);
+    assert(returned.app._els.every((e) => server.rows.has(e.id)));
+  }],
   ['fresh device loads every row beyond the API default limit, including tombstones', async () => {
     const server = mkServer(); server.maxRows = 1000;
     for (let i = 0; i < 2050; i++) {
@@ -264,18 +318,133 @@ const tests = [
     assert(!device.app._els.some((e) => e.id === 'k0000'), 'tombstone stays deleted');
     assert(device.app._els.some((e) => e.id === 'k2049'), 'last page loaded');
   }],
+  ['returning device restores missing rows instead of deleting them after a failed scene save', async () => {
+    const server = mkServer();
+    for (let i = 0; i < 2; i++) {
+      const id = 'saved' + i;
+      server.rows.set(id, { element_key: id, board_id: 'board-safe', type: 'note', payload: mkNote(id, id),
+        version: 1, updated_at: new Date(1005000).toISOString(), deleted_at: null });
+    }
+    const base = memStorage(); base.setItem('aiwb.board', 'board-safe');
+    const storage = { ...base, setItem(k, v) { if (k === 'aiwb.scene') throw new Error('quota'); base.setItem(k, v); } };
+    const first = openDevice(server, storage, savingApp([], storage));
+    await until(() => first.sess.state === 'online');
+    assert.strictEqual(storage.getItem('aiwb.scene'), null, 'the local scene write failed');
+    const returned = openDevice(server, storage, savingApp([], storage));
+    await until(() => returned.sess.state === 'online');
+    assert.strictEqual(returned.app._els.length, 2, 'authoritative rows restored on reload');
+    returned.app._els.push(mkNote('new-local', 'new'));
+    returned.app.save(); await returned.sess.flush();
+    assert.strictEqual(tombs(server, 'board-safe').length, 0, 'no remote rows deleted');
+    assert.strictEqual(live(server, 'board-safe').length, 3);
+  }],
+  ['a saved offline deletion survives the returning full pull', async () => {
+    const server = mkServer();
+    server.rows.set('keep', { element_key: 'keep', board_id: 'offline-board', type: 'note', payload: mkNote('keep', 'keep'),
+      version: 1, updated_at: new Date(1005000).toISOString(), deleted_at: null });
+    server.rows.set('gone', { element_key: 'gone', board_id: 'offline-board', type: 'note', payload: mkNote('gone', 'gone'),
+      version: 1, updated_at: new Date(1005000).toISOString(), deleted_at: null });
+    const storage = memStorage(); storage.setItem('aiwb.board', 'offline-board');
+    const first = openDevice(server, storage, savingApp([], storage));
+    await until(() => first.sess.state === 'online');
+    server.down = true;
+    const offline = openDevice(server, storage, savingApp(JSON.parse(storage.getItem('aiwb.scene')), storage));
+    await until(() => offline.sess.state === 'offline');
+    offline.app._els = offline.app._els.filter((el) => el.id !== 'gone');
+    offline.app.save();
+    assert(offline.sess.engine.outboxOps().some((op) => op.element_key === 'gone' && op.deleted));
+    server.down = false;
+    const returned = openDevice(server, storage, savingApp(JSON.parse(storage.getItem('aiwb.scene')), storage));
+    await until(() => returned.sess.state === 'online');
+    assert(!returned.app._els.some((el) => el.id === 'gone'), 'local deletion not restored');
+    await returned.sess.flush();
+    assert(server.rows.get('gone').deleted_at, 'deletion reached the server');
+  }],
+  ['a deletion saved with the sync kill switch stays deleted when re-enabled', async () => {
+    const server = mkServer(); const storage = memStorage();
+    const app = savingApp([mkNote('e1', 'keep'), mkNote('e2', 'delete while off')], storage);
+    const first = openDevice(server, storage, app);
+    app.save(); await until(() => first.sess.state === 'online');
+    const gone = app._els.find((e) => e.text === 'delete while off').id;
+    const disabled = savingApp(JSON.parse(storage.getItem('aiwb.scene')), storage);
+    disabled._els = disabled._els.filter((e) => e.id !== gone);
+    disabled.save(); /* ?sync=off installs no afterSave hook */
+    const returned = openDevice(server, storage, savingApp(JSON.parse(storage.getItem('aiwb.scene')), storage));
+    await until(() => returned.sess.state === 'online');
+    assert(!returned.app._els.some((e) => e.id === gone), 'kill-switch deletion not restored');
+    await returned.sess.flush();
+    assert(server.rows.get(gone).deleted_at, 'deletion reaches the server on return');
+  }],
+  ['a purged remote tombstone does not leave an old local ghost', async () => {
+    const server = mkServer();
+    const storage = memStorage(); storage.setItem('aiwb.board', 'purge-board');
+    server.rows.set('gone', { element_key: 'gone', board_id: 'purge-board', type: 'note', payload: mkNote('gone', 'old'),
+      version: 1, updated_at: new Date(1005000).toISOString(), deleted_at: null });
+    const first = openDevice(server, storage, savingApp([], storage));
+    await until(() => first.sess.state === 'online');
+    server.rows.delete('gone'); /* 30-day purge happened while the tab was closed */
+    const returned = openDevice(server, storage, savingApp(JSON.parse(storage.getItem('aiwb.scene')), storage));
+    await until(() => returned.sess.state === 'online');
+    assert.strictEqual(returned.app._els.length, 0, 'purged note removed locally');
+    returned.app._els.push(mkNote('new-local', 'new'));
+    returned.app.save(); await returned.sess.flush();
+    assert(!server.rows.has('gone'), 'purged note not reuploaded');
+  }],
+  ['a concurrent edit to a passed page is still included by the pull cursor', async () => {
+    const server = mkServer(); let pulls = 0;
+    for (let i = 0; i < 1100; i++) {
+      const id = 'k' + String(i).padStart(4, '0');
+      server.rows.set(id, { element_key: id, board_id: 'paging-board', type: 'note', payload: mkNote(id, 'old'),
+        version: 1, updated_at: new Date(1005000).toISOString(), deleted_at: null });
+    }
+    server.afterPull = () => {
+      if (++pulls !== 1) return;
+      const row = server.rows.get('k0000');
+      row.payload = mkNote('k0000', 'edited during paging'); row.version = 2;
+      row.updated_at = new Date(1008000).toISOString();
+    };
+    const device = await joinDevice(server, 'paging-board');
+    assert.strictEqual(device.app._els.length, 1100);
+    assert.strictEqual(device.app._els.find((e) => e.id === 'k0000').text, 'edited during paging');
+  }],
+  ['built apps stay on their device during first sync and never upload', async () => {
+    const server = mkServer();
+    const storage = memStorage();
+    const app = savingApp([mkNote('e1', 'cloud'), { id: 'e2', type: 'embed', kind: 'app', html: '<p>local</p>' }], storage);
+    const device = openDevice(server, storage, app);
+    app.save(); await until(() => device.sess.state === 'online');
+    assert(app._els.some((e) => e.kind === 'app'), 'built app remains locally visible');
+    assert.strictEqual(live(server, device.storage.getItem('aiwb.board')).length, 1, 'only the note uploaded');
+    device.sess.onSave(); await device.sess.flush();
+    assert.strictEqual(live(server, device.storage.getItem('aiwb.board')).length, 1, 'later saves also skip it');
+  }],
+  ['edits made during first import flush are not replaced or lost', async () => {
+    const server = mkServer(); let release;
+    server.beforeUpsert = () => new Promise((resolve) => { release = resolve; });
+    const storage = memStorage();
+    const app = savingApp([mkNote('e1', 'original')], storage);
+    server.afterPull = () => { app._els[0].text = 'intermediate'; app.save(); server.afterPull = null; };
+    const device = openDevice(server, storage, app);
+    device.sess.onSave();
+    await until(() => typeof release === 'function');
+    app._els[0].text = 'edited while uploading'; app.save();
+    release(); server.beforeUpsert = null;
+    await until(() => device.sess.state === 'online');
+    await until(() => [...server.rows.values()].some((r) => r.payload.text === 'edited while uploading'), 3000);
+    assert.strictEqual(app._els[0].text, 'edited while uploading');
+  }],
   ['juice: online earn writes the ledger once; retry cannot double-count (AE4)', async () => {
     const server = mkServer();
-    const app = fakeApp([{ id: 'e1', type: 'note', x: 0, y: 0, w: 1, h: 1, text: 'a' }]);
-    const juice = { onEarn: null, bal: null, setBalance(n) { this.bal = n; } };
     const storage = memStorage();
+    const app = savingApp([{ id: 'e1', type: 'note', x: 0, y: 0, w: 1, h: 1, text: 'a' }], storage);
+    const juice = { onEarn: null, bal: null, setBalance(n) { this.bal = n; } };
     storage.setItem('aiwb.juice', '3');
     const sess = sync.createSession({
       win: { Juice: juice },
       config: { url: 'https://x.supabase.co', anonKey: 'k' }, app, storage,
       loadSupabase: async () => fakeSupabaseModule(server), timeoutMs: 100
     });
-    sess.onSave(); /* first sync: import */
+    app.save(); /* first sync: import */
     await new Promise((r) => setTimeout(r, 200));
     assert.strictEqual(sess.state, 'online');
     assert(juice.onEarn, 'juice hook installed');
@@ -295,9 +464,9 @@ const tests = [
   }],
   ['juice: pre-first-sync earns are subsumed by the import backfill', async () => {
     const server = mkServer();
-    const app = fakeApp([{ id: 'e1', type: 'note', x: 0, y: 0, w: 1, h: 1, text: 'a', l1Done: true }]);
-    const juice = { onEarn: null, bal: null, setBalance(n) { this.bal = n; } };
     const storage = memStorage();
+    const app = savingApp([{ id: 'e1', type: 'note', x: 0, y: 0, w: 1, h: 1, text: 'a', l1Done: true }], storage);
+    const juice = { onEarn: null, bal: null, setBalance(n) { this.bal = n; } };
     storage.setItem('aiwb.juice', '3');
     const sess = sync.createSession({
       win: { Juice: juice },
@@ -305,7 +474,7 @@ const tests = [
       loadSupabase: async () => fakeSupabaseModule(server), timeoutMs: 100
     });
     juice.onEarn(app._els[0]); /* earn while still unsynced: queued with the e<n> key */
-    sess.onSave(); /* first sync imports and remaps ids */
+    app.save(); /* first sync imports and remaps ids */
     await new Promise((r) => setTimeout(r, 800));
     assert.strictEqual(sess.state, 'online');
     assert.strictEqual(server.idem.size, 0, 'stale e-key earn dropped server-side, not counted');
@@ -411,6 +580,68 @@ const tests = [
     assert.strictEqual(server.rows.get('c1').version, 4);
     assert.strictEqual(live(server, A.boardId).length, 3, 'the previous board is untouched, not tombstoned');
     assert.strictEqual(tombs(server, A.boardId).length, 0);
+  }],
+  ['failed cloud-board pull keeps the old board association and scene', async () => {
+    const server = mkServer();
+    const A = await firstDevice(server);
+    const oldKeys = A.app._els.map((e) => e.id);
+    server.failPullBoardOnce = 'cloud-1';
+    assert.strictEqual(await A.sess.openBoard('cloud-1'), false);
+    assert.strictEqual(A.storage.getItem('aiwb.board'), A.boardId, 'old board id remains durable');
+    assert.deepStrictEqual(A.app._els.map((e) => e.id), oldKeys, 'old scene remains visible');
+    const returned = await reloadDevice(server, A);
+    returned.app._els[0].text = 'still mine';
+    returned.sess.onSave(); await returned.sess.flush();
+    assert.strictEqual(live(server, 'cloud-1').length, 0, 'old elements never uploaded to the new board');
+  }],
+  ['failed scene save during board choice cannot mix the two boards', async () => {
+    const server = mkServer(); const base = memStorage(); let failScene = false;
+    const storage = { ...base, setItem(k, v) { if (failScene && k === 'aiwb.scene') throw new Error('quota'); base.setItem(k, v); } };
+    const app = savingApp([mkNote('e1', 'old board')], storage);
+    const device = openDevice(server, storage, app);
+    device.sess.onSave(); await until(() => device.sess.state === 'online');
+    const oldBoard = storage.getItem('aiwb.board');
+    server.rows.set('c1', { element_key: 'c1', board_id: 'cloud-1', type: 'note', payload: mkNote('c1', 'cloud'),
+      version: 1, updated_at: new Date(1005000).toISOString(), deleted_at: null });
+    failScene = true;
+    assert.strictEqual(await device.sess.openBoard('cloud-1'), false);
+    assert.strictEqual(storage.getItem('aiwb.board'), oldBoard);
+    assert(app._els.some((e) => e.text === 'old board'));
+    failScene = false;
+    const returned = openDevice(server, storage, savingApp(JSON.parse(storage.getItem('aiwb.scene')), storage));
+    await until(() => returned.sess.state === 'online');
+    returned.app._els[0].text = 'edited old board'; returned.app.save(); await returned.sess.flush();
+    assert.strictEqual(live(server, 'cloud-1').length, 1, 'old content never uploaded to cloud');
+  }],
+  ['interrupted board switch restores the original board without deleting it', async () => {
+    const server = mkServer(); const storage = memStorage();
+    const app = savingApp([mkNote('e1', 'old one'), mkNote('e2', 'old two')], storage);
+    const first = openDevice(server, storage, app);
+    app.save(); await until(() => first.sess.state === 'online');
+    const boardId = storage.getItem('aiwb.board');
+    storage.setItem('aiwb.board.switching', 'cloud-1');
+    storage.setItem('aiwb.scene', '[]'); /* crash after saving the next scene, before board ID */
+    const returned = openDevice(server, storage, savingApp([], storage));
+    await until(() => returned.sess.state === 'online');
+    assert.strictEqual(returned.app._els.length, 2, 'all old-board rows restored');
+    returned.app._els[0].text = 'safe edit'; returned.app.save(); await returned.sess.flush();
+    assert.strictEqual(tombs(server, boardId).length, 0, 'no mass deletion');
+    assert.strictEqual(live(server, boardId).length, 2);
+  }],
+  ['missing saved scene after a prior good sync never wipes the shared board', async () => {
+    const server = mkServer(); const storage = memStorage();
+    const app = savingApp([mkNote('e1', 'one'), mkNote('e2', 'two')], storage);
+    const first = openDevice(server, storage, app);
+    app.save(); await until(() => first.sess.state === 'online');
+    const boardId = storage.getItem('aiwb.board');
+    assert(storage.getItem('aiwb.sync.' + boardId + '.sceneKeys'), 'checkpoint already exists');
+    storage.removeItem('aiwb.scene');
+    const returned = openDevice(server, storage, savingApp([], storage));
+    await until(() => returned.sess.state === 'online');
+    assert.strictEqual(returned.app._els.length, 2, 'lost scene rebuilt from server');
+    returned.app._els[0].text = 'later edit'; returned.app.save(); await returned.sess.flush();
+    assert.strictEqual(tombs(server, boardId).length, 0);
+    assert.strictEqual(live(server, boardId).length, 2);
   }]
 ];
 
