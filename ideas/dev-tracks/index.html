@@ -58,13 +58,13 @@
 (function () {
   var NS = "http://www.w3.org/2000/svg";
   var COL = { green: "#b2f2bb", yellow: "#ffec99", red: "#ffc9c9" };
-  var WORD = { green: "moving", yellow: "stalled", red: "needs you" };
+  var WORD = { green: "", yellow: "stalled", red: "needs you" };
   var STAGES = ["Idea", "Spec", "Spec review", "Tests", "Build", "Code review", "Fix/optimize", "Security & deps scan", "PR", "CI", "Preview deploy", "CD", "Live", "Observe & rollback"];
   var LAST = STAGES.length - 1, LIVE = 12;
   var WORK = [
     { name: "Owner live dashboard", stage: 4, state: "green", attn: null },
     { name: "Polish CI tests", stage: 0, state: "green", attn: null },
-    { name: "Dev docs", stage: 0, state: "green", attn: null },
+    { name: "Dev docs", stage: 4, state: "green", attn: null },
     { name: "8 git issues", stage: 1, state: "green", attn: null },
     { name: "Builder manifesto docs", stage: 12, state: "green", attn: null },
     { name: "Guidance tool", stage: 12, state: "green", attn: null },
@@ -162,7 +162,7 @@
       var y = T + ROW * r + 14;
       line(svg, sx(0), y, sx(LAST), y, 3);
       for (var i = 0; i <= LAST; i++) dot(svg, i, y, false);
-      el("text", { x: sx(0) - 50, y: y - 14, "font-size": 12 }, svg, w.name + " (" + WORD[w.state] + ")");
+      el("text", { x: sx(0) - 50, y: y - 14, "font-size": 12 }, svg, w.name + (WORD[w.state] ? " (" + WORD[w.state] + ")" : ""));
       var x = sx(w.stage);
       el("circle", { cx: x, cy: y, r: 13, fill: COL[w.state], stroke: "#e6e6e6", "stroke-width": 3 }, svg);
     });
@@ -193,7 +193,7 @@
       var y = T + ROW * r + 14, x = sx(w.stage);
       line(svg, sx(0), y, sx(LAST), y, 3);
       for (var i = 0; i <= LAST; i++) el("circle", { cx: sx(i), cy: y, r: 5, fill: "#0f1115", stroke: "#e6e6e6", "stroke-width": 2 }, svg);
-      el("text", { x: sx(0) - 50, y: y - 20, "font-size": 12 }, svg, w.name + " (" + (w.attn ? SHAPE_WORD[w.attn] : "moving") + ")");
+      el("text", { x: sx(0) - 50, y: y - 20, "font-size": 12 }, svg, w.name + (w.attn ? " (" + SHAPE_WORD[w.attn] + ")" : ""));
       shapeEl(svg, w.attn || "circle", x, y, 13, spectrum((x - BAND_L) / (BAND_R - BAND_L)), 3, w.attn ? SHAPE_BLINK[w.attn] : "");
     });
   }
