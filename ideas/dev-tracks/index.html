@@ -13,6 +13,9 @@
   html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--f); font-weight: normal; font-style: normal; }
   body { padding: 20px 16px 60px; max-width: 1280px; }
   h1 { font-weight: normal; margin: 0 0 14px; font-size: 28px; letter-spacing: 0.5px; }
+  .key { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 12px; padding: 0; list-style: none; font-size: 12px; }
+  .key li { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .key i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 1px solid var(--ink); }
   .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
   button.tog { font-family: var(--f); font-size: 14px; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 6px 16px; cursor: pointer; }
   button.tog[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
@@ -23,6 +26,12 @@
 </head>
 <body>
 <h1>The dev workflow, as train tracks</h1>
+
+<ul class="key">
+  <li><i style="background:#b2f2bb"></i>moving</li>
+  <li><i style="background:#ffec99"></i>stalled / agent stuck</li>
+  <li><i style="background:#ffc9c9"></i>needs a human</li>
+</ul>
 
 <div class="bar" role="group" aria-label="View">
   <button class="tog vw" data-w="pipeline" aria-pressed="true">Pipeline</button>
