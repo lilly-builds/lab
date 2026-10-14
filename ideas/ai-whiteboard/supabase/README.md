@@ -35,6 +35,15 @@ on a paid tier, run a scheduled export:
 Weekly cadence is enough at demo scale. Pro adds 7-day automatic backups; PITR is a
 paid add-on. Revisit when real user data accumulates.
 
+## Board storage limits
+
+A board allows up to 2,000 live elements and 4,000 retained rows total (live
+elements plus 30-day tombstones). Every insert, including an already-deleted
+direct API insert, consumes retained-row capacity; the purge releases capacity.
+Heavy delete/create churn can therefore stop new writes before the live limit is
+reached. Raise the retained-row limit only with a storage and abuse review; do
+not bypass the counter or shorten tombstone retention to hide a full board.
+
 ## Local verification without the hosted project
 
 `migrations/` and `tests/` are plain SQL and node scripts; see `tests/README` notes
@@ -43,7 +52,7 @@ in each test header for running against a scratch Postgres.
 ## Tests
 
 `tests/policy_tests.sql` holds the U2/U3 assertion suite (schema constraints,
-RLS role-split, RPC semantics; 110 assertions). It sets sessions through
+RLS role-split, RPC semantics; 118 assertions). It sets sessions through
 `request.jwt.claims`, the setting Supabase's real `auth.uid()`/`auth.jwt()`
 read, and runs against `supabase start` locally (CI, U10, on every PR) or a
 scratch Postgres that mirrors Supabase: `anon`/`authenticated`/`service_role`

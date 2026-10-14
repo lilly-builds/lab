@@ -20,6 +20,7 @@
   var BOARD_KEY = 'aiwb.board';
   var JUICE_Q_KEY = 'aiwb.juice.q';  /* persisted earn events awaiting the ledger (U6) */
   var FLUSH_DEBOUNCE_MS = 400;
+  var PULL_PAGE_SIZE = 500;
 
   /* engine module: a window global in the browser (script tag), require()d in node tests */
   var Engine = (typeof AIWBSyncEngine !== 'undefined') ? AIWBSyncEngine
@@ -120,14 +121,23 @@
           return r.data;
         },
         pull: async function (boardId, sinceMs, keys) {
-          var q = sb.from('board_elements')
-            .select('element_key,type,payload,version,updated_at,deleted_at')
-            .eq('board_id', boardId)
-            .gt('updated_at', new Date(sinceMs).toISOString());
-          if (keys && keys.length) q = q.in('element_key', keys);
-          var r = await withTimeout(q, timeoutMs);
-          if (r.error) throw new Error(r.error.message);
-          return r.data.map(function (row) {
+          var rows = [], afterKey = null, page, q, r;
+          do {
+            q = sb.from('board_elements')
+              .select('element_key,type,payload,version,updated_at,deleted_at')
+              .eq('board_id', boardId)
+              .gt('updated_at', new Date(sinceMs).toISOString())
+              .order('element_key', { ascending: true })
+              .limit(PULL_PAGE_SIZE);
+            if (keys && keys.length) q = q.in('element_key', keys);
+            if (afterKey) q = q.gt('element_key', afterKey);
+            r = await withTimeout(q, timeoutMs);
+            if (r.error) throw new Error(r.error.message);
+            page = r.data || [];
+            rows.push.apply(rows, page);
+            if (page.length) afterKey = page[page.length - 1].element_key;
+          } while (page.length === PULL_PAGE_SIZE);
+          return rows.map(function (row) {
             return {
               element_key: row.element_key, type: row.type, payload: row.payload,
               version: row.version, deleted_at: row.deleted_at,
@@ -197,7 +207,23 @@
           /* first sync: import the device scene, remap ids, store the board id */
           var res = await engine.importScene(app.getEls());
           engine.rebindBoardId(res.boardId);
+          /* Read back authoritative rows, including a retry whose first reply
+             was lost after commit. */
+          engine.seedScene([]);
+          await engine.pullFull();
+          engine.reconcileImport(app.getEls());
+          await engine.flush();
+          engine.ensureDurable();
           lsSet(BOARD_KEY, res.boardId);
+          if (lsGet(BOARD_KEY) !== res.boardId) throw new Error('board id could not be saved');
+          engine.clearImportPending();
+          /* The old local-prefix copy is only needed until the board id is
+             durable. Free its space before saving the imported scene. */
+          if (storage.removeItem) {
+            ['snapshot', 'outbox', 'dead', 'cursor', 'importKey', 'importSource', 'importMap', 'importedScene'].forEach(function (key) {
+              try { storage.removeItem('aiwb.sync.local.' + key); } catch (e) {}
+            });
+          }
           app.setEls(engine.scene);
           app.save();
           app.draw();

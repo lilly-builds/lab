@@ -70,7 +70,23 @@
         storage.set(P + 'dead', JSON.stringify(dead));
         storage.set(P + 'cursor', JSON.stringify(cursor));
         storage.set(P + 'importKey', JSON.stringify(importKey));
-      } catch (e) {}
+        storage.set(P + 'importSource', JSON.stringify(importSource));
+        storage.set(P + 'importMap', JSON.stringify(importMap));
+        storage.set(P + 'importedScene', JSON.stringify(importedScene));
+        return true;
+      } catch (e) { return false; }
+    }
+    function ensureDurable() {
+      if (!persist() ||
+          storage.get(P + 'snapshot') !== JSON.stringify(snapshot) ||
+          storage.get(P + 'outbox') !== JSON.stringify(outbox) ||
+          storage.get(P + 'cursor') !== JSON.stringify(cursor) ||
+          storage.get(P + 'importKey') !== JSON.stringify(importKey) ||
+          storage.get(P + 'importSource') !== JSON.stringify(importSource) ||
+          storage.get(P + 'importMap') !== JSON.stringify(importMap) ||
+          storage.get(P + 'importedScene') !== JSON.stringify(importedScene)) {
+        throw new Error('local sync state could not be saved');
+      }
     }
 
     var snapshot = load('snapshot', {});       /* key -> {v: version, h: hash} */
@@ -78,6 +94,9 @@
     var dead = load('dead', []);               /* ops that exhausted retries */
     var cursor = load('cursor', 0);
     var importKey = load('importKey', null);
+    var importSource = load('importSource', null);
+    var importMap = load('importMap', null);
+    var importedScene = load('importedScene', null);
     var undoStack = [];                        /* element-scoped deltas, session-only */
 
     var engine = { scene: [] };
@@ -87,17 +106,60 @@
     /* one-time first sync: remap ids, import, seed the snapshot at version 1 */
     async function importScene(els, key) {
       importKey = key || importKey || newKey(24);
-      var scene = [];
-      (els || []).forEach(function (el) {
-        if (!el || (el.type === 'embed' && el.kind === 'app')) return; /* built apps never travel */
-        scene.push(Object.assign({}, el, { id: newKey() }));
-      });
+      if (!importedScene || !importMap || !importSource) {
+        importSource = clone(els || []);
+        importMap = Object.create(null);
+        importedScene = [];
+        importSource.forEach(function (el) {
+          if (!el || (el.type === 'embed' && el.kind === 'app')) return; /* built apps never travel */
+          var id = newKey();
+          importMap[el.id] = id;
+          importedScene.push(Object.assign({}, el, { id: id }));
+        });
+      }
+      /* Save the key and remapping before the request. A committed import can
+         lose its reply; retry must send the same scene and key. */
+      ensureDurable();
+      var scene = importedScene;
       engine.scene = scene;
       var serverBoardId = boardId;
       if (transport.importBoard) serverBoardId = (await transport.importBoard(boardId, scene, importKey)) || boardId;
       scene.forEach(function (el) { snapshot[el.id] = { v: 1, h: hash(el) }; });
       persist();
       return { scene: scene, importKey: importKey, boardId: serverBoardId };
+    }
+
+    /* An import may commit while its reply is lost. Keep edits made to the
+       original local board during that outage, using the persisted id mapping. */
+    function reconcileImport(localEls) {
+      if (!importSource || !importMap) return;
+      var original = Object.create(null), current = Object.create(null);
+      importSource.forEach(function (el) { if (el && el.id) original[el.id] = el; });
+      (localEls || []).forEach(function (el) { if (el && el.id) current[el.id] = el; });
+      var next = engine.scene.slice();
+      Object.keys(importMap).forEach(function (oldId) {
+        var newId = importMap[oldId];
+        var i = next.findIndex(function (el) { return el.id === newId; });
+        if (!current[oldId]) {
+          if (i >= 0) next.splice(i, 1);
+        } else if (hash(current[oldId]) !== hash(original[oldId])) {
+          var updated = Object.assign({}, current[oldId], { id: newId });
+          if (i >= 0) next[i] = updated;
+        }
+      });
+      Object.keys(current).forEach(function (oldId) {
+        var el = current[oldId];
+        if (original[oldId] || (el.type === 'embed' && el.kind === 'app')) return;
+        next.push(Object.assign({}, el, { id: newKey() }));
+      });
+      engine.scene = next;
+      diff(next);
+    }
+    function clearImportPending() {
+      importSource = null;
+      importMap = null;
+      importedScene = null;
+      persist();
     }
 
     /* attach to a board that already exists server-side (second device) */
@@ -317,6 +379,9 @@
     }
 
     engine.importScene = importScene;
+    engine.ensureDurable = ensureDurable;
+    engine.reconcileImport = reconcileImport;
+    engine.clearImportPending = clearImportPending;
     engine.attachRemote = attachRemote;
     engine.diff = diff;
     engine.flush = flush;

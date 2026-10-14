@@ -62,6 +62,8 @@ select pg_temp.ok('imported_balance backfill fires at board creation',
   (select amount from public.juice_events where board_id=(select v from ctx where k='board')::uuid and reason='imported_balance') = 7);
 select pg_temp.ok('element_count maintained on import',
   (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 11);
+select pg_temp.ok('stored_element_count includes every imported row',
+  (select stored_element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 11);
 
 -- stash the remapped element keys for later tests
 insert into ctx select 'key_' || (payload->>'text'), element_key from public.board_elements
@@ -85,6 +87,13 @@ select pg_temp.throws('import with one malformed element fails',
   $$select public.import_board('[{"id":"a","type":"note","x":0,"y":0,"w":1,"h":1},{"id":"b","type":"widget"}]'::jsonb, 'import-test-key-0002', 0)$$);
 select pg_temp.ok('failed import left no board behind',
   (select count(*) from public.boards where import_key='import-test-key-0002') = 0);
+insert into ctx values ('client_key_board', public.import_board(
+  '[{"id":"client_Key_47Ab","type":"note","text":"stable"}]'::jsonb,
+  'import-test-key-client', 0)::text);
+select pg_temp.ok('import preserves a collision-resistant client key for response-lost retry',
+  (select count(*) from public.board_elements
+    where board_id=(select v from ctx where k='client_key_board')::uuid
+      and element_key='client_Key_47Ab') = 1);
 
 -- ------------------------------------------------------- U2 constraint tests
 reset role;
@@ -118,6 +127,8 @@ select pg_temp.ok('client-supplied version/updated_by/updated_at overridden by t
   (select version = 1 and updated_by is null and updated_at > '2020-01-01'
      from public.board_elements where board_id=(select v from ctx where k='board')::uuid and element_key='trig1'));
 delete from public.board_elements where board_id=(select v from ctx where k='board')::uuid and element_key='trig1';
+select pg_temp.ok('hard delete releases total-row capacity',
+  (select stored_element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 11);
 
 -- ------------------------------------------- memberships: invites and joins
 set role authenticated;
@@ -333,7 +344,7 @@ select pg_temp.ok('oversized, data: URL, and malformed-key elements are rejected
       || '{"element_key":"bad key!","base_version":0,"type":"note","payload":{}},'
       || '{"element_key":"bad3","base_version":0,"payload":{}}]')::jsonb)) r where r.status = 'rejected') = 4);
 select pg_temp.ok('element_count tracks live rows after create and tombstone',
-  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 12);
+  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 11);
 select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', false);
 select pg_temp.throws('stranger cannot call upsert_elements',
   $$select public.upsert_elements((select v from ctx where k='board')::uuid, '[{"element_key":"st1","base_version":0,"type":"note"}]'::jsonb)$$,
@@ -350,17 +361,32 @@ select pg_temp.ok('re-deleting a tombstone answers exactly once',
 insert into public.board_elements (board_id, element_key, type, payload)
   values ((select v from ctx where k='board')::uuid, 'ed1', 'note', '{}'::jsonb);
 select pg_temp.ok('editor direct insert is counted (the cap cannot be dodged by skipping the RPC)',
-  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 13);
+  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 12);
 update public.board_elements set deleted_at = now()
   where board_id=(select v from ctx where k='board')::uuid and element_key='ed1';
 select pg_temp.ok('editor direct tombstone is counted',
-  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 12);
+  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 11);
+insert into public.board_elements (board_id, element_key, type, payload, deleted_at)
+  values ((select v from ctx where k='board')::uuid, 'predeleted1', 'note', '{}'::jsonb, now());
+select pg_temp.ok('pre-deleted direct insert still consumes storage capacity',
+  (select stored_element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 14);
 select pg_temp.throws('editor bulk direct insert past the cap is rejected',
   $$insert into public.board_elements (board_id, element_key, type, payload)
     select (select v from ctx where k='board')::uuid, 'edcap' || g, 'note', '{}'::jsonb from generate_series(1, 2000) g$$,
   'cap');
 select pg_temp.ok('the editor cap failure left element_count unchanged',
-  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 12);
+  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 11);
+reset role;
+update public.boards set stored_element_count = 4000 where id=(select v from ctx where k='board')::uuid;
+set role authenticated;
+select pg_temp.throws('editor cannot insert past the total-row cap, even with a tombstone',
+  $$insert into public.board_elements (board_id, element_key, type, payload, deleted_at)
+    values ((select v from ctx where k='board')::uuid, 'predeleted2', 'note', '{}'::jsonb, now())$$, 'storage cap');
+reset role;
+update public.boards set stored_element_count =
+  (select count(*) from public.board_elements where board_id=(select v from ctx where k='board')::uuid)
+  where id=(select v from ctx where k='board')::uuid;
+set role authenticated;
 select pg_temp.throws('editor cannot move an element to another key or board',
   $$update public.board_elements set element_key='moved1'
     where board_id=(select v from ctx where k='board')::uuid and element_key=(select v from ctx where k='key_want note')$$,
@@ -368,6 +394,9 @@ select pg_temp.throws('editor cannot move an element to another key or board',
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
 select pg_temp.throws('owner cannot rewrite element_count directly',
   $$update public.boards set element_count = 0 where id=(select v from ctx where k='board')::uuid$$,
+  'permission denied');
+select pg_temp.throws('owner cannot rewrite stored_element_count directly',
+  $$update public.boards set stored_element_count = 0 where id=(select v from ctx where k='board')::uuid$$,
   'permission denied');
 select pg_temp.throws('owner cannot hand their owner row to another person',
   $$update public.board_members set user_id='44444444-4444-4444-4444-444444444444'
@@ -488,6 +517,21 @@ select pg_temp.throws('per-author pending cap rejects the one past the limit',
   $$insert into public.templates (slug, title, author_user_id, author_name, payload)
     values ('cap-11', 'T', '22222222-2222-2222-2222-222222222222', 'Eddie', '[]'::jsonb)$$,
   'cap');
+reset role;
+
+-- A board with one live element can retain 3,999 tombstones, but no more.
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
+insert into public.board_elements (board_id, element_key, type, payload, deleted_at)
+  select (select v from ctx where k='client_key_board')::uuid, 'retained' || g,
+    'note', '{}'::jsonb, now() from generate_series(1, 3999) g;
+select pg_temp.ok('stored-row cap counts tombstones without lowering the live cap',
+  (select stored_element_count = 4000 and element_count = 1 from public.boards
+    where id=(select v from ctx where k='client_key_board')::uuid));
+select pg_temp.throws('the 4,001st stored row is rejected',
+  $$insert into public.board_elements (board_id, element_key, type, payload, deleted_at)
+    values ((select v from ctx where k='client_key_board')::uuid, 'retained4000', 'note', '{}'::jsonb, now())$$,
+  'storage cap');
 reset role;
 
 -- ------------------------------------------------------------ final gate

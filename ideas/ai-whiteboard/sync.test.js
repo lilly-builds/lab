@@ -39,8 +39,13 @@ function fakeSupabaseModule(server) {
         if (server.imports.has(args.p_import_key)) return { data: server.imports.get(args.p_import_key), error: null };
         const id = 'board-' + (server.imports.size + 1);
         server.imports.set(args.p_import_key, id);
-        args.p_scene.forEach((el) => rows.set(el.id, { element_key: el.id, board_id: id, type: el.type, payload: JSON.parse(JSON.stringify(el)), version: 1, updated_at: new Date(server.clock).toISOString(), deleted_at: null }));
+        /* SQL preserves the client's remapped key; it remaps only legacy ids. */
+        args.p_scene.forEach((el) => {
+          const key = el.id;
+          rows.set(key, { element_key: key, board_id: id, type: el.type, payload: JSON.parse(JSON.stringify(el)), version: 1, updated_at: new Date(server.clock).toISOString(), deleted_at: null });
+        });
         if (args.p_juice_balance > 0) { server.juiceImport = args.p_juice_balance; server.juiceBalance = args.p_juice_balance; }
+        if (server.dropImportReplyOnce) { server.dropImportReplyOnce = false; throw new Error('reply lost after commit'); }
         return { data: id, error: null };
       }
       if (fn === 'earn_juice') {
@@ -71,23 +76,28 @@ function fakeSupabaseModule(server) {
     },
     from: (table) => table === 'juice_balances' ? ({
       select: () => ({ eq: () => ({ eq: () => ({ then: (res) => Promise.resolve({ data: [{ balance: server.juiceBalance }], error: null }).then(res) }) }) })
-    }) : ({
-      select: () => ({
-        eq: (k, v) => ({
-          gt: (k2, v2) => ({
-            in: (k3, keys) => exec(v, v2, keys),
-            then: (res, rej) => exec(v, v2, null).then(res, rej)
-          })
-        })
-      })
-    }),
+    }) : ({ select: () => {
+      const q = { boardId: null, sinceIso: null, afterKey: null, keys: null, max: null };
+      const builder = {
+        eq(k, v) { if (k === 'board_id') q.boardId = v; return this; },
+        gt(k, v) { if (k === 'updated_at') q.sinceIso = v; if (k === 'element_key') q.afterKey = v; return this; },
+        in(k, v) { q.keys = v; return this; },
+        order() { return this; },
+        limit(n) { q.max = n; return this; },
+        then(resolve, reject) { return exec(q).then(resolve, reject); }
+      };
+      return builder;
+    } }),
     channel: () => { throw new Error('no realtime in fake'); }
   };
-  async function exec(boardId, sinceIso, keys) {
+  async function exec(q) {
     if (server.down) throw new Error('down');
-    const since = Date.parse(sinceIso);
-    let out = [...rows.values()].filter((r) => (!r.board_id || r.board_id === boardId) && Date.parse(r.updated_at) > since);
-    if (keys) out = out.filter((r) => keys.includes(r.element_key));
+    const since = Date.parse(q.sinceIso);
+    let out = [...rows.values()].filter((r) => (!r.board_id || r.board_id === q.boardId) && Date.parse(r.updated_at) > since);
+    if (q.keys) out = out.filter((r) => q.keys.includes(r.element_key));
+    if (q.afterKey) out = out.filter((r) => r.element_key > q.afterKey);
+    out.sort((a, b) => a.element_key.localeCompare(b.element_key));
+    out = out.slice(0, Math.min(q.max || 1000, server.maxRows || 1000));
     return { data: out, error: null };
   }
   return { createClient: () => client };
@@ -179,6 +189,16 @@ const tests = [
     sess.onSave(); /* no throw, stays local */
     assert.strictEqual(app._els[0].text, 'still local');
   }],
+  ['first import stays local if its recovery key cannot be saved', async () => {
+    const server = mkServer();
+    const storage = { getItem() { return null; }, setItem() { throw new Error('quota'); } };
+    const app = fakeApp([mkNote('e1', 'safe locally')]);
+    const sess = openDevice(server, storage, app).sess;
+    sess.onSave();
+    await until(() => sess.state === 'offline');
+    assert.strictEqual(server.imports.size, 0, 'no irreversible write without a durable key');
+    assert.strictEqual(app._els[0].text, 'safe locally');
+  }],
   ['first sync: scene imports, ids remap, board id stored; raced import dedupes', async () => {
     const server = mkServer();
     const app = fakeApp([
@@ -200,9 +220,49 @@ const tests = [
     assert([...server.rows.keys()].every((k) => !/^e\d+$/.test(k)), 'ids remapped');
     assert.strictEqual(server.juiceImport, 3, 'juice balance backfilled at import');
     assert(app._els.every((e) => !/^e\d+$/.test(e.id)), 'local scene rebound to new ids');
+    assert(app._els.every((e) => server.rows.has(e.id)), 'local ids match persisted keys');
     /* retry with the same import key dedupes server-side */
     const again = await fakeSupabaseModule(server).createClient().rpc('import_board', { p_scene: [], p_import_key: [...server.imports.keys()][0], p_juice_balance: 0 });
     assert.strictEqual(again.data, boardId, 'same board returned');
+  }],
+  ['committed import with lost reply reuses the same key and board after reload', async () => {
+    const server = mkServer(); server.dropImportReplyOnce = true;
+    const storage = memStorage();
+    const app = fakeApp([mkNote('e1', 'once'), mkNote('e9', 'remove while offline')]);
+    const first = openDevice(server, storage, app);
+    first.sess.onSave();
+    await until(() => first.sess.state === 'offline');
+    assert.strictEqual(server.imports.size, 1, 'server committed once');
+    assert.strictEqual(storage.getItem('aiwb.board'), null, 'no board id before a reply');
+    const storedKey = JSON.parse(storage.getItem('aiwb.sync.local.importKey'));
+    assert(server.imports.has(storedKey), 'key survived the lost response');
+    app._els[0].text = 'edited while offline';
+    app._els.splice(1, 1);
+    app._els.push(mkNote('e2', 'added while offline'));
+    app.save();
+    const retried = openDevice(server, storage, app);
+    retried.sess.onSave();
+    await until(() => retried.sess.state === 'online');
+    assert.strictEqual(server.imports.size, 1, 'retry did not create a second board');
+    assert.strictEqual(app._els.length, 2, 'offline edits survive the retry');
+    assert(app._els.some((e) => e.text === 'edited while offline'));
+    assert(app._els.some((e) => e.text === 'added while offline'));
+    assert(app._els.every((e) => server.rows.has(e.id)), 'retried elements match persisted keys');
+    assert.strictEqual([...server.rows.values()].filter((r) => !r.deleted_at).length, 2);
+    assert.strictEqual([...server.rows.values()].filter((r) => r.deleted_at).length, 1, 'offline deletion is retained');
+    assert.strictEqual(storage.getItem('aiwb.sync.local.importSource'), null, 'temporary import copy released');
+  }],
+  ['fresh device loads every row beyond the API default limit, including tombstones', async () => {
+    const server = mkServer(); server.maxRows = 1000;
+    for (let i = 0; i < 2050; i++) {
+      const id = 'k' + String(i).padStart(4, '0');
+      server.rows.set(id, { element_key: id, board_id: 'large-board', type: 'note',
+        payload: mkNote(id, id), version: 1, updated_at: new Date(1005000).toISOString(), deleted_at: i < 50 ? new Date(1005000).toISOString() : null });
+    }
+    const device = await joinDevice(server, 'large-board');
+    assert.strictEqual(device.app._els.length, 2000, 'all live rows loaded');
+    assert(!device.app._els.some((e) => e.id === 'k0000'), 'tombstone stays deleted');
+    assert(device.app._els.some((e) => e.id === 'k2049'), 'last page loaded');
   }],
   ['juice: online earn writes the ledger once; retry cannot double-count (AE4)', async () => {
     const server = mkServer();
