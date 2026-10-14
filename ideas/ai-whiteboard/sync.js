@@ -157,6 +157,20 @@
       } catch (e) { /* realtime unavailable: pull-on-save still syncs (fail open) */ }
     }
 
+    function makeEngine(boardId) {
+      return Engine.create({
+        boardId: boardId,
+        transport: transport(),
+        sanitize: sanitize,
+        /* the engine speaks get/set; Web Storage speaks getItem/setItem. Passing
+           it raw made every engine load/persist throw into its catch, so the
+           snapshot, outbox and cursor never survived a reload. */
+        storage: { get: lsGet, set: lsSet },
+        onDeadLetter: function () { badge('some changes need a resync'); },
+        onConflict: function () { badge('synced over a local change'); }
+      });
+    }
+
     async function init() {
       if (started) return;
       started = true;
@@ -171,14 +185,7 @@
           sess = await withTimeout(sb.auth.getSession(), timeoutMs);
         }
         myUserId = sess && sess.data && sess.data.session && sess.data.session.user && sess.data.session.user.id;
-        engine = Engine.create({
-          boardId: lsGet(BOARD_KEY) || 'local',
-          transport: transport(),
-          sanitize: sanitize,
-          storage: storage,
-          onDeadLetter: function () { badge('some changes need a resync'); },
-          onConflict: function () { badge('synced over a local change'); }
-        });
+        engine = makeEngine(lsGet(BOARD_KEY) || 'local');
         /* an invite link joins the shared board BEFORE any import would
            create a personal one (U7): the hook may set BOARD_KEY, which
            turns the first sync into the returning-device pull path */
@@ -196,6 +203,7 @@
           app.draw();
         } else {
           engine.attachRemote();
+          engine.seedScene(app.getEls()); /* delta rows merge into the device scene, never replace it */
           await engine.pull();
           app.setEls(engine.scene);   /* remote rows won conflicts: show the merged scene */
           app.save();
@@ -207,6 +215,36 @@
         scheduleFlush(0);
       } catch (e) {
         circuitOpen(); /* fail open: the app is fully local for the session (AE6) */
+      }
+    }
+
+    /* switch the live session to another board (R15 cloud choice). init() is a
+       no-op after first start, so this rebinds explicitly: push pending edits
+       to the old board, drop its channel, new engine, empty scene, full pull. */
+    async function openBoard(boardId) {
+      if (!boardId) return false;
+      if (!started) await init();
+      if (state !== 'online' || !sb || !engine) return false;
+      try {
+        try { engine.diff(app.getEls()); await engine.flush(); } catch (e) {}
+        if (channel && sb.removeChannel) { try { sb.removeChannel(channel); } catch (e) {} }
+        channel = null;
+        engine = null;               /* realtime and saves ignore the gap */
+        lsSet(BOARD_KEY, boardId);
+        var next = makeEngine(boardId);
+        next.attachRemote();
+        next.seedScene([]);
+        await next.pullFull();
+        engine = next;
+        app.clearUndo();
+        app.setEls(engine.scene);
+        app.save();
+        app.draw();
+        subscribe(boardId);
+        return true;
+      } catch (e) {
+        circuitOpen();
+        return false;
       }
     }
 
@@ -319,6 +357,7 @@
       get client() { return sb; },      /* auth.js and team.js share the one connection */
       get userId() { return myUserId; },
       init: init,
+      openBoard: openBoard,
       setBeforeImport: function (fn) { beforeImport = fn; },
       flush: doFlush,
       onSave: onSave

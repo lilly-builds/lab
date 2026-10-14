@@ -138,9 +138,11 @@
       }
       var raw = lsGet(storage, SCENE_KEY);
       if (raw && raw !== '[]') lsSet(storage, SCENE_KEY + '.prev.' + Date.now(), raw);
-      lsSet(storage, SCENE_KEY, '[]');
-      lsSet(storage, BOARD_KEY, boardId);
-      await session.init(); /* the returning-device path pulls the cloud board */
+      /* init() is a no-op after first start; openBoard rebinds the live session
+         (new engine, full pull, setEls/save/draw) and stores the board id only
+         once it succeeds, so a failed open leaves the device scene in place */
+      var opened = await session.openBoard(boardId);
+      if (!opened) return { ok: false, error: 'offline' };
       if (ui) ui.render({ claimed: claimed, name: claimName, choice: null });
       return { ok: true, mode: 'cloud', boardId: boardId };
     }

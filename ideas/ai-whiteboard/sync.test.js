@@ -26,7 +26,7 @@ function fakeApp(scene) {
 function fakeSupabaseModule(server) {
   /* mirrors the RPC + table API surface sync.js uses, over an in-memory store */
   const rows = server.rows;
-  let clock = 1000000;
+  server.clock = server.clock || 1000000; /* shared across sessions: two devices, one timeline */
   const client = {
     auth: {
       getSession: async () => { if (server.down) throw new Error('down'); return { data: { session: server.signedIn ? { user: { id: 'u1' } } : null } }; },
@@ -34,12 +34,12 @@ function fakeSupabaseModule(server) {
     },
     rpc: async (fn, args) => {
       if (server.down) throw new Error('down');
-      clock += 50;
+      server.clock += 50;
       if (fn === 'import_board') {
         if (server.imports.has(args.p_import_key)) return { data: server.imports.get(args.p_import_key), error: null };
         const id = 'board-' + (server.imports.size + 1);
         server.imports.set(args.p_import_key, id);
-        args.p_scene.forEach((el) => rows.set(el.id, { element_key: el.id, type: el.type, payload: JSON.parse(JSON.stringify(el)), version: 1, updated_at: new Date(clock).toISOString(), deleted_at: null }));
+        args.p_scene.forEach((el) => rows.set(el.id, { element_key: el.id, board_id: id, type: el.type, payload: JSON.parse(JSON.stringify(el)), version: 1, updated_at: new Date(server.clock).toISOString(), deleted_at: null }));
         if (args.p_juice_balance > 0) { server.juiceImport = args.p_juice_balance; server.juiceBalance = args.p_juice_balance; }
         return { data: id, error: null };
       }
@@ -56,13 +56,13 @@ function fakeSupabaseModule(server) {
           const cur = rows.get(op.element_key);
           if (!op.base_version) {
             if (cur) return { element_key: op.element_key, version: null, status: 'conflict' };
-            rows.set(op.element_key, { element_key: op.element_key, type: op.type, payload: op.payload, version: 1, updated_at: new Date(++clock).toISOString(), deleted_at: null });
+            rows.set(op.element_key, { element_key: op.element_key, board_id: args.p_board_id, type: op.type, payload: op.payload, version: 1, updated_at: new Date(++server.clock).toISOString(), deleted_at: null });
             return { element_key: op.element_key, version: 1, status: 'ok' };
           }
           if (!cur || cur.version !== op.base_version || cur.deleted_at) return { element_key: op.element_key, version: null, status: cur && cur.deleted_at && op.deleted ? 'ok' : 'conflict' };
           if (op.payload) cur.payload = op.payload;
-          if (op.deleted) cur.deleted_at = new Date(++clock).toISOString();
-          cur.version += 1; cur.updated_at = new Date(++clock).toISOString();
+          if (op.deleted) cur.deleted_at = new Date(++server.clock).toISOString();
+          cur.version += 1; cur.updated_at = new Date(++server.clock).toISOString();
           return { element_key: op.element_key, version: cur.version, status: 'ok' };
         });
         return { data: out, error: null };
@@ -86,13 +86,58 @@ function fakeSupabaseModule(server) {
   async function exec(boardId, sinceIso, keys) {
     if (server.down) throw new Error('down');
     const since = Date.parse(sinceIso);
-    let out = [...rows.values()].filter((r) => Date.parse(r.updated_at) > since);
+    let out = [...rows.values()].filter((r) => (!r.board_id || r.board_id === boardId) && Date.parse(r.updated_at) > since);
     if (keys) out = out.filter((r) => keys.includes(r.element_key));
     return { data: out, error: null };
   }
   return { createClient: () => client };
 }
 const mkServer = () => ({ rows: new Map(), imports: new Map(), down: false, idem: new Map(), earnSeq: 0, juiceBalance: 0 });
+
+/* ---- multi-device helpers (regression tests for the returning-device and cloud-choice bugs) ---- */
+const CFG = { url: 'https://x.supabase.co', anonKey: 'k' };
+const mkNote = (id, text) => ({ id, type: 'note', x: 0, y: 0, w: 1, h: 1, text });
+const until = async (fn, ms = 2000) => {
+  const s = Date.now();
+  while (!fn()) { if (Date.now() - s > ms) throw new Error('timed out waiting'); await new Promise((r) => setTimeout(r, 10)); }
+};
+function openDevice(server, storage, app) {
+  const sess = sync.createSession({ config: CFG, app, storage, loadSupabase: async () => fakeSupabaseModule(server), timeoutMs: 100 });
+  return { sess, storage, app };
+}
+/* a device that has done its first sync: 3 notes imported, ids remapped */
+async function firstDevice(server) {
+  const dev = openDevice(server, memStorage(), fakeApp([mkNote('e1', 'one'), mkNote('e2', 'two'), mkNote('e3', 'three')]));
+  dev.sess.onSave();
+  await until(() => dev.sess.state === 'online');
+  dev.boardId = dev.storage.getItem('aiwb.board');
+  return dev;
+}
+/* a second device (same board id, e.g. via invite or sign-in) with an empty scene: full pull on start */
+async function joinDevice(server, boardId) {
+  const storage = memStorage(); storage.setItem('aiwb.board', boardId);
+  const dev = openDevice(server, storage, fakeApp([]));
+  await until(() => dev.sess.state === 'online');
+  dev.boardId = boardId;
+  return dev;
+}
+/* A returning device keeps its cursor: park it just past everything the server has now, so the
+   next pull on that device is a true delta (the case a cursor-0 full pull hides). */
+function parkCursor(server, dev) {
+  server.clock += 100000; /* everything so far is now old news */
+  dev.storage.setItem('aiwb.sync.' + dev.boardId + '.cursor', JSON.stringify(server.clock + 6000)); /* pull sends cursor - 5s overlap */
+  server.clock += 20000;  /* whatever happens next is strictly newer than the parked cursor */
+}
+/* "close the tab, reopen it": same storage, scene read back from the saved copy */
+async function reloadDevice(server, dev) {
+  const saved = JSON.parse(JSON.stringify(dev.app._els));
+  const next = openDevice(server, dev.storage, fakeApp(saved));
+  await until(() => next.sess.state === 'online');
+  next.boardId = dev.boardId;
+  return next;
+}
+const live = (server, boardId) => [...server.rows.values()].filter((r) => r.board_id === boardId && !r.deleted_at);
+const tombs = (server, boardId) => [...server.rows.values()].filter((r) => r.board_id === boardId && r.deleted_at);
 
 const tests = [
   ['flag: ?sync=off always wins, then ?sync=on, then config default', async () => {
@@ -220,6 +265,92 @@ const tests = [
     await new Promise((r) => setTimeout(r, 150));
     assert.strictEqual(sess.state, 'online');
     assert(app._els.some((e) => e.id === 'k1' && e.text === 'cloud'), 'remote note merged');
+  }],
+  ['two members, return-reload-edit: a delta pull merges into the device scene; the next edit tombstones nothing', async () => {
+    const server = mkServer();
+    const A = await firstDevice(server);
+    const keys = A.app._els.map((e) => e.id);
+    const B = await joinDevice(server, A.boardId);
+    assert.strictEqual(B.app._els.length, 3, 'second member sees the board');
+    parkCursor(server, A); /* A is closed; its saved cursor sits past all current rows */
+    B.app._els[0].text = 'edited by B';
+    B.sess.onSave(); await B.sess.flush();
+    /* A returns: the pull is a one-row delta, but A still shows all three notes */
+    const A2 = await reloadDevice(server, A);
+    assert.strictEqual(A2.app._els.length, 3, 'delta merged into the saved scene, not substituted for it');
+    assert.strictEqual(A2.app._els.find((e) => e.id === keys[0]).text, 'edited by B', 'remote edit applied');
+    A2.app._els[1].text = 'edited after return';
+    A2.sess.onSave(); await A2.sess.flush();
+    assert.strictEqual(tombs(server, A.boardId).length, 0, 'nothing tombstoned for any member');
+    assert.strictEqual(live(server, A.boardId).length, 3);
+    assert.strictEqual(server.rows.get(keys[1]).payload.text, 'edited after return');
+    assert.strictEqual(server.rows.get(keys[2]).version, 1, 'untouched note never rewritten');
+  }],
+  ['a genuine local delete still propagates as a tombstone after a reload', async () => {
+    const server = mkServer();
+    const A = await firstDevice(server);
+    const keys = A.app._els.map((e) => e.id);
+    A.app._els.splice(2, 1);
+    A.sess.onSave(); await A.sess.flush();
+    assert.deepStrictEqual(tombs(server, A.boardId).map((r) => r.element_key), [keys[2]], 'only the deleted note is tombstoned');
+    assert.strictEqual(live(server, A.boardId).length, 2);
+    parkCursor(server, A);
+    const A2 = await reloadDevice(server, A);
+    A2.app._els[0].text = 'later edit';
+    A2.sess.onSave(); await A2.sess.flush();
+    assert.strictEqual(tombs(server, A.boardId).length, 1, 'no additional tombstones');
+    assert.strictEqual(A2.app._els.length, 2);
+  }],
+  ['a remote tombstone removes the element locally and is not resurrected', async () => {
+    const server = mkServer();
+    const A = await firstDevice(server);
+    const keys = A.app._els.map((e) => e.id);
+    const B = await joinDevice(server, A.boardId);
+    parkCursor(server, B);
+    A.app._els.splice(2, 1);
+    A.sess.onSave(); await A.sess.flush();
+    const B2 = await reloadDevice(server, B); /* B's saved scene still has all three */
+    assert.strictEqual(B2.app._els.length, 2, 'tombstone applied to the seeded scene');
+    assert(!B2.app._els.some((e) => e.id === keys[2]), 'deleted note is gone');
+    B2.app._els[0].text = 'B keeps working';
+    B2.sess.onSave(); await B2.sess.flush();
+    assert(server.rows.get(keys[2]).deleted_at, 'still deleted server-side');
+    assert.strictEqual(live(server, A.boardId).length, 2, 'not resurrected by B');
+  }],
+  ['version conflict resolves to server state', async () => {
+    const server = mkServer();
+    const A = await firstDevice(server);
+    const key = A.app._els[0].id;
+    const B = await joinDevice(server, A.boardId);
+    B.app._els.find((e) => e.id === key).text = 'B wins';
+    B.sess.onSave(); await B.sess.flush();
+    assert.strictEqual(server.rows.get(key).version, 2);
+    A.app._els[0].text = 'A stale edit'; /* A never pulled B's change */
+    A.sess.onSave(); await A.sess.flush();
+    assert.strictEqual(A.app._els.find((e) => e.id === key).text, 'B wins', 'local copy replaced by server state');
+    assert.strictEqual(server.rows.get(key).payload.text, 'B wins', 'server unchanged by the stale write');
+    assert.strictEqual(A.sess.engine.outboxOps().length, 0);
+    assert.strictEqual(A.sess.engine.deadLetters().length, 0);
+  }],
+  ['cloud choice after session start: openBoard loads the chosen board and syncs there', async () => {
+    const server = mkServer();
+    const A = await firstDevice(server); /* session already started, on its own board */
+    const ownKeys = A.app._els.map((e) => e.id);
+    ['c1', 'c2'].forEach((id) => server.rows.set(id, {
+      element_key: id, board_id: 'cloud-1', type: 'note', payload: mkNote(id, 'cloud ' + id),
+      version: 3, updated_at: new Date(1000500).toISOString(), deleted_at: null
+    }));
+    await A.sess.init(); /* the no-op the old code relied on */
+    assert.deepStrictEqual(A.app._els.map((e) => e.id), ownKeys, 'init() alone changes nothing');
+    assert.strictEqual(await A.sess.openBoard('cloud-1'), true);
+    assert.deepStrictEqual(A.app._els.map((e) => e.id).sort(), ['c1', 'c2'], 'cloud board shown, own board not mixed in');
+    assert.strictEqual(A.storage.getItem('aiwb.board'), 'cloud-1');
+    A.app._els[0].text = 'edited on the cloud board';
+    A.sess.onSave(); await A.sess.flush();
+    assert.strictEqual(server.rows.get('c1').payload.text, 'edited on the cloud board', 'edits now sync to the chosen board');
+    assert.strictEqual(server.rows.get('c1').version, 4);
+    assert.strictEqual(live(server, A.boardId).length, 3, 'the previous board is untouched, not tombstoned');
+    assert.strictEqual(tombs(server, A.boardId).length, 0);
   }]
 ];
 

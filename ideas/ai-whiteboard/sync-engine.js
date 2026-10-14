@@ -103,6 +103,12 @@
     /* attach to a board that already exists server-side (second device) */
     function attachRemote() { persist(); }
 
+    /* a returning device already holds a scene: load it BEFORE pulling so the
+       delta merges into it. Without this the scene starts empty, the delta
+       replaces the whole board, and the next diff() tombstones every key the
+       snapshot knows but the scene lacks - for every member. */
+    function seedScene(els) { engine.scene = (els || []).slice(); }
+
     /* save() hook: diff the current scene against the last-synced snapshot.
        Returns the ops queued by this call. One queued op per key; latest intent wins. */
     function diff(scene) {
@@ -226,6 +232,15 @@
       return res;
     }
 
+    /* opening a board this engine has no trusted local state for: forget any
+       persisted snapshot/outbox/cursor and fetch everything */
+    async function pullFull() {
+      Object.keys(snapshot).forEach(function (k) { delete snapshot[k]; });
+      Object.keys(outbox).forEach(function (k) { delete outbox[k]; });
+      cursor = 0;
+      return pull();
+    }
+
     /* post-conflict: re-pull exactly those keys, server state wins */
     async function reconcile(keys) {
       var rows = await transport.pull(boardId, 0, keys);
@@ -306,6 +321,8 @@
     engine.diff = diff;
     engine.flush = flush;
     engine.pull = pull;
+    engine.pullFull = pullFull;
+    engine.seedScene = seedScene;
     engine.applyRemoteRows = applyRemoteRows;
     engine.recordLocalChange = recordLocalChange;
     engine.undoLast = undoLast;

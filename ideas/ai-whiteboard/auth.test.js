@@ -33,7 +33,11 @@ function fakeSb(server) {
   };
 }
 function mkSession(server, state) {
-  return { state: state || 'online', client: fakeSb(server), userId: 'u1', inits: 0, init: async function () { this.inits++; } };
+  return {
+    state: state || 'online', client: fakeSb(server), userId: 'u1', inits: 0, opened: [],
+    init: async function () { this.inits++; },   /* a no-op after first start, like the real one */
+    openBoard: async function (id) { this.opened.push(id); return true; }
+  };
 }
 
 const tests = [
@@ -100,12 +104,16 @@ const tests = [
     storage.setItem('aiwb.scene', JSON.stringify([{ id: 'e1', type: 'note' }]));
     const open = await a.resolveChoice('cloud', 'b1');
     assert.strictEqual(open.mode, 'cloud');
-    assert.strictEqual(storage.getItem('aiwb.board'), 'b1');
-    assert.strictEqual(storage.getItem('aiwb.scene'), '[]');
     const stashKey = [...storage._m.keys()].find((k) => k.indexOf('aiwb.scene.prev.') === 0);
     assert(stashKey, 'local scene stashed, restorable');
     assert(storage.getItem(stashKey).includes('e1'));
-    assert.strictEqual(session.inits, 1, 'returning-device pull kicked off');
+    assert.deepStrictEqual(session.opened, ['b1'], 'the live session is rebound to the cloud board');
+    assert.strictEqual(session.inits, 0, 'init() is not relied on (no-op after first start)');
+    /* a failed open reports offline and leaves the device scene alone */
+    session.openBoard = async () => false;
+    const bad = await a.resolveChoice('cloud', 'b1');
+    assert.strictEqual(bad.ok, false);
+    assert(storage.getItem('aiwb.scene').includes('e1'), 'device scene intact after failed open');
   }],
   ['no cloud boards: no choice, the first save imports normally', async () => {
     const server = mkServer(), storage = memStorage();
