@@ -97,14 +97,23 @@ create policy templates_author_update on public.templates
   with check (author_user_id = auth.uid() and status = 'pending');
 
 -- ------------------------------------------------------------------- grants
+-- Supabase's default privileges grant ALL on every new public table and view
+-- to anon and authenticated, which would make the column grants below dead
+-- letters (clients could write profiles.email, boards.element_count,
+-- board_members.user_id). Start both API roles from nothing, then grant
+-- exactly what each needs.
+revoke all on public.profiles, public.boards, public.board_elements, public.board_members,
+  public.invites, public.invite_accept_attempts, public.juice_events, public.templates,
+  public.juice_balances, public.board_member_profiles
+  from public, anon, authenticated;
 grant select on public.profiles to authenticated;
 grant update (display_name) on public.profiles to authenticated;
 grant select on public.boards to authenticated;
 grant update (title, archived_at) on public.boards to authenticated;
 grant select on public.board_elements to authenticated;
-grant insert, update on public.board_elements to authenticated;
+grant insert, update (payload, deleted_at) on public.board_elements to authenticated;
 grant select on public.board_members to authenticated;
-grant update, delete on public.board_members to authenticated;
+grant update (role), delete on public.board_members to authenticated;
 grant select on public.invites to authenticated;
 grant insert, update on public.invites to authenticated;
 grant select on public.juice_events to authenticated;
@@ -179,7 +188,8 @@ begin
 
   return v_board;
 end $$;
-revoke all on function public.import_board(jsonb, text, int) from public;
+-- Supabase also grants EXECUTE to anon by default; signed-out callers get nothing.
+revoke all on function public.import_board(jsonb, text, int) from public, anon;
 grant execute on function public.import_board(jsonb, text, int) to authenticated;
 
 -- ============================================================ upsert_elements
@@ -247,7 +257,7 @@ begin
     if v_tomb then
       -- tombstone wins: an undelete or edit against a deleted row conflicts
       if coalesce((v_el->>'deleted')::boolean, false) then
-        element_key := v_key; version := v_ver; status := 'ok'; return next;  -- delete of deleted: no-op
+        element_key := v_key; version := v_ver; status := 'ok'; return next; continue;  -- delete of deleted: no-op
       end if;
       element_key := v_key; version := null; status := 'conflict'; return next; continue;
     end if;
@@ -273,7 +283,7 @@ begin
   end loop;
   return;
 end $$;
-revoke all on function public.upsert_elements(uuid, jsonb) from public;
+revoke all on function public.upsert_elements(uuid, jsonb) from public, anon;
 grant execute on function public.upsert_elements(uuid, jsonb) to authenticated;
 
 -- ================================================================ earn_juice
@@ -379,7 +389,7 @@ begin
 
   event_id := v_event; reason := v_reason; amount := v_amount; already_earned := false; return next; return;
 end $$;
-revoke all on function public.earn_juice(uuid, text, text) from public;
+revoke all on function public.earn_juice(uuid, text, text) from public, anon;
 grant execute on function public.earn_juice(uuid, text, text) to authenticated;
 
 -- ============================================================== accept_invite
@@ -408,9 +418,12 @@ begin
   end if;
 
   select * into v_inv from public.invites where token = p_token for update;
+  -- A used link re-opened by the person who used it only re-confirms a live
+  -- membership; once the owner removes them, the old link is dead.
   if not found or v_inv.revoked_at is not null
      or (v_inv.expires_at is not null and v_inv.expires_at <= now())
-     or (v_inv.accepted_by is not null and v_inv.accepted_by <> v_uid) then
+     or (v_inv.accepted_by is not null and v_inv.accepted_by <> v_uid)
+     or (v_inv.accepted_by = v_uid and not public.is_board_member(v_inv.board_id)) then
     insert into public.invite_accept_attempts (token_attempted, user_id, succeeded)
     values (left(p_token, 128), v_uid, false);
     board_id := null; role := null; error := 'invalid_invite'; return next; return;
@@ -429,7 +442,7 @@ begin
 
   board_id := v_inv.board_id; role := v_inv.role; error := null; return next; return;
 end $$;
-revoke all on function public.accept_invite(text) from public;
+revoke all on function public.accept_invite(text) from public, anon;
 grant execute on function public.accept_invite(text) to authenticated;
 
 -- =============================================================== claim_email
@@ -440,10 +453,11 @@ create or replace function public.claim_email(p_display_name text)
   language plpgsql security definer set search_path = pg_catalog, public as $$
 declare
   v_uid uuid := auth.uid();
-  v_email citext := (auth.jwt() ->> 'email')::citext;
+  -- Anonymous sessions carry "email": "" until an address is confirmed.
+  v_email citext := nullif(btrim(auth.jwt() ->> 'email'), '')::citext;
 begin
   if v_uid is null then raise exception 'not authenticated' using errcode = 'insufficient_privilege'; end if;
-  if v_email is null then
+  if v_email is null or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) then
     raise exception 'session has no verified email' using errcode = 'insufficient_privilege';
   end if;
   if p_display_name is null or btrim(p_display_name) = '' then
@@ -453,7 +467,7 @@ begin
     set email = v_email, display_name = btrim(p_display_name), claimed_at = coalesce(claimed_at, now())
     where id = v_uid;
 end $$;
-revoke all on function public.claim_email(text) from public;
+revoke all on function public.claim_email(text) from public, anon;
 grant execute on function public.claim_email(text) to authenticated;
 
 -- ================================================================== realtime

@@ -1,6 +1,9 @@
 -- U2/U3 verification: schema constraints, RLS policies, RPC semantics.
--- Runs against a scratch Postgres with a stubbed auth schema (local harness)
--- or a local Supabase stack via psql. Assertion log lands in test_results.
+-- Runs against a local Supabase stack via psql, or a scratch Postgres that
+-- mirrors Supabase (anon/authenticated roles, Supabase's default ALL grants on
+-- public, auth.uid()/auth.jwt() reading request.jwt.claims). Sessions are set
+-- through request.jwt.claims, the same setting PostgREST uses, so the suite
+-- exercises the real auth functions. Assertion log lands in test_results.
 create temp table test_results (ord serial, name text, ok boolean, detail text);
 create or replace function pg_temp.log(p_name text, p_ok boolean, p_detail text default '')
   returns void language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
@@ -18,7 +21,7 @@ exception when others then
 end $$;
 
 -- ------------------------------------------------------------ test accounts
-select set_config('test.uid', '', false);
+select set_config('request.jwt.claims', '', false);
 insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'owner@example.com'),
   ('22222222-2222-2222-2222-222222222222', 'editor@example.com'),
@@ -33,7 +36,7 @@ grant select on pg_temp.test_results to authenticated, anon;
 
 -- ------------------------------------------------------- fixture import (A)
 set role authenticated;
-select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
 insert into ctx values ('board', public.import_board('[
   {"id":"e1","type":"ellipse","x":0,"y":0,"w":200,"h":200},
   {"id":"e2","type":"text","x":0,"y":-51,"w":280,"size":24,"text":"Dream"},
@@ -72,10 +75,10 @@ select pg_temp.ok('raced import did not duplicate elements',
   (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 11);
 
 -- another account cannot claim the same import key
-select set_config('test.uid', '44444444-4444-4444-4444-444444444444', false);
+select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', false);
 select pg_temp.throws('import_key of another account is rejected',
   $$select public.import_board('[]'::jsonb, 'import-test-key-0001', 0)$$, 'another account');
-select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
 
 -- malformed element rolls back the whole import
 select pg_temp.throws('import with one malformed element fails',
@@ -108,7 +111,7 @@ select pg_temp.ok('cap failure left element_count unchanged',
   (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 11);
 
 -- trigger-set integrity fields override client-supplied values
-select set_config('test.uid', '', false);
+select set_config('request.jwt.claims', '', false);
 insert into public.board_elements (board_id, element_key, type, payload, version, updated_by, updated_at)
   values ((select v from ctx where k='board')::uuid, 'trig1', 'note', '{}'::jsonb, 99, '44444444-4444-4444-4444-444444444444', '2001-01-01');
 select pg_temp.ok('client-supplied version/updated_by/updated_at overridden by triggers',
@@ -118,7 +121,7 @@ delete from public.board_elements where board_id=(select v from ctx where k='boa
 
 -- ------------------------------------------- memberships: invites and joins
 set role authenticated;
-select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
 insert into public.invites (board_id, created_by, role) values ((select v from ctx where k='board')::uuid, '11111111-1111-1111-1111-111111111111', 'editor');
 insert into ctx values ('invite_editor', (select token from public.invites where board_id=(select v from ctx where k='board')::uuid and role='editor' order by created_at desc limit 1));
 insert into public.invites (board_id, created_by, role) values ((select v from ctx where k='board')::uuid, '11111111-1111-1111-1111-111111111111', 'viewer');
@@ -129,10 +132,13 @@ insert into public.invites (board_id, created_by, role) values ((select v from c
 insert into ctx values ('invite_throttle', (select token from public.invites where board_id=(select v from ctx where k='board')::uuid and role='editor' and accepted_by is null and expires_at is null order by created_at desc limit 1));
 insert into public.invites (board_id, created_by, role, revoked_at) values ((select v from ctx where k='board')::uuid, '11111111-1111-1111-1111-111111111111', 'editor', now());
 insert into ctx values ('invite_revoked', (select token from public.invites where board_id=(select v from ctx where k='board')::uuid and revoked_at is not null order by created_at desc limit 1));
+insert into public.invites (board_id, role) values ((select v from ctx where k='board')::uuid, 'viewer');  -- team.js insert shape
+select pg_temp.ok('an invite sent without created_by is stamped with the session user',
+  (select created_by from public.invites where board_id=(select v from ctx where k='board')::uuid order by created_at desc limit 1) = '11111111-1111-1111-1111-111111111111');
 select pg_temp.ok('invite tokens are >=128-bit url-safe',
   (select min(length(token)) from public.invites) >= 22 and (select bool_and(token ~ '^[A-Za-z0-9_-]+$') from public.invites));
 
-select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', false);
 insert into ctx values ('join_board', (select board_id::text from public.accept_invite((select v from ctx where k='invite_editor'))));
 select pg_temp.ok('accept_invite lands the member on the shared board',
   (select v from ctx where k='join_board') = (select v from ctx where k='board'));
@@ -141,7 +147,7 @@ select pg_temp.ok('member role comes from the invite',
 select pg_temp.ok('re-accept by the same person is idempotent',
   (select error is null from public.accept_invite((select v from ctx where k='invite_editor'))));
 
-select set_config('test.uid', '33333333-3333-3333-3333-333333333333', false);
+select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', false);
 insert into ctx values ('viewer_accept', (select row_to_json(r)::text from public.accept_invite((select v from ctx where k='invite_viewer')) r));
 select pg_temp.ok('viewer invite accepted',
   (select coalesce((v::jsonb ->> 'error'), '') = '' from ctx where k='viewer_accept')
@@ -149,7 +155,7 @@ select pg_temp.ok('viewer invite accepted',
   (select v from ctx where k='viewer_accept'));
 
 -- stranger: used, expired, revoked tokens all fail and record attempts
-select set_config('test.uid', '44444444-4444-4444-4444-444444444444', false);
+select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', false);
 select pg_temp.ok('single-use token rejected for a second person',
   (select error from public.accept_invite((select v from ctx where k='invite_editor'))) = 'invalid_invite');
 select pg_temp.ok('expired token rejected',
@@ -167,17 +173,17 @@ select pg_temp.ok('repeated failed attempts are throttled',
   (select error from public.accept_invite((select v from ctx where k='invite_throttle'))) = 'too_many_attempts');
 
 -- ---------------------------------------------------------------- RLS reads
-select set_config('test.uid', '44444444-4444-4444-4444-444444444444', false);
+select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', false);
 select pg_temp.ok('stranger reads no board rows',
   (select count(*) from public.board_elements where board_id=(select v from ctx where k='board')::uuid) = 0
   and (select count(*) from public.boards where id=(select v from ctx where k='board')::uuid) = 0
   and (select count(*) from public.juice_events where board_id=(select v from ctx where k='board')::uuid) = 0
   and (select count(*) from public.board_members where board_id=(select v from ctx where k='board')::uuid) = 0);
-select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', false);
 select pg_temp.ok('member reads board rows',
   (select count(*) from public.board_elements where board_id=(select v from ctx where k='board')::uuid) = 11
   and (select count(*) from public.boards where id=(select v from ctx where k='board')::uuid) = 1);
-select set_config('test.uid', '33333333-3333-3333-3333-333333333333', false);
+select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', false);
 select pg_temp.ok('viewer reads board rows',
   (select count(*) from public.board_elements where board_id=(select v from ctx where k='board')::uuid) = 11);
 
@@ -185,21 +191,21 @@ select pg_temp.ok('viewer reads board rows',
 select pg_temp.ok('co-members see display names and disambiguator ids, not emails',
   (select count(*) from public.board_member_profiles where board_id=(select v from ctx where k='board')::uuid) = 3
   and (select count(*) from information_schema.columns where table_schema='public' and table_name='board_member_profiles' and column_name='email') = 0);
-select set_config('test.uid', '44444444-4444-4444-4444-444444444444', false);
+select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', false);
 select pg_temp.ok('stranger sees no member profiles',
   (select count(*) from public.board_member_profiles) = 0);
 select pg_temp.ok('stranger cannot read a profile row',
   (select count(*) from public.profiles where id='11111111-1111-1111-1111-111111111111') = 0);
 
 -- ------------------------------------------------------ role change pinning
-select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', false);
 update public.board_members set role='viewer' where board_id=(select v from ctx where k='board')::uuid and user_id='33333333-3333-3333-3333-333333333333';
 select pg_temp.ok('role change by a non-owner silently matches nothing',
   (select role from public.board_members where board_id=(select v from ctx where k='board')::uuid and user_id='33333333-3333-3333-3333-333333333333') = 'viewer');
 update public.board_members set role='owner' where board_id=(select v from ctx where k='board')::uuid and user_id='22222222-2222-2222-2222-222222222222';
 select pg_temp.ok('self-promotion to owner blocked',
   (select role from public.board_members where board_id=(select v from ctx where k='board')::uuid and user_id='22222222-2222-2222-2222-222222222222') = 'editor');
-select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
 select pg_temp.throws('owner row cannot be demoted',
   $$update public.board_members set role='editor' where board_id=(select v from ctx where k='board')::uuid and user_id='11111111-1111-1111-1111-111111111111'$$,
   'demoted');
@@ -220,7 +226,7 @@ select pg_temp.throws('board owner_id is immutable',
 set role authenticated;
 
 -- ------------------------------------------------------ viewer cannot write
-select set_config('test.uid', '33333333-3333-3333-3333-333333333333', false);
+select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', false);
 select pg_temp.throws('viewer element insert rejected (AE7)',
   $$insert into public.board_elements (board_id, element_key, type, payload)
     values ((select v from ctx where k='board')::uuid, 'vw1', 'note', '{}'::jsonb)$$,
@@ -241,8 +247,21 @@ select pg_temp.throws('member cannot insert a ledger row directly',
     values ((select v from ctx where k='board')::uuid, '33333333-3333-3333-3333-333333333333', 'x', 'dream_completed', 10, 'direct-insert-1')$$,
   'permission denied|row-level security');
 
+-- a removed member's old single-use link is dead, not a way back in
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
+delete from public.board_members where board_id=(select v from ctx where k='board')::uuid and user_id='33333333-3333-3333-3333-333333333333';
+select pg_temp.ok('owner removes a member',
+  (select count(*) from public.board_members where board_id=(select v from ctx where k='board')::uuid and user_id='33333333-3333-3333-3333-333333333333') = 0);
+select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', false);
+select pg_temp.ok('a removed member cannot rejoin with their old invite link',
+  (select error from public.accept_invite((select v from ctx where k='invite_viewer'))) = 'invalid_invite');
+reset role;
+select pg_temp.ok('the removed member stays removed',
+  (select count(*) from public.board_members where board_id=(select v from ctx where k='board')::uuid and user_id='33333333-3333-3333-3333-333333333333') = 0);
+set role authenticated;
+
 -- ---------------------------------------------------------------- earn_juice
-select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
 insert into ctx values ('earn1', (select row_to_json(r)::text from (select * from public.earn_juice((select v from ctx where k='board')::uuid, (select v from ctx where k='key_dream note'), 'earn-key-0001')) r));
 select pg_temp.ok('earn derives dream circle and 10 from the note position, not the client',
   (select v from ctx where k='earn1')::jsonb ->> 'reason' = 'dream_completed'
@@ -273,16 +292,16 @@ select pg_temp.throws('earn without l1Done fails',
 select pg_temp.throws('earn outside every circle fails',
   $$select public.earn_juice((select v from ctx where k='board')::uuid, (select v from ctx where k='key_outside'), 'earn-key-0006')$$,
   'not in any circle');
-select set_config('test.uid', '44444444-4444-4444-4444-444444444444', false);
+select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', false);
 select pg_temp.throws('earn as non-member fails',
   $$select public.earn_juice((select v from ctx where k='board')::uuid, (select v from ctx where k='key_want note'), 'earn-key-0007')$$,
   'not a board editor');
-select set_config('test.uid', '11111111-1111-1111-1111-111111111111', false);
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
 select pg_temp.ok('balance equals the ledger sum (7 imported + 10 + 2 + 1)',
   (select balance from public.juice_balances where board_id=(select v from ctx where k='board')::uuid and user_id='11111111-1111-1111-1111-111111111111') = 20);
 
 -- ------------------------------------------------------------- upsert_elements
-select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', false);
 select pg_temp.ok('editor creates an element at version 1',
   (select r.status = 'ok' and r.version = 1 from public.upsert_elements((select v from ctx where k='board')::uuid,
     '[{"element_key":"u1","base_version":0,"type":"note","payload":{"x":1,"y":1,"w":10,"h":10,"text":"hi"}}]'::jsonb) r));
@@ -315,27 +334,88 @@ select pg_temp.ok('oversized, data: URL, and malformed-key elements are rejected
       || '{"element_key":"bad3","base_version":0,"payload":{}}]')::jsonb)) r where r.status = 'rejected') = 4);
 select pg_temp.ok('element_count tracks live rows after create and tombstone',
   (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 12);
-select set_config('test.uid', '44444444-4444-4444-4444-444444444444', false);
+select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-4444-444444444444","role":"authenticated"}', false);
 select pg_temp.throws('stranger cannot call upsert_elements',
   $$select public.upsert_elements((select v from ctx where k='board')::uuid, '[{"element_key":"st1","base_version":0,"type":"note"}]'::jsonb)$$,
   'not a board editor');
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', false);
+select pg_temp.ok('re-deleting a tombstone answers exactly once',
+  (select count(*) from public.upsert_elements((select v from ctx where k='board')::uuid,
+    '[{"element_key":"u1","base_version":3,"deleted":true}]'::jsonb)) = 1);
+
+-- ------------------------------ direct writes under Supabase's default grants
+-- Supabase grants ALL on every new public table to anon and authenticated.
+-- These hold only because the migration revokes that first, so the column
+-- grants bind, and because the element counter runs with owner rights.
+insert into public.board_elements (board_id, element_key, type, payload)
+  values ((select v from ctx where k='board')::uuid, 'ed1', 'note', '{}'::jsonb);
+select pg_temp.ok('editor direct insert is counted (the cap cannot be dodged by skipping the RPC)',
+  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 13);
+update public.board_elements set deleted_at = now()
+  where board_id=(select v from ctx where k='board')::uuid and element_key='ed1';
+select pg_temp.ok('editor direct tombstone is counted',
+  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 12);
+select pg_temp.throws('editor bulk direct insert past the cap is rejected',
+  $$insert into public.board_elements (board_id, element_key, type, payload)
+    select (select v from ctx where k='board')::uuid, 'edcap' || g, 'note', '{}'::jsonb from generate_series(1, 2000) g$$,
+  'cap');
+select pg_temp.ok('the editor cap failure left element_count unchanged',
+  (select element_count from public.boards where id=(select v from ctx where k='board')::uuid) = 12);
+select pg_temp.throws('editor cannot move an element to another key or board',
+  $$update public.board_elements set element_key='moved1'
+    where board_id=(select v from ctx where k='board')::uuid and element_key=(select v from ctx where k='key_want note')$$,
+  'permission denied');
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
+select pg_temp.throws('owner cannot rewrite element_count directly',
+  $$update public.boards set element_count = 0 where id=(select v from ctx where k='board')::uuid$$,
+  'permission denied');
+select pg_temp.throws('owner cannot hand their owner row to another person',
+  $$update public.board_members set user_id='44444444-4444-4444-4444-444444444444'
+    where board_id=(select v from ctx where k='board')::uuid and user_id='11111111-1111-1111-1111-111111111111'$$,
+  'permission denied');
+select pg_temp.throws('owner cannot move a member row onto another person',
+  $$update public.board_members set user_id='44444444-4444-4444-4444-444444444444'
+    where board_id=(select v from ctx where k='board')::uuid and user_id='22222222-2222-2222-2222-222222222222'$$,
+  'permission denied');
+reset role;
+select pg_temp.throws('membership rows cannot be moved even with table rights',
+  $$update public.board_members set user_id='44444444-4444-4444-4444-444444444444'
+    where board_id=(select v from ctx where k='board')::uuid and user_id='22222222-2222-2222-2222-222222222222'$$,
+  'cannot be moved');
+select pg_temp.throws('elements cannot be moved even with table rights',
+  $$update public.board_elements set element_key='moved1'
+    where board_id=(select v from ctx where k='board')::uuid and element_key=(select v from ctx where k='key_want note')$$,
+  'cannot be moved');
+set role authenticated;
 
 -- --------------------------------------------------------------- claim_email
-select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
-select set_config('test.jwt', '{"email":"editor@example.com"}', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated","email":"editor@example.com"}', false);
 select public.claim_email('Ed');
 select pg_temp.ok('claim sets email, display name, claimed_at from the session jwt',
   (select email = 'editor@example.com' and display_name = 'Ed' and claimed_at is not null
     from public.profiles where id = '22222222-2222-2222-2222-222222222222'));
 select pg_temp.ok('claim keeps the same user id, so memberships and juice follow (R3)',
   (select role from public.board_members where board_id=(select v from ctx where k='board')::uuid and user_id='22222222-2222-2222-2222-222222222222') = 'editor');
-select set_config('test.jwt', '{}', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', false);
 select pg_temp.throws('claim without a verified session email fails',
   $$select public.claim_email('X')$$, 'no verified email');
-select set_config('test.jwt', '{"email":"editor@example.com"}', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated","email":""}', false);
+select pg_temp.throws('claim with a blank session email fails (anonymous sessions carry "")',
+  $$select public.claim_email('X')$$, 'no verified email');
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated","email":"editor@example.com","is_anonymous":true}', false);
+select pg_temp.throws('claim from an anonymous session fails',
+  $$select public.claim_email('X')$$, 'no verified email');
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated","email":"editor@example.com"}', false);
 select pg_temp.throws('clients cannot set the email column directly',
   $$update public.profiles set email='other@example.com' where id='22222222-2222-2222-2222-222222222222'$$,
   'permission denied');
+select pg_temp.throws('clients cannot set claimed_at directly',
+  $$update public.profiles set claimed_at=now() where id='22222222-2222-2222-2222-222222222222'$$,
+  'permission denied');
+update public.profiles set display_name='Ed direct' where id='22222222-2222-2222-2222-222222222222';
+select pg_temp.ok('clients can still set their own display name directly',
+  (select display_name from public.profiles where id='22222222-2222-2222-2222-222222222222') = 'Ed direct');
 select public.claim_email('Eddie');
 select pg_temp.ok('display name updates through the claim path',
   (select display_name from public.profiles where id='22222222-2222-2222-2222-222222222222') = 'Eddie');
@@ -345,24 +425,40 @@ select pg_temp.ok('a member cannot read another profile row',
   (select count(*) from public.profiles where id='11111111-1111-1111-1111-111111111111') = 0);
 
 -- ----------------------------------------------------------------- templates
-select set_config('test.uid', '', false);
+select set_config('request.jwt.claims', '', false);
 set role anon;
 select pg_temp.ok('signed-out visitor sees no unpublished templates',
-  (select count(*) from public.templates) = 0);
+  (select count(*) from public.templates where status <> 'published') = 0);
+select pg_temp.throws('signed-out visitors cannot call the write RPCs',
+  $$select public.import_board('[]'::jsonb, 'anon-import-0001', 0)$$, 'permission denied');
 set role authenticated;
-select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', false);
 insert into public.templates (slug, title, author_user_id, author_name, payload)
   values ('t-one', 'First', '22222222-2222-2222-2222-222222222222', 'Eddie', '[]'::jsonb);
 select pg_temp.ok('submission lands pending with author attribution',
   (select status from public.templates where slug='t-one') = 'pending');
 select pg_temp.ok('author sees their pending row',
   (select count(*) from public.templates where slug='t-one') = 1);
-select set_config('test.uid', '', false);
+insert into public.templates (slug, title, description, author_name, author_x, payload, status)
+  values ('t-app', 'App shape', '', 'Eddie', null, '[{"type":"note"}]'::jsonb, 'pending');  -- templates.js insert shape
+select pg_temp.ok('a submission sent without author_user_id is stamped with the session user',
+  (select author_user_id from public.templates where slug='t-app') = '22222222-2222-2222-2222-222222222222');
+insert into public.templates (slug, title, author_name, payload, status, is_sample, published_at)
+  values ('t-preset', 'Preset', 'Eddie', '[{"type":"note"}]'::jsonb, 'pending', true, '1970-01-01');
+select pg_temp.ok('a submission cannot pre-set the sample flag or publish date',
+  (select not is_sample and published_at is null from public.templates where slug='t-preset'));
+reset role;
+update public.templates set status='published' where slug='t-preset';
+select pg_temp.ok('publishing stamps the publish date at publish time',
+  (select published_at > now() - interval '1 minute' from public.templates where slug='t-preset'));
+delete from public.templates where slug in ('t-app', 't-preset');  -- keep the pending-cap count below exact
+set role authenticated;
+select set_config('request.jwt.claims', '', false);
 set role anon;
 select pg_temp.ok('pending row hidden from signed-out visitors (AE5)',
   (select count(*) from public.templates where slug='t-one') = 0);
 set role authenticated;
-select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', false);
 select pg_temp.throws('author cannot publish their own row',
   $$update public.templates set status='published' where slug='t-one'$$,
   'row-level security');
@@ -373,12 +469,12 @@ reset role;
 update public.templates set status='published' where slug='t-one';  -- moderator via dashboard (service role)
 select pg_temp.ok('moderated publish stamps published_at',
   (select published_at is not null and status='published' from public.templates where slug='t-one'));
-select set_config('test.uid', '', false);
+select set_config('request.jwt.claims', '', false);
 set role anon;
 select pg_temp.ok('published row readable signed out (AE5)',
   (select title from public.templates where slug='t-one') = 'First');
 set role authenticated;
-select set_config('test.uid', '22222222-2222-2222-2222-222222222222', false);
+select set_config('request.jwt.claims', '{"sub":"22222222-2222-2222-2222-222222222222","role":"authenticated"}', false);
 update public.templates set payload='[]'::jsonb where slug='t-one';
 select pg_temp.ok('author update on a published row matches nothing (AE5)',
   (select jsonb_array_length(payload) from public.templates where slug='t-one') = 1);

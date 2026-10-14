@@ -72,6 +72,11 @@ begin
     new.updated_by := auth.uid();
     return new;
   end if;
+  -- an element never changes board or key: moving it would vanish it from
+  -- every other client's pull and dodge the source board's counter
+  if new.board_id is distinct from old.board_id or new.element_key is distinct from old.element_key then
+    raise exception 'elements cannot be moved between boards or keys' using errcode = 'raise_exception';
+  end if;
   new.version := old.version + 1;
   new.updated_at := now();
   new.updated_by := coalesce(auth.uid(), old.updated_by);
@@ -87,8 +92,10 @@ create trigger board_elements_integrity
 -- multi-row statement, which would let a bulk insert skip the cap. The UPDATE
 -- ... RETURNING here locks and re-reads the board row, so the check is exact
 -- for single-row and bulk inserts alike; a raise rolls back the statement.
+-- Security definer: editors have no UPDATE right on boards, so as the caller
+-- the counter UPDATE would match zero rows under RLS and silently skip the cap.
 create or replace function public.board_elements_count() returns trigger
-  language plpgsql set search_path = pg_catalog, public as $$
+  language plpgsql security definer set search_path = pg_catalog, public as $$
 declare v_count int;
 begin
   if tg_op = 'INSERT' then
@@ -142,7 +149,8 @@ create table public.board_members (
 create index board_members_user on public.board_members (user_id);
 
 -- Ownership pinning (KTD6, R9): the owner row cannot be deleted or demoted,
--- and no row can be promoted to owner.
+-- no row can be promoted to owner, and no row can be moved to another person
+-- or board (that would hand someone a board, or the ownership, unasked).
 create or replace function public.board_members_pin_owner() returns trigger
   language plpgsql set search_path = pg_catalog, public as $$
 begin
@@ -150,6 +158,9 @@ begin
     raise exception 'the board owner cannot be removed' using errcode = 'raise_exception';
   end if;
   if tg_op = 'UPDATE' then
+    if new.user_id is distinct from old.user_id or new.board_id is distinct from old.board_id then
+      raise exception 'membership rows cannot be moved' using errcode = 'raise_exception';
+    end if;
     if old.role = 'owner' and new.role <> 'owner' then
       raise exception 'the board owner cannot be demoted' using errcode = 'raise_exception';
     end if;
@@ -175,7 +186,7 @@ create table public.invites (
   board_id uuid not null references public.boards (id),
   token text not null unique default public.gen_invite_token(),
   role text not null default 'editor' check (role in ('editor','viewer')),
-  created_by uuid not null references public.profiles (id),
+  created_by uuid not null default auth.uid() references public.profiles (id),  -- the app inserts without it (team.js)
   created_at timestamptz not null default now(),
   expires_at timestamptz,
   accepted_by uuid references public.profiles (id),
@@ -225,7 +236,7 @@ create table public.templates (
   slug text not null unique,
   title text not null,
   description text not null default '',
-  author_user_id uuid references public.profiles (id),  -- null for seed rows
+  author_user_id uuid default auth.uid() references public.profiles (id),  -- session user; null for seed rows
   author_name text,
   author_x text,
   payload jsonb not null check (jsonb_typeof(payload) = 'array'),
@@ -240,6 +251,12 @@ create table public.templates (
 create or replace function public.templates_guard() returns trigger
   language plpgsql set search_path = pg_catalog, public as $$
 begin
+  -- Submissions cannot pre-set moderator fields: a pending row is never a
+  -- sample and has no publish date (published_at orders the gallery).
+  if new.status = 'pending' then
+    new.is_sample := case when tg_op = 'UPDATE' then old.is_sample else false end;
+    new.published_at := null;
+  end if;
   if tg_op = 'INSERT' then
     if new.status = 'published' and new.published_at is null then
       new.published_at := now();
@@ -254,8 +271,8 @@ begin
   if old.status = 'published' and new.payload is distinct from old.payload then
     raise exception 'a published template payload cannot change' using errcode = 'raise_exception';
   end if;
-  if new.status = 'published' and old.status <> 'published' and new.published_at is null then
-    new.published_at := now();
+  if new.status = 'published' and old.status <> 'published' then
+    new.published_at := now();  -- stamped at publish, never carried in
   end if;
   return new;
 end $$;

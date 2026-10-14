@@ -43,8 +43,12 @@ in each test header for running against a scratch Postgres.
 ## Tests
 
 `tests/policy_tests.sql` holds the U2/U3 assertion suite (schema constraints,
-RLS role-split, RPC semantics; 86 assertions). It runs against any scratch
-Postgres with a stubbed `auth` schema (auth.users, auth.uid(), auth.jwt()) plus
-`authenticated` and `anon` roles, or against `supabase start` locally. CI (U10)
-runs it on every PR. A throwaway embedded-Postgres runner used during
+RLS role-split, RPC semantics; 110 assertions). It sets sessions through
+`request.jwt.claims`, the setting Supabase's real `auth.uid()`/`auth.jwt()`
+read, and runs against `supabase start` locally (CI, U10, on every PR) or a
+scratch Postgres that mirrors Supabase: `anon`/`authenticated`/`service_role`
+roles, an `auth` schema with `auth.users` and claim-reading `auth.uid()` and
+`auth.jwt()`, and Supabase's default privileges (ALL on new public tables and
+functions to the API roles). Without those default grants a scratch run can
+pass while hosted Supabase leaks. A throwaway embedded-Postgres runner used during
 development lives outside the repo; ask for it if you want the same setup.
