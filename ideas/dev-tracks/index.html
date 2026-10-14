@@ -63,16 +63,16 @@
   var LAST = STAGES.length - 1, LIVE = 12;
   var WORK = [
     { name: "Owner live dashboard", stage: 4, state: "green", attn: null },
+    { name: "Polish CI tests", stage: 0, state: "green", attn: null },
+    { name: "Dev docs", stage: 0, state: "green", attn: null },
+    { name: "8 git issues", stage: 1, state: "green", attn: null },
     { name: "Builder manifesto docs", stage: 12, state: "green", attn: null },
     { name: "Guidance tool", stage: 12, state: "green", attn: null },
     { name: "Report panels", stage: 12, state: "green", attn: null },
     { name: "Evals schema", stage: 12, state: "green", attn: null },
     { name: "Eval runbook", stage: 12, state: "green", attn: null },
     { name: "Build contracts", stage: 12, state: "green", attn: null },
-    { name: "Main caught up to live", stage: 12, state: "green", attn: null },
-    { name: "Polish CI tests", stage: 0, state: "green", attn: null },
-    { name: "Dev docs", stage: 0, state: "green", attn: null },
-    { name: "8 git issues", stage: 1, state: "green", attn: null }
+    { name: "Main caught up to live", stage: 12, state: "green", attn: null }
   ];
   var VARS = { B: 1 };
   var VIEWS = { spectrum: 1, git: 1 };
