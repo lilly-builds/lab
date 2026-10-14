@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The dev workflow, as train tracks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #000; --paper: #fff; --f: "Special Elite", "Courier New", monospace; }
+  * { box-sizing: border-box; border-radius: 0; box-shadow: none; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--f); font-weight: normal; font-style: normal; }
+  body { padding: 20px 16px 60px; max-width: 1280px; }
+  h1 { font-weight: normal; margin: 0 0 14px; font-size: 28px; letter-spacing: 0.5px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  button.tog { font-family: var(--f); font-size: 14px; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 6px 16px; cursor: pointer; }
+  button.tog[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  #scroller { border: 1px solid var(--ink); overflow-x: auto; background: var(--paper); -webkit-overflow-scrolling: touch; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: var(--f); font-weight: normal; fill: var(--ink); }
+</style>
+</head>
+<body>
+<h1>The dev workflow, as train tracks</h1>
+
+<div class="bar" role="group" aria-label="View">
+  <button class="tog vw" data-w="pipeline" aria-pressed="true">Pipeline</button>
+  <button class="tog vw" data-w="git" aria-pressed="false">Git branches</button>
+</div>
+
+<div class="bar" role="group" aria-label="Layout">
+  <button class="tog vr" data-v="A" aria-pressed="false">A</button>
+  <button class="tog vr" data-v="B" aria-pressed="true">B</button>
+</div>
+
+<div id="scroller"><svg id="art" role="img" xmlns="http://www.w3.org/2000/svg"></svg></div>
+
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  var COL = { green: "#b2f2bb", yellow: "#ffec99", red: "#ffc9c9" };
+  var WORD = { green: "moving", yellow: "stalled", red: "needs you" };
+  var STAGES = ["Idea", "Spec", "Spec review", "Tests", "Build", "Code review", "Fix/optimize", "Security & deps scan", "PR", "CI", "Preview deploy", "CD", "Live", "Observe & rollback"];
+  var LAST = STAGES.length - 1, LIVE = 12;
+  var WORK = [
+    { name: "Search bug", stage: 4, state: "green" },
+    { name: "New onboarding", stage: 2, state: "yellow" },
+    { name: "Billing spike", stage: 13, state: "red" },
+    { name: "Dark mode", stage: 7, state: "yellow" },
+    { name: "Email digest", stage: 10, state: "green" }
+  ];
+  var VARS = { A: 1, B: 1 };
+  var VIEWS = { pipeline: 1, git: 1 };
+  // Git story for the same builds. Time slots t run oldest (0) to newest (11).
+  // A build at or past Live is merged into main; the rest are live branches.
+  var MAIN_T = [0, 4, 5, 6, 11];
+  var BRANCHES = [
+    { name: "Billing spike", fork: 0, commits: [1, 2, 3], merge: 4 },
+    { name: "New onboarding", fork: 6, commits: [10] },
+    { name: "Search bug", fork: 6, commits: [7, 8, 9] },
+    { name: "Email digest", fork: 5, commits: [6, 7, 8] },
+    { name: "Dark mode", fork: 5, commits: [6, 7] }
+  ];
+  function work(name) { return WORK.filter(function (w) { return w.name === name; })[0]; }
+
+  var svg = document.getElementById("art");
+  var X0 = 70, DX = 100;
+  var view = "pipeline", variant = "B";
+  var sx = function (i) { return X0 + DX * i; };
+
+  function el(tag, attrs, parent, text) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function line(p, x1, y1, x2, y2, w, dash) {
+    var a = { x1: x1, y1: y1, x2: x2, y2: y2, stroke: "#000", "stroke-width": w };
+    if (dash) a["stroke-dasharray"] = dash;
+    return el("line", a, p);
+  }
+  function stopLabel(p, i, y, size) {
+    var words = STAGES[i].split(" ");
+    var lines = STAGES[i].length > 14 ? [words.slice(0, 2).join(" "), words.slice(2).join(" ")] : [STAGES[i]];
+    lines.forEach(function (t, k) {
+      el("text", { x: sx(i), y: y + k * 13, "text-anchor": "middle", "font-size": size }, p, t);
+    });
+  }
+  function stageLabels(p, y, size) {
+    STAGES.forEach(function (s, i) { stopLabel(p, i, y, size); });
+  }
+  function dot(p, i, y, big) {
+    var r = i === LIVE ? (big ? 16 : 9) : (big ? 9 : 5);
+    if (i === LIVE) el("circle", { cx: sx(i), cy: y, r: r + 5, fill: "none", stroke: "#000", "stroke-width": 1.5 }, p);
+    el("circle", { cx: sx(i), cy: y, r: r, fill: "#fff", stroke: "#000", "stroke-width": big ? 3 : 2 }, p);
+  }
+  function setSize(w, h, min) {
+    svg.style.minWidth = min ? min + "px" : "0";
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    svg.setAttribute("aria-label", "Preview of the dev workflow");
+  }
+
+  function drawA() {
+    var H = 300, Y = 170;
+    setSize(1470, H, 1190);
+    line(svg, sx(0), Y, sx(LAST), Y, 4);
+    // loopback from Fix/optimize back to Code review
+    var a = sx(5), b = sx(6);
+    el("path", { d: "M " + b + " " + Y + " C " + b + " " + (Y + 70) + " " + a + " " + (Y + 70) + " " + a + " " + Y, fill: "none", stroke: "#000", "stroke-width": 4 }, svg);
+    el("path", { d: "M " + (a - 7) + " " + (Y + 10) + " L " + a + " " + Y + " L " + (a + 7) + " " + (Y + 10), fill: "none", stroke: "#000", "stroke-width": 3 }, svg);
+    el("text", { x: (a + b) / 2, y: Y + 76, "text-anchor": "middle", "font-size": 11 }, svg, "loops until done");
+    for (var i = 0; i <= LAST; i++) dot(svg, i, Y, true);
+    stageLabels(svg, Y + 36, 11);
+    WORK.forEach(function (w) {
+      var x = sx(w.stage);
+      line(svg, x, Y - 60, x, Y - 12, 1.5);
+      el("rect", { x: x - 46, y: Y - 128, width: 92, height: 68, fill: COL[w.state], stroke: "#000", "stroke-width": 1.5 }, svg);
+      el("text", { x: x, y: Y - 100, "text-anchor": "middle", "font-size": 11 }, svg, w.name);
+      el("text", { x: x, y: Y - 76, "text-anchor": "middle", "font-size": 10 }, svg, WORD[w.state]);
+    });
+  }
+
+  function drawB() {
+    var ROW = 54, T = 56, H = T + ROW * WORK.length + 10;
+    setSize(1470, H, 1190);
+    stageLabels(svg, 22, 11);
+    WORK.forEach(function (w, r) {
+      var y = T + ROW * r + 14;
+      line(svg, sx(0), y, sx(LAST), y, 3);
+      for (var i = 0; i <= LAST; i++) dot(svg, i, y, false);
+      el("text", { x: sx(0) - 50, y: y - 14, "font-size": 12 }, svg, w.name + " (" + WORD[w.state] + ")");
+      var x = sx(w.stage);
+      el("circle", { cx: x, cy: y, r: 13, fill: COL[w.state], stroke: "#000", "stroke-width": 3 }, svg);
+    });
+  }
+
+  // ---- Git branches ----
+  function chev(p, x, y, dir) {
+    var d = dir === "left" ? "M " + (x + 8) + " " + (y - 6) + " L " + x + " " + y + " L " + (x + 8) + " " + (y + 6)
+                           : "M " + (x - 6) + " " + (y + 8) + " L " + x + " " + y + " L " + (x + 6) + " " + (y + 8);
+    el("path", { d: d, fill: "none", stroke: "#000", "stroke-width": 3 }, p);
+  }
+  function gdot(p, x, y, kind) {
+    // kind: plain | ink (merged commit) | a state colour (live tip, or the light on main)
+    if (kind === "plain") el("circle", { cx: x, cy: y, r: 5, fill: "#fff", stroke: "#000", "stroke-width": 2 }, p);
+    else if (kind === "ink") el("circle", { cx: x, cy: y, r: 5, fill: "#000", stroke: "#000", "stroke-width": 2 }, p);
+    else el("circle", { cx: x, cy: y, r: 10, fill: COL[kind], stroke: "#000", "stroke-width": 3 }, p);
+  }
+  function glabel(p, x, y, w) {
+    el("text", { x: x, y: y - 2, "font-size": 14 }, p, w.name);
+    el("text", { x: x, y: y + 13, "font-size": 12 }, p, WORD[w.state]);
+  }
+  function mainDots(p, pos, head) {
+    MAIN_T.forEach(function (t) {
+      var m = BRANCHES.filter(function (b) { return b.merge === t; })[0];
+      var q = pos(t);
+      if (t === 11) {
+        el("circle", { cx: q[0], cy: q[1], r: 8, fill: "#fff", stroke: "#000", "stroke-width": 3 }, p);
+        el("text", { x: q[0] + head[0], y: q[1] + head[1], "font-size": 14 }, p, "main");
+      } else gdot(p, q[0], q[1], m ? work(m.name).state : "plain");
+    });
+  }
+
+  // Layout B: vertical git graph, newest on top.
+  function gitB() {
+    var ROW = 44, TOP = 30, MX = 40, LBL = 306, TN = 11;
+    var LANE = { "Billing spike": 90, "New onboarding": 134, "Search bug": 178, "Email digest": 222, "Dark mode": 266 };
+    var y = function (t) { return TOP + (TN - t) * ROW; };
+    setSize(440, TOP * 2 + TN * ROW, 0);
+    line(svg, MX, y(0), MX, y(TN), 4);
+    BRANCHES.forEach(function (b) {
+      var w = work(b.name), lx = LANE[b.name], merged = w.stage >= LIVE;
+      var last = merged ? b.merge : b.commits[b.commits.length - 1];
+      var d = "M " + MX + " " + y(b.fork) + " H " + lx + " V " + y(last) + (merged ? " H " + MX : "");
+      el("path", { d: d, fill: "none", stroke: "#000", "stroke-width": 3 }, svg);
+      if (merged) chev(svg, MX + 12, y(b.merge), "left");
+      b.commits.forEach(function (t, i) {
+        var tip = !merged && i === b.commits.length - 1;
+        gdot(svg, lx, y(t), merged ? "ink" : tip ? w.state : "plain");
+      });
+      line(svg, lx + 14, y(last), LBL - 8, y(last), 1, "2 4");
+      glabel(svg, LBL, y(last), w);
+    });
+    mainDots(svg, function (t) { return [MX, y(t)]; }, [18, 5]);
+  }
+
+  // Layout A: horizontal main, branches forking above and below.
+  function gitA() {
+    var X0g = 60, DXg = 88, YM = 160;
+    var LANE = { "Search bug": -60, "New onboarding": -120, "Dark mode": 60, "Email digest": 120, "Billing spike": 180 };
+    var x = function (t) { return X0g + DXg * t; };
+    setSize(1190, YM + 230, 1190);
+    line(svg, x(0), YM, x(11), YM, 4);
+    BRANCHES.forEach(function (b) {
+      var w = work(b.name), ly = YM + LANE[b.name], merged = w.stage >= LIVE;
+      var last = merged ? b.merge : b.commits[b.commits.length - 1];
+      var d = "M " + x(b.fork) + " " + YM + " V " + ly + " H " + x(last) + (merged ? " V " + YM : "");
+      el("path", { d: d, fill: "none", stroke: "#000", "stroke-width": 3 }, svg);
+      if (merged) chev(svg, x(b.merge), YM + 12, "up");
+      b.commits.forEach(function (t, i) {
+        var tip = !merged && i === b.commits.length - 1;
+        gdot(svg, x(t), ly, merged ? "ink" : tip ? w.state : "plain");
+      });
+      glabel(svg, x(last) + 18, ly + 1, w);
+    });
+    mainDots(svg, function (t) { return [x(t), YM]; }, [18, 5]);
+  }
+
+  function show(w, v) {
+    view = w; variant = v;
+    svg.textContent = "";
+    Array.prototype.forEach.call(document.querySelectorAll("button.vw"), function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-w") === w ? "true" : "false");
+    });
+    Array.prototype.forEach.call(document.querySelectorAll("button.vr"), function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-v") === v ? "true" : "false");
+    });
+    ({ pipeline: { A: drawA, B: drawB }, git: { A: gitA, B: gitB } })[w][v]();
+    if (history.replaceState) history.replaceState(null, "", "#" + w + "-" + v);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll("button.vw"), function (b) {
+    b.addEventListener("click", function () { show(b.getAttribute("data-w"), variant); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("button.vr"), function (b) {
+    b.addEventListener("click", function () { show(view, b.getAttribute("data-v")); });
+  });
+
+  var parts = (location.hash || "").replace("#", "").toLowerCase().split("-");
+  var hv = (parts[1] || parts[0]).toUpperCase();
+  show(VIEWS[parts[0]] ? parts[0] : "pipeline", VARS[hv] ? hv : "B");
+})();
+</script>
+</body>
+</html>

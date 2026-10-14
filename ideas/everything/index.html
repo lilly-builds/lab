@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Everything, everywhere, all at once</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #000; --paper: #fff; --f: "Special Elite", "Courier New", monospace; }
+  * { box-sizing: border-box; border-radius: 0; box-shadow: none; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); color: var(--ink); }
+  body { font: 400 16px/1.4 var(--f); font-synthesis: none; overscroll-behavior: none; }
+  button, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; background: none; border: 0; padding: 0; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  :focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+
+  canvas#board { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; cursor: crosshair; }
+  canvas#board.move { cursor: grab; }
+  canvas#board.txt { cursor: text; }
+  canvas#board.erase { cursor: none; }
+  #embeds { position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+  .embed { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: var(--paper); border: 1px solid var(--ink); pointer-events: auto; }
+  .embed iframe { display: block; width: 100%; height: 100%; border: 0; background: var(--paper); }
+  #eraseCur { position: fixed; left: 0; top: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 1px solid var(--ink); border-radius: 50% !important; pointer-events: none; z-index: 6; display: none; }
+
+  textarea#noteEdit { position: fixed; transform-origin: 0 0; display: none; margin: 0; padding: 8px; resize: none; overflow: hidden; border: 1px solid var(--ink); background: var(--paper); font: 400 16px/20px var(--f); outline: 0; z-index: 5; }
+  textarea#textEdit { position: fixed; transform-origin: 0 0; display: none; margin: 0; padding: 0; resize: none; overflow: hidden; border: 0; background: transparent; font: 400 20px/28px var(--f); outline: 1px solid var(--ink); outline-offset: 4px; z-index: 5; }
+
+  #top { position: fixed; top: 0; left: 0; right: 0; z-index: 8; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: calc(10px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 0 calc(12px + env(safe-area-inset-left)); pointer-events: none; }
+  #top h1 { margin: 0; font: 400 17px/1.25 var(--f); letter-spacing: .3px; padding-top: 4px; }
+  #focus { display: flex; flex: none; background: var(--paper); pointer-events: auto; }
+  #focus button { width: 32px; height: 32px; border: 1px solid var(--ink); margin-left: -1px; font-size: 13px; line-height: 1; background: var(--paper); }
+  #focus button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+  #dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0 8px calc(8px + env(safe-area-inset-bottom)); pointer-events: none; }
+  #dock > * { pointer-events: auto; }
+  #bar { display: flex; justify-content: center; max-width: 100%; background: var(--paper); border: 1px solid var(--ink); }
+  #bar button { width: 42px; height: 40px; display: flex; align-items: center; justify-content: center; }
+  #bar button + button { border-left: 1px solid var(--ink); }
+  #bar button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  #bar button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  #bar button:disabled { opacity: .3; cursor: default; }
+
+  #index { display: flex; width: 100%; max-width: 760px; overflow-x: auto; scrollbar-width: none; background: var(--paper); border: 1px solid var(--ink); }
+  #index::-webkit-scrollbar { display: none; }
+  #index button { position: relative; flex: 1 0 auto; min-height: 46px; padding: 14px 14px 4px; white-space: nowrap; font-size: 14px; line-height: 1.2; }
+  #index button + button { border-left: 1px solid var(--ink); }
+  #index button[aria-current="true"] { background: var(--ink); color: var(--paper); }
+  #index button i { display: none; position: absolute; left: 0; right: 0; top: 3px; text-align: center; font-style: normal; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+  body.m-A #index button[aria-current="true"] i { display: block; }
+</style>
+</head>
+<body>
+<canvas id="board"></canvas>
+<div id="embeds"></div>
+<div id="eraseCur" aria-hidden="true"></div>
+<textarea id="noteEdit" aria-label="Note" maxlength="400"></textarea>
+<textarea id="textEdit" aria-label="Text" maxlength="2000" rows="1" spellcheck="false" autocorrect="off" wrap="soft"></textarea>
+
+<div id="top">
+  <h1>Everything, everywhere, all at once.</h1>
+  <div id="focus" role="group" aria-label="Focus">
+    <button type="button" data-mode="A" title="Now bar" aria-label="Now bar" aria-pressed="true">A</button>
+    <button type="button" data-mode="B" title="Solo" aria-label="Solo" aria-pressed="false">B</button>
+    <button type="button" data-mode="C" title="Dim" aria-label="Dim" aria-pressed="false">C</button>
+  </div>
+</div>
+
+<div id="dock">
+  <div id="bar" role="toolbar" aria-label="Tools">
+    <button type="button" data-tool="move" aria-label="Select and move" title="Select and move" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg></button>
+    <button type="button" data-tool="pen" aria-label="Pen" title="Pen" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 0a2 2 0 0 1 0 3L8 19z"/><path d="M14.5 6.5l3 3"/></svg></button>
+    <button type="button" data-tool="note" aria-label="Note" title="Note" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M8 9.5h8M8 13h5"/></svg></button>
+    <button type="button" data-tool="text" aria-label="Text" title="Text" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/><path d="M8.5 9.5V8h7v1.5M12 8v8M10.5 16h3"/></svg></button>
+    <button type="button" id="shapeBtn" aria-label="Shape" title="Shape (tap again for next)" aria-pressed="false"></button>
+    <button type="button" data-tool="erase" aria-label="Eraser" title="Eraser" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M9 19L4.6 14.6a1.6 1.6 0 0 1 0-2.2l8-8a1.6 1.6 0 0 1 2.2 0l4.6 4.6a1.6 1.6 0 0 1 0 2.2L12 19z"/><path d="M8.3 8.7l7 7M9 19h11"/></svg></button>
+    <button type="button" id="undo" aria-label="Undo" title="Undo"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 8h-3"/></svg></button>
+    <button type="button" id="del" aria-label="Delete" title="Delete" hidden><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <nav id="index" aria-label="Areas"></nav>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- SEED: the whole starting board ----------
+     Eight areas, each a free-floating title with its notes loosely clustered underneath, on one open
+     canvas (world units, 1 unit = 1px at 100%). Nothing is boxed.
+     id    -> the sublink: .../everything/#<id>
+              restoreops, whiteboard, followups, lifeadmin, purpose, pickleball, coliving, health-beauty
+     title -> the heading drawn on the board and the label in the index bar
+     x, y  -> top-left of the title on the canvas
+     w     -> width reserved for the area (focus framing and ownership of what sits inside it)
+     notes -> sticky notes under the title, top to bottom; "ask\ncontext" is a bold line plus a smaller one
+     embed -> true puts a same-origin iframe card (../plot-your-purpose/) under the title
+     Areas are always drawn from this block. Notes and embeds are copied into localStorage
+     ("everything.scene") only when no board of this seed version exists, then belong to the user. */
+  var SEED_VER = '2', EMBED_SRC = '../plot-your-purpose/', EMBED_W = 520, EMBED_H = 640;
+  var SEED = [
+    { id: 'restoreops',    title: 'RestoreOps',                  x: 0,    y: 0,    w: 360, notes: ['MCP wrap-up'] },
+    { id: 'whiteboard',    title: 'Whiteboard project',          x: 520,  y: 0,    w: 360, notes: ['Open the whiteboard - lilly-builds.github.io/lab/ideas/ai-whiteboard/', 'Metro map - lilly-builds.github.io/lab/ideas/metro-map/'] },
+    { id: 'followups',     title: 'Follow ups',                  x: 1200, y: 0,    w: 360, notes: [
+      'Reply to Adrian\nBiohackr, wants to build the hacker house',
+      'Reply to Sai\nLinkedIn, Frontier Tower intro',
+      'Pick John Kreish slot\nMindbody replacement builder',
+      'Send Jim MCP wrap-up\nWork Wonders owner',
+      'Confirm hackathon\nOct 23, Menlo Park',
+      'Pick pickleball plan\nThu Oct 15, Bushrod',
+      'Answer Luma people\nwho? unclear',
+      'Answer Matt\nShepherd, LinkedIn, outbound engine request',
+      'Answer Thomas Foley\nComposio GTM lead, LinkedIn, outbound engine request'] },
+    { id: 'lifeadmin',     title: 'Life admin',                  x: 0,    y: 440,  w: 360, notes: ['Call IRS to waive business tax fee', 'Prep taxes', 'Pick up wallet at Grocery Outlet', 'Back up Render DB by Oct 29', 'Review Vercel storage by Oct 23', 'Check ClickHouse trial', 'Decide on Wajo / Fo Google access'] },
+    { id: 'purpose',       title: 'Plot your purpose',           x: 1200, y: 1040, w: EMBED_W, notes: [], embed: true },
+    { id: 'pickleball',    title: 'Pickleball plans',            x: 520,  y: 480,  w: 360, notes: [] },
+    { id: 'coliving',      title: 'Biohacker coliving hub - SF', x: 520,  y: 800,  w: 480, notes: ['Getting sponsorships'] },
+    { id: 'health-beauty', title: 'Health & beauty',             x: 520,  y: 1140, w: 360, notes: [] }
+  ];
+
+  /* storage: every key starts with "everything." and never touches the whiteboard's own keys */
+  var K = { scene: 'everything.scene', ver: 'everything.ver', sel: 'everything.sel', mode: 'everything.mode', shape: 'everything.shape' };
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  /* ---------- state ---------- */
+  var cv = document.getElementById('board'), ctx = cv.getContext('2d');
+  var els = [], view = { x: 0, y: 0, z: 1 }, tool = 'move', undoStack = [], editing = null, selId = null, eraseIds = {};
+  var NOTE_W = 200, NOTE_H = 88, LH = 20, nextId = 1, editNew = false;
+  var dpr = 1, W = 0, H = 0, lastW = 0, TOP = 56;
+  var sel = SEED[0].id, mode = 'A', anim = null;
+  var areaById = {};
+  /* first-pass note height, before the font is measured; growNotes() only ever grows it */
+  function estH(t, w) { return t.indexOf('\n') > 0 ? 56 : Math.max(44, Math.ceil(t.length * 9.6 / (w - 16)) * 20 + 20); }
+  SEED.forEach(function (a) {
+    var y = 76;
+    a.nw = Math.min(a.w, 340);
+    a.layout = a.notes.map(function (t) { var h = estH(t, a.nw), r = { t: t, y: y, h: h }; y += h + 16; return r; });
+    if (a.embed) { a.embedY = y; y += EMBED_H + 16; }
+    a.h = Math.max(120, y + 8);
+    areaById[a.id] = a;
+  });
+
+  var MIN_Z = 0.15, MAX_Z = 4;
+  function clampZ(z) { return Math.max(MIN_Z, Math.min(MAX_Z, z)); }
+  function zoomAround(v, factor, cx, cy) {
+    var z0 = v.z || 1, z1 = clampZ(z0 * factor);
+    return { x: v.x + cx / z0 - cx / z1, y: v.y + cy / z0 - cy / z1, z: z1 };
+  }
+  function toWorld(cx, cy) { return { x: view.x + cx / view.z, y: view.y + cy / view.z }; }
+  function toScreen(wx, wy) { return { x: (wx - view.x) * view.z, y: (wy - view.y) * view.z }; }
+
+  var TYPES = ['note', 'embed', 'text', 'pen', 'rect', 'diamond', 'ellipse', 'line', 'arrow'];
+  var SHAPES = ['rect', 'ellipse', 'line', 'arrow'];
+  function isClosed(t) { return t === 'rect' || t === 'diamond' || t === 'ellipse'; }
+  function num(v, d) { v = Number(v); return isFinite(v) ? Math.max(-20000, Math.min(20000, v)) : d; }
+  function str(v, n) { return typeof v === 'string' ? v.slice(0, n) : ''; }
+  function clampSize(v) { v = Number(v); return isFinite(v) ? Math.max(10, Math.min(120, Math.round(v))) : 20; }
+  function newId() { return 'e' + (nextId++); }
+
+  function cleanEl(o) {
+    if (!o || typeof o !== 'object' || TYPES.indexOf(o.type) < 0) return null;
+    var e = { id: typeof o.id === 'string' && /^[\w-]{1,24}$/.test(o.id) ? o.id : null, type: o.type, x: num(o.x, 0), y: num(o.y, 0) };
+    if (o.type === 'pen') {
+      if (!Array.isArray(o.pts) || !o.pts.length) return null;
+      e.pts = o.pts.slice(0, 5000).map(function (p) { return [num(p && p[0], 0), num(p && p[1], 0)]; });
+    } else if (o.type === 'text') {
+      e.text = str(o.text, 2000);
+      if (!e.text.trim()) return null;
+      e.size = clampSize(o.size); e.w = Math.max(40, Math.min(2000, Math.abs(num(o.w, 280))));
+    } else if (o.type === 'note') {
+      e.text = str(o.text, 400); e.w = Math.max(60, Math.min(600, Math.abs(num(o.w, NOTE_W)))); e.h = Math.max(40, Math.min(800, Math.abs(num(o.h, NOTE_H))));
+    } else if (o.type === 'embed') {
+      e.w = EMBED_W; e.h = EMBED_H; e.src = EMBED_SRC; /* same-origin page only, never a stored url */
+    } else { e.w = num(o.w, 0); e.h = num(o.h, 0); }
+    return e;
+  }
+  function seedEls() {
+    var out = [];
+    SEED.forEach(function (a) {
+      a.layout.forEach(function (r) { out.push({ id: 'e' + (out.length + 1), type: 'note', x: a.x, y: a.y + r.y, w: a.nw, h: r.h, text: r.t }); });
+      if (a.embed) out.push({ id: 'e' + (out.length + 1), type: 'embed', x: a.x, y: a.y + a.embedY, w: EMBED_W, h: EMBED_H, src: EMBED_SRC });
+    });
+    return out;
+  }
+  var saved = lsGet(K.scene);
+  if (saved === null || lsGet(K.ver) !== SEED_VER) { lsSet(K.ver, SEED_VER); els = seedEls(); lsSet(K.scene, JSON.stringify(els)); }
+  else { try { var s = JSON.parse(saved); if (Array.isArray(s)) els = s.map(cleanEl).filter(Boolean); } catch (e) {} }
+  els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
+  els.forEach(function (e) { if (!e.id) e.id = newId(); });
+  if (lsGet(K.mode) === 'B' || lsGet(K.mode) === 'C') mode = lsGet(K.mode);
+  if (areaById[lsGet(K.sel)]) sel = lsGet(K.sel);
+
+  function save() { lsSet(K.scene, JSON.stringify(els)); }
+  function snap() { undoStack.push(JSON.stringify(els)); if (undoStack.length > 60) undoStack.shift(); syncUndo(); }
+  function syncUndo() { document.getElementById('undo').disabled = !undoStack.length; }
+  function selEl() {
+    if (!selId) return null;
+    for (var i = 0; i < els.length; i++) if (els[i].id === selId) return els[i];
+    selId = null; return null;
+  }
+
+  /* ---------- text layout ---------- */
+  var FAMILY = '"Special Elite", "Courier New", monospace';
+  var FONT = '400 16px ' + FAMILY;
+  /* words wider than the line (links) are broken by character */
+  function wrap(text, maxW, font) {
+    ctx.font = font;
+    var out = [];
+    String(text || '').split('\n').forEach(function (para) {
+      var words = para.split(/\s+/).filter(Boolean), line = '';
+      if (!words.length) { out.push(''); return; }
+      words.forEach(function (w) {
+        while (w.length > 1 && ctx.measureText(w).width > maxW) {
+          var n = w.length - 1;
+          while (n > 1 && ctx.measureText(w.slice(0, n)).width > maxW) n--;
+          if (line) { out.push(line); line = ''; }
+          out.push(w.slice(0, n)); w = w.slice(n);
+        }
+        var t = line ? line + ' ' + w : w;
+        if (line && ctx.measureText(t).width > maxW) { out.push(line); line = w; } else line = t;
+      });
+      out.push(line);
+    });
+    return out;
+  }
+  var SUBFONT = '400 12px ' + FAMILY;
+  /* "ask\ncontext": the first paragraph is the bold ask, the rest smaller context */
+  function noteLayout(el) {
+    var txt = String(el.text || ''), two = txt.indexOf('\n') > 0, out = [];
+    txt.split('\n').forEach(function (p, i) {
+      var sub = two && i > 0, font = sub ? SUBFONT : FONT, lh = sub ? 16 : LH;
+      wrap(p, el.w - 16, font).forEach(function (l) { out.push({ t: l, font: font, lh: lh, bold: two && i === 0 }); });
+    });
+    return out;
+  }
+  function noteH(el) { return noteLayout(el).reduce(function (n, l) { return n + l.lh; }, 16); }
+  /* a note only ever grows to fit its words */
+  function fitNote(el) { el.h = Math.max(el.h || NOTE_H, noteH(el)); }
+  function textLH(el) { return Math.round(el.size * 1.4); }
+  function textBox(el) {
+    var font = '400 ' + el.size + 'px ' + FAMILY, lh = textLH(el);
+    var lines = wrap(el.text, el.w, font);
+    var w = 0; lines.forEach(function (l) { w = Math.max(w, ctx.measureText(l).width); });
+    return { lines: lines, font: font, lh: lh, w: Math.max(24, w), h: Math.max(1, lines.length) * lh };
+  }
+
+  /* ---------- geometry ---------- */
+  function bbox(el) {
+    if (el.type === 'pen') {
+      var minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+      el.pts.forEach(function (p) { minx = Math.min(minx, p[0]); miny = Math.min(miny, p[1]); maxx = Math.max(maxx, p[0]); maxy = Math.max(maxy, p[1]); });
+      return { x: el.x + minx, y: el.y + miny, w: maxx - minx, h: maxy - miny };
+    }
+    if (el.type === 'text') { var t = textBox(el); return { x: el.x, y: el.y, w: t.w, h: t.h }; }
+    if (el.type === 'line' || el.type === 'arrow') return { x: Math.min(el.x, el.x + el.w), y: Math.min(el.y, el.y + el.h), w: Math.abs(el.w), h: Math.abs(el.h) };
+    return { x: el.x, y: el.y, w: el.w, h: el.h };
+  }
+  function distSeg(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy, t = l ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l)) : 0;
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  }
+  function hit(el, px, py) {
+    var pad = 10 / view.z, pad4 = 4 / view.z;
+    if (el.type === 'pen') {
+      for (var i = 0; i < el.pts.length; i++) {
+        var a = el.pts[i], b = el.pts[i + 1] || a;
+        if (distSeg(px, py, el.x + a[0], el.y + a[1], el.x + b[0], el.y + b[1]) < pad) return true;
+      }
+      return false;
+    }
+    if (el.type === 'line' || el.type === 'arrow') return distSeg(px, py, el.x, el.y, el.x + el.w, el.y + el.h) < pad;
+    var b2 = bbox(el);
+    return px >= b2.x - pad4 && px <= b2.x + b2.w + pad4 && py >= b2.y - pad4 && py <= b2.y + b2.h + pad4;
+  }
+  /* which area an element belongs to: the one holding its center */
+  function ownerOf(el) {
+    var b = bbox(el), cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    for (var i = 0; i < SEED.length; i++) {
+      var a = SEED[i];
+      if (cx >= a.x && cx <= a.x + a.w && cy >= a.y && cy <= a.y + a.h) return a.id;
+    }
+    return null;
+  }
+  function touches(el, a) {
+    var b = bbox(el);
+    return b.x <= a.x + a.w && b.x + b.w >= a.x && b.y <= a.y + a.h && b.y + b.h >= a.y;
+  }
+  /* solo shows only the chosen area's content */
+  function visible(el) {
+    if (mode !== 'B') return true;
+    var o = ownerOf(el);
+    return o === sel || (o === null && touches(el, areaById[sel]));
+  }
+  function topAt(px, py) { for (var i = els.length - 1; i >= 0; i--) if (visible(els[i]) && hit(els[i], px, py)) return els[i]; return null; }
+
+  function handles(el) {
+    if (el.type === 'line' || el.type === 'arrow') return [{ x: el.x, y: el.y }, { x: el.x + el.w, y: el.y + el.h }];
+    if (el.type === 'text') { var tb = bbox(el); return [{ x: tb.x, y: tb.y }, { x: tb.x + tb.w, y: tb.y }, { x: tb.x + tb.w, y: tb.y + tb.h }, { x: tb.x, y: tb.y + tb.h }]; }
+    if (isClosed(el.type)) return [{ x: el.x, y: el.y }, { x: el.x + el.w, y: el.y }, { x: el.x + el.w, y: el.y + el.h }, { x: el.x, y: el.y + el.h }];
+    return [];
+  }
+  function handleAt(el, px, py) {
+    var hs = handles(el);
+    for (var i = 0; i < hs.length; i++) if (Math.hypot(px - hs[i].x, py - hs[i].y) < 16 / view.z) return i;
+    return -1;
+  }
+
+  /* ---------- rendering ---------- */
+  function shapePath(g, el, x, y) {
+    g.beginPath();
+    if (el.type === 'rect') g.rect(x, y, el.w, el.h);
+    else if (el.type === 'diamond') { g.moveTo(x + el.w / 2, y); g.lineTo(x + el.w, y + el.h / 2); g.lineTo(x + el.w / 2, y + el.h); g.lineTo(x, y + el.h / 2); g.closePath(); }
+    else { g.ellipse(x + el.w / 2, y + el.h / 2, Math.abs(el.w / 2), Math.abs(el.h / 2), 0, 0, Math.PI * 2); g.closePath(); }
+  }
+  function drawEl(g, el, ox, oy) {
+    g.save();
+    g.lineWidth = el.type === 'pen' ? 2.2 : 1.5;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = '#000'; g.fillStyle = '#000';
+    var x = el.x - ox, y = el.y - oy;
+    if (el.type === 'pen') {
+      var p = el.pts;
+      g.beginPath();
+      if (p.length === 1) { g.arc(x + p[0][0], y + p[0][1], 1.4, 0, Math.PI * 2); g.closePath(); g.fill(); }
+      else {
+        g.moveTo(x + p[0][0], y + p[0][1]);
+        for (var i = 1; i < p.length - 1; i++) g.quadraticCurveTo(x + p[i][0], y + p[i][1], x + (p[i][0] + p[i + 1][0]) / 2, y + (p[i][1] + p[i + 1][1]) / 2);
+        g.lineTo(x + p[p.length - 1][0], y + p[p.length - 1][1]);
+        g.stroke();
+      }
+    } else if (el.type === 'note') {
+      g.fillStyle = '#fff'; g.fillRect(x, y, el.w, el.h);
+      g.lineWidth = 1;
+      g.strokeRect(x + .5, y + .5, el.w - 1, el.h - 1);
+      if (editing !== el.id) {
+        g.fillStyle = '#000'; g.textBaseline = 'top';
+        var ly = y + 8;
+        noteLayout(el).forEach(function (l) {
+          g.font = l.font; g.fillText(l.t, x + 8, ly);
+          if (l.bold) g.fillText(l.t, x + 8.6, ly);
+          ly += l.lh;
+        });
+      }
+    } else if (el.type === 'text') {
+      if (editing !== el.id) {
+        var t = textBox(el);
+        g.font = t.font; g.textBaseline = 'middle'; g.textAlign = 'left';
+        t.lines.forEach(function (l, i) { g.fillText(l, x, y + i * t.lh + t.lh / 2); });
+      }
+    } else if (isClosed(el.type)) {
+      shapePath(g, el, x, y); g.stroke();
+    } else if (el.type === 'line' || el.type === 'arrow') {
+      var x2 = x + el.w, y2 = y + el.h;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
+      if (el.type === 'arrow') {
+        var a = Math.atan2(el.h, el.w), hl = 15;
+        g.beginPath(); g.moveTo(x2 - hl * Math.cos(a - 0.45), y2 - hl * Math.sin(a - 0.45)); g.lineTo(x2, y2); g.lineTo(x2 - hl * Math.cos(a + 0.45), y2 - hl * Math.sin(a + 0.45)); g.stroke();
+      }
+    }
+    g.restore();
+  }
+  function drawArea(g, a, alpha) {
+    g.save();
+    g.globalAlpha = alpha;
+    g.fillStyle = '#000';
+    g.font = '400 28px ' + FAMILY; g.textBaseline = 'top'; g.textAlign = 'left';
+    var tt = a.title;
+    while (tt.length > 1 && g.measureText(tt).width > a.w) tt = tt.slice(0, -1);
+    g.fillText(tt, a.x - view.x, a.y - view.y + 4);
+    g.restore();
+  }
+  function drawSel(g, el) {
+    var b = bbox(el), z = view.z, o = toScreen(b.x, b.y);
+    g.save();
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.lineWidth = 1; g.strokeStyle = '#000'; g.setLineDash([4, 3]);
+    g.strokeRect(o.x - 5.5, o.y - 5.5, b.w * z + 11, b.h * z + 11);
+    g.setLineDash([]); g.fillStyle = '#fff';
+    handles(el).forEach(function (h) { var hp = toScreen(h.x, h.y); g.fillRect(hp.x - 4.5, hp.y - 4.5, 9, 9); g.strokeRect(hp.x - 4.5, hp.y - 4.5, 9, 9); });
+    g.restore();
+  }
+  function draw() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.setTransform(dpr * view.z, 0, 0, dpr * view.z, 0, 0);
+    SEED.forEach(function (a) {
+      if (mode === 'B' && a.id !== sel) return;
+      drawArea(ctx, a, mode === 'C' && a.id !== sel ? 0.25 : 1);
+    });
+    els.forEach(function (el) {
+      if (!visible(el)) return;
+      var dim = mode === 'C' && ownerOf(el) !== sel && ownerOf(el) !== null;
+      if (eraseIds[el.id]) { ctx.save(); ctx.globalAlpha = 0.3; drawEl(ctx, el, view.x, view.y); ctx.restore(); }
+      else if (dim) { ctx.save(); ctx.globalAlpha = 0.25; drawEl(ctx, el, view.x, view.y); ctx.restore(); }
+      else drawEl(ctx, el, view.x, view.y);
+    });
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var s = selEl();
+    if (s && editing !== s.id) drawSel(ctx, s);
+    document.getElementById('del').hidden = !s;
+    syncEmbeds();
+  }
+  /* embed cards are real iframes in a layer over the canvas, placed with the same view transform */
+  var embedLayer = document.getElementById('embeds'), embedNodes = {};
+  function syncEmbeds() {
+    var seen = {};
+    els.forEach(function (el) {
+      if (el.type !== 'embed') return;
+      seen[el.id] = true;
+      var n = embedNodes[el.id];
+      if (!n) {
+        n = embedNodes[el.id] = document.createElement('div'); n.className = 'embed';
+        var f = document.createElement('iframe'); f.src = EMBED_SRC; f.title = 'Plot your purpose';
+        n.appendChild(f); embedLayer.appendChild(n);
+      }
+      var p = toScreen(el.x, el.y), o = ownerOf(el);
+      n.hidden = !visible(el);
+      n.style.width = el.w + 'px'; n.style.height = el.h + 'px';
+      n.style.transform = 'translate(' + p.x + 'px,' + p.y + 'px) scale(' + view.z + ')';
+      n.style.opacity = mode === 'C' && o !== sel && o !== null ? '0.25' : '1';
+    });
+    Object.keys(embedNodes).forEach(function (id) { if (!seen[id]) { embedLayer.removeChild(embedNodes[id]); delete embedNodes[id]; } });
+  }
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    if (W !== lastW && !editing) { lastW = W; view = fitView(sel); }
+    draw();
+    if (editing) placeEditor();
+  }
+  window.addEventListener('resize', resize);
+  function growNotes() {
+    var changed = false;
+    els.forEach(function (e) { if (e.type === 'note') { var h = e.h; fitNote(e); if (e.h !== h) changed = true; } });
+    if (changed) save();
+    draw();
+  }
+  if (document.fonts && document.fonts.load) {
+    document.fonts.load('16px "Special Elite"').then(growNotes, growNotes);
+    document.fonts.ready.then(growNotes);
+  }
+
+  /* ---------- areas: view fitting, animation, focus modes ---------- */
+  var dock = document.getElementById('dock'), indexEl = document.getElementById('index');
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* the view that centers an area in the space between the title and the dock */
+  function fitView(id) {
+    var a = areaById[id], bottom = dock.offsetHeight + 8;
+    var z = clampZ(Math.min((W - 24) / a.w, (H - TOP - bottom - 8) / a.h, 1.5));
+    var cy = TOP + (H - TOP - bottom) / 2;
+    return { x: a.x + a.w / 2 - W / (2 * z), y: a.y + a.h / 2 - cy / z, z: z };
+  }
+  function animateTo(t) {
+    if (reduce) { view = t; anim = null; draw(); return; }
+    var a = anim = { from: { x: view.x, y: view.y, z: view.z }, to: t, t0: performance.now() };
+    (function step(now) {
+      if (anim !== a) return;
+      var p = Math.min(1, (now - a.t0) / 380), e = 1 - Math.pow(1 - p, 3);
+      view = { x: a.from.x + (a.to.x - a.from.x) * e, y: a.from.y + (a.to.y - a.from.y) * e, z: a.from.z + (a.to.z - a.from.z) * e };
+      draw();
+      if (editing) placeEditor();
+      if (p < 1) requestAnimationFrame(step); else anim = null;
+    })(performance.now());
+  }
+  function syncIndex() {
+    document.body.className = 'm-' + mode;
+    Array.prototype.forEach.call(indexEl.children, function (b) {
+      var on = b.dataset.id === sel;
+      if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
+      if (on && b.scrollIntoView) b.scrollIntoView({ inline: 'center', block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#focus [data-mode]'), function (b) { b.setAttribute('aria-pressed', String(b.dataset.mode === mode)); });
+  }
+  function select(id, animate) {
+    if (!areaById[id]) return;
+    commitEdit();
+    sel = id; selId = null; lsSet(K.sel, id);
+    syncIndex();
+    if (animate) animateTo(fitView(id)); else { anim = null; view = fitView(id); draw(); }
+  }
+  SEED.forEach(function (a) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.dataset.id = a.id;
+    b.appendChild(document.createTextNode(a.title));
+    var i = document.createElement('i'); i.textContent = 'now'; b.appendChild(i);
+    /* the hash is the sublink; the hashchange handler does the move, so back and forward work the same way */
+    b.addEventListener('click', function () {
+      if (location.hash.slice(1) === a.id) select(a.id, true); else location.hash = a.id;
+    });
+    indexEl.appendChild(b);
+  });
+  function hashId() { var h = ''; try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) {} if (h === 'work') h = 'restoreops'; return areaById[h] ? h : null; }
+  window.addEventListener('hashchange', function () { var id = hashId(); if (id) select(id, true); });
+  Array.prototype.forEach.call(document.querySelectorAll('#focus [data-mode]'), function (b) {
+    b.addEventListener('click', function () {
+      commitEdit();
+      mode = b.dataset.mode; lsSet(K.mode, mode); selId = null;
+      syncIndex();
+      if (mode === 'B') animateTo(fitView(sel)); else draw();
+    });
+  });
+
+  /* ---------- note + text editors ---------- */
+  var ta = document.getElementById('noteEdit'), tx = document.getElementById('textEdit');
+  function placeEditor() {
+    var el = els.filter(function (e) { return e.id === editing; })[0];
+    if (!el) return;
+    if (el.type === 'text') {
+      var st = tx.style, tp = toScreen(el.x, el.y);
+      st.left = tp.x + 'px'; st.top = tp.y + 'px'; st.width = el.w + 'px'; st.transform = 'scale(' + view.z + ')';
+      st.fontSize = el.size + 'px'; st.lineHeight = textLH(el) + 'px';
+      st.height = 'auto'; st.height = Math.max(textLH(el), tx.scrollHeight) + 'px';
+      return;
+    }
+    var np = toScreen(el.x, el.y);
+    ta.style.left = np.x + 'px'; ta.style.top = np.y + 'px'; ta.style.width = el.w + 'px'; ta.style.height = el.h + 'px'; ta.style.transform = 'scale(' + view.z + ')';
+  }
+  function editNote(el) {
+    commitEdit();
+    editing = el.id; ta.value = el.text || ''; ta.style.display = 'block'; placeEditor(); draw();
+    ta.focus();
+  }
+  /* the on-screen keyboard shrinks the visual viewport; pan the board so the edited text stays visible */
+  function keepInView() {
+    if (!editing) return;
+    var box = tx.style.display === 'block' ? tx : ta.style.display === 'block' ? ta : null;
+    if (!box) return;
+    var vv = window.visualViewport, top = vv ? vv.offsetTop : 0, bottom = top + (vv ? vv.height : H) - 16;
+    var r = box.getBoundingClientRect(), dy = 0;
+    if (r.bottom > bottom) dy = r.bottom - bottom;
+    if (r.top - dy < top + 12) dy = r.top - top - 12;
+    if (!dy) return;
+    view.y += dy / view.z; draw(); placeEditor();
+  }
+  function editText(el, isNew) {
+    commitEdit();
+    if (!isNew) snap();
+    editing = el.id; editNew = !!isNew;
+    tx.value = el.text || ''; tx.style.display = 'block'; placeEditor(); draw();
+    tx.focus();
+    tx.setSelectionRange(tx.value.length, tx.value.length);
+    setTimeout(keepInView, 60); setTimeout(keepInView, 350);
+  }
+  tx.addEventListener('input', function () { placeEditor(); keepInView(); });
+  tx.addEventListener('blur', commitEdit);
+  tx.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); tx.blur(); } });
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', keepInView); window.visualViewport.addEventListener('scroll', keepInView); }
+  function commitEdit() {
+    if (!editing) return;
+    var id = editing; editing = null;
+    ta.style.display = 'none'; tx.style.display = 'none';
+    var el = els.filter(function (e) { return e.id === id; })[0], v;
+    if (el && el.type === 'text') {
+      v = tx.value.trim().slice(0, 2000);
+      var isNew = editNew;
+      editNew = false;
+      if (!v) {
+        els = els.filter(function (e) { return e !== el; }); if (selId === id) selId = null;
+        if (isNew) { undoStack.pop(); syncUndo(); }
+      } else if (v === el.text && !isNew) { undoStack.pop(); syncUndo(); }
+      else {
+        el.text = v;
+        if (tool === 'text') { setTool('move'); selId = id; }
+      }
+      save();
+    } else if (el) {
+      v = ta.value.trim();
+      if (!v) { els = els.filter(function (e) { return e !== el; }); if (selId === id) selId = null; }
+      else if (v !== el.text) { snap(); el.text = v; fitNote(el); }
+      save();
+    }
+    draw();
+  }
+  ta.addEventListener('input', function () { /* grow while typing */
+    var el = els.filter(function (e) { return e.id === editing; })[0];
+    if (el) { var t = el.text; el.text = ta.value; fitNote(el); el.text = t; placeEditor(); }
+  });
+  ta.addEventListener('blur', commitEdit);
+  ta.addEventListener('keydown', function (e) { if (e.key === 'Escape') ta.blur(); });
+
+  /* ---------- pointer interaction ---------- */
+  var drag = null, lastTap = { id: null, t: 0 };
+  var ptrs = {}, pinch = null, eraseCur = document.getElementById('eraseCur');
+  function pt(e) { return toWorld(e.clientX, e.clientY); }
+  function setView(v) { view = { x: v.x, y: v.y, z: clampZ(v.z) }; draw(); if (editing) placeEditor(); }
+  function zoomBy(f, cx, cy) { setView(zoomAround(view, f, cx, cy)); }
+  function ptrIds() { return Object.keys(ptrs); }
+  function pinchGeom() {
+    var ids = ptrIds(), a = ptrs[ids[0]], b = ptrs[ids[1]];
+    return { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)) };
+  }
+  /* a second finger turns the gesture into a pinch: whatever the first finger was doing is undone */
+  function cancelDrag() {
+    var d = drag; drag = null;
+    if (!d) return;
+    if (d.kind === 'erase') endErase(false);
+    else if (d.kind === 'pen' || d.kind === 'shape' || d.kind === 'handle' || d.kind === 'move' || (d.kind === 'text' && d.isNew)) {
+      if (undoStack.length) { els = JSON.parse(undoStack.pop()); syncUndo(); save(); }
+      if (selId && !selEl()) selId = null;
+    }
+    eraseCur.style.display = 'none';
+    draw();
+  }
+  function styled(el) { return el; }
+  cv.addEventListener('pointerdown', function (e) {
+    anim = null;
+    ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (ptrIds().length >= 2 && e.pointerType !== 'mouse') {
+      if (editing) commitEdit();
+      cancelDrag();
+      try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+      pinch = pinchGeom();
+      return;
+    }
+    if (!e.isPrimary || drag) return;
+    var p = pt(e);
+    var wasEditing = !!editing;
+    if (editing) commitEdit();
+    cv.setPointerCapture(e.pointerId);
+    if (tool === 'erase') {
+      drag = { kind: 'erase', lx: p.x, ly: p.y };
+      eraseTo(p.x, p.y, p.x, p.y);
+      showEraseCur(e);
+    } else if (tool === 'pen') {
+      snap();
+      var el = styled({ id: newId(), type: 'pen', x: p.x, y: p.y, pts: [[0, 0]] });
+      els.push(el); drag = { kind: 'pen', el: el };
+    } else if (tool === 'note') {
+      snap();
+      var n = { id: newId(), type: 'note', x: p.x - NOTE_W / 2, y: p.y - NOTE_H / 2, w: NOTE_W, h: NOTE_H, text: '' };
+      els.push(n); drag = { kind: 'none' };
+      setTimeout(function () { editNote(n); }, 0);
+    } else if (tool === 'text') {
+      var ex = topAt(p.x, p.y);
+      if (wasEditing) drag = { kind: 'none' };
+      else if (ex && ex.type === 'text') drag = { kind: 'text', el: ex, isNew: false };
+      else {
+        snap();
+        var vz = view.z, tw = Math.max(120, Math.min(280, (W - 32) / vz));
+        var tn = { id: newId(), type: 'text', x: Math.max(view.x + 8 / vz, Math.min(p.x, view.x + (W - 8) / vz - tw)), y: p.y, text: '', size: 20, w: tw };
+        els.push(tn); drag = { kind: 'text', el: tn, isNew: true };
+      }
+    } else if (SHAPES.indexOf(tool) >= 0) {
+      snap();
+      var sh = styled({ id: newId(), type: tool, x: p.x, y: p.y, w: 0, h: 0 });
+      els.push(sh); drag = { kind: 'shape', el: sh, sx: p.x, sy: p.y };
+    } else {
+      var cur = selEl(), hi = cur ? handleAt(cur, p.x, p.y) : -1;
+      if (hi >= 0) {
+        snap();
+        var hs = handles(cur), anchor = hs[(hi + 2) % 4] || hs[0];
+        drag = { kind: 'handle', el: cur, i: hi, ax: anchor.x, ay: anchor.y, ex: cur.x + cur.w, ey: cur.y + cur.h };
+        if (cur.type === 'text') { var b0 = bbox(cur); drag.w0 = b0.w; drag.h0 = b0.h; drag.size0 = cur.size; drag.ew0 = cur.w; }
+      } else {
+        var t = topAt(p.x, p.y);
+        if (t) { snap(); selId = t.id; drag = { kind: 'move', el: t, sx: e.clientX, sy: e.clientY, ox: t.x, oy: t.y, moved: false }; }
+        else { selId = null; drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }; }
+      }
+    }
+    draw();
+  });
+  /* eraser: object eraser, hit-tested along the pointer path; removal happens once on release */
+  var ERASE_TOL = 8;
+  function eraseHit(el, px, py) {
+    if (el.type === 'pen') {
+      for (var i = 0; i < el.pts.length; i++) {
+        var a = el.pts[i], b = el.pts[i + 1] || a;
+        if (distSeg(px, py, el.x + a[0], el.y + a[1], el.x + b[0], el.y + b[1]) < ERASE_TOL / view.z) return true;
+      }
+      return false;
+    }
+    return hit(el, px, py);
+  }
+  function eraseTo(x0, y0, x1, y1) {
+    var n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * view.z / 4)), changed = false;
+    for (var k = 0; k <= n; k++) {
+      var px = x0 + (x1 - x0) * k / n, py = y0 + (y1 - y0) * k / n;
+      for (var i = 0; i < els.length; i++) if (visible(els[i]) && !eraseIds[els[i].id] && eraseHit(els[i], px, py)) { eraseIds[els[i].id] = true; changed = true; }
+    }
+    if (changed) draw();
+  }
+  function showEraseCur(e) {
+    if (tool !== 'erase') { eraseCur.style.display = 'none'; return; }
+    eraseCur.style.display = 'block';
+    eraseCur.style.transform = 'translate(' + e.clientX + 'px,' + e.clientY + 'px)';
+  }
+  function endErase(remove) {
+    var ids = eraseIds, any = Object.keys(ids).length > 0;
+    eraseIds = {};
+    if (any && remove) {
+      snap();
+      els = els.filter(function (x) { return !ids[x.id]; });
+      if (selId && ids[selId]) selId = null;
+      save();
+    }
+    if (any) draw();
+  }
+  cv.addEventListener('pointermove', function (e) { if (tool === 'erase') showEraseCur(e); });
+  cv.addEventListener('pointerleave', function () { if (!drag) eraseCur.style.display = 'none'; });
+  cv.addEventListener('pointermove', function (e) {
+    if (ptrs[e.pointerId]) ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (pinch && ptrIds().length >= 2) {
+      var g = pinchGeom(), v = zoomAround(view, g.d / pinch.d, pinch.mx, pinch.my);
+      v.x += (pinch.mx - g.mx) / v.z; v.y += (pinch.my - g.my) / v.z;
+      pinch = g; view = v; draw();
+      if (editing) placeEditor();
+      return;
+    }
+    if (!drag || !e.isPrimary) return;
+    var p = pt(e);
+    if (drag.kind === 'erase') {
+      eraseTo(drag.lx, drag.ly, p.x, p.y); drag.lx = p.x; drag.ly = p.y;
+    } else if (drag.kind === 'pen') {
+      var el = drag.el, last = el.pts[el.pts.length - 1], q = [p.x - el.x, p.y - el.y];
+      if (Math.hypot(q[0] - last[0], q[1] - last[1]) >= 1.5) { el.pts.push(q); draw(); }
+    } else if (drag.kind === 'shape') {
+      var s = drag.el;
+      if (isClosed(s.type)) { s.x = Math.min(drag.sx, p.x); s.y = Math.min(drag.sy, p.y); s.w = Math.abs(p.x - drag.sx); s.h = Math.abs(p.y - drag.sy); }
+      else { s.w = p.x - drag.sx; s.h = p.y - drag.sy; }
+      draw();
+    } else if (drag.kind === 'handle') {
+      var h = drag.el;
+      if (h.type === 'text') {
+        /* corner drag scales the font and wrap width together, never distorts */
+        var k = Math.max(Math.abs(p.x - drag.ax) / drag.w0, Math.abs(p.y - drag.ay) / drag.h0);
+        h.size = clampSize(drag.size0 * k);
+        h.w = Math.max(40, Math.min(2000, drag.ew0 * h.size / drag.size0));
+        var nb = bbox(h), right = drag.i === 0 || drag.i === 3, bottom = drag.i === 0 || drag.i === 1;
+        h.x = right ? drag.ax - nb.w : drag.ax; h.y = bottom ? drag.ay - nb.h : drag.ay;
+      } else if (h.type === 'line' || h.type === 'arrow') {
+        if (drag.i === 0) { h.x = p.x; h.y = p.y; h.w = drag.ex - p.x; h.h = drag.ey - p.y; }
+        else { h.w = p.x - h.x; h.h = p.y - h.y; }
+      } else {
+        h.w = Math.max(8, Math.abs(p.x - drag.ax)); h.h = Math.max(8, Math.abs(p.y - drag.ay));
+        h.x = p.x < drag.ax ? drag.ax - h.w : drag.ax; h.y = p.y < drag.ay ? drag.ay - h.h : drag.ay;
+      }
+      draw();
+    } else if (drag.kind === 'move') {
+      var dx = (e.clientX - drag.sx) / view.z, dy = (e.clientY - drag.sy) / view.z;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      drag.el.x = drag.ox + dx; drag.el.y = drag.oy + dy; draw();
+    } else if (drag.kind === 'pan') {
+      view.x = drag.vx - (e.clientX - drag.sx) / view.z; view.y = drag.vy - (e.clientY - drag.sy) / view.z; draw();
+    }
+  });
+  function end(e) {
+    if (!drag || (e && !e.isPrimary)) return;
+    var d = drag; drag = null;
+    if (d.kind === 'erase') {
+      endErase(!(e && e.type === 'pointercancel'));
+      if (e && e.pointerType && e.pointerType !== 'mouse') eraseCur.style.display = 'none';
+      return;
+    }
+    if (d.kind === 'move') {
+      if (!d.moved) {
+        undoStack.pop(); syncUndo();
+        if (d.el.type === 'note') editNote(d.el);
+        else if (d.el.type === 'text') {
+          var nowT = Date.now();
+          if (lastTap.id === d.el.id && nowT - lastTap.t < 350) { lastTap = { id: null, t: 0 }; editText(d.el, false); }
+          else lastTap = { id: d.el.id, t: nowT };
+        }
+      }
+      else save();
+    } else if (d.kind === 'text') editText(d.el, d.isNew);
+    else if (d.kind === 'shape') {
+      if (Math.hypot(d.el.w, d.el.h) < 6) { els = els.filter(function (x) { return x !== d.el; }); undoStack.pop(); syncUndo(); }
+      else { setTool('move'); selId = d.el.id; save(); }
+    }
+    else if (d.kind !== 'pan') save();
+    draw();
+  }
+  function up(e) {
+    delete ptrs[e.pointerId];
+    if (pinch && ptrIds().length < 2) pinch = null;
+    end(e);
+  }
+  cv.addEventListener('pointerup', up);
+  cv.addEventListener('pointercancel', up);
+
+  /* ctrl+wheel and trackpad pinch zoom around the pointer; plain wheel pans */
+  window.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    anim = null;
+    var k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    if (e.ctrlKey) {
+      var dy = e.deltaY * k;
+      zoomBy(Math.exp(-dy * (Math.abs(dy) >= 50 ? 0.002 : 0.01)), e.clientX, e.clientY);
+    } else {
+      view.x += e.deltaX * k / view.z; view.y += e.deltaY * k / view.z; draw();
+      if (editing) placeEditor();
+    }
+  }, { passive: false });
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (n) { document.addEventListener(n, function (e) { e.preventDefault(); }); });
+
+  /* ---------- toolbar ---------- */
+  var SHAPE_ICONS = {
+    rect: '<svg viewBox="0 0 24 24"><rect x="4" y="6.5" width="16" height="11"/></svg>',
+    ellipse: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8.5" ry="6"/></svg>',
+    line: '<svg viewBox="0 0 24 24"><path d="M5 19L19 5"/></svg>',
+    arrow: '<svg viewBox="0 0 24 24"><path d="M5 19L19 5M10 5h9v9"/></svg>'
+  };
+  var shapeBtn = document.getElementById('shapeBtn'), shape = SHAPES.indexOf(lsGet(K.shape)) >= 0 ? lsGet(K.shape) : 'rect';
+  var toolBtns = document.querySelectorAll('[data-tool]'), prevTool = 'move';
+  function syncShape() {
+    shapeBtn.innerHTML = SHAPE_ICONS[shape];
+    shapeBtn.setAttribute('aria-pressed', String(SHAPES.indexOf(tool) >= 0));
+  }
+  function setTool(t) {
+    if (t === 'erase' && tool !== 'erase') prevTool = tool;
+    if (drag && drag.kind === 'erase') { drag = null; endErase(false); }
+    tool = t; selId = null;
+    if (SHAPES.indexOf(t) >= 0) { shape = t; lsSet(K.shape, t); }
+    if (t !== 'erase') eraseCur.style.display = 'none';
+    cv.classList.toggle('erase', t === 'erase');
+    cv.classList.toggle('move', t === 'move');
+    cv.classList.toggle('txt', t === 'text');
+    toolBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.tool === t)); });
+    syncShape();
+    draw();
+  }
+  toolBtns.forEach(function (b) { b.addEventListener('click', function () { commitEdit(); setTool(b.dataset.tool === 'erase' && tool === 'erase' ? prevTool : b.dataset.tool); }); });
+  /* first tap arms the shape, the next tap steps to the following one */
+  shapeBtn.addEventListener('click', function () {
+    commitEdit();
+    setTool(SHAPES.indexOf(tool) >= 0 ? SHAPES[(SHAPES.indexOf(tool) + 1) % SHAPES.length] : shape);
+  });
+  function undo() {
+    commitEdit();
+    if (!undoStack.length) return;
+    els = JSON.parse(undoStack.pop()); save(); syncUndo(); draw();
+  }
+  function deleteSel() {
+    var s = selEl();
+    if (!s) return;
+    snap(); els = els.filter(function (e) { return e !== s; }); selId = null; save(); draw();
+  }
+  document.getElementById('undo').addEventListener('click', undo);
+  document.getElementById('del').addEventListener('click', deleteSel);
+  document.addEventListener('keydown', function (e) {
+    var tag = document.activeElement && document.activeElement.tagName, typing = tag === 'TEXTAREA' || tag === 'INPUT';
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); return; }
+    if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selEl()) { e.preventDefault(); deleteSel(); }
+    else if (e.key === 'Escape' && tool === 'erase') setTool(prevTool);
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomBy(1.25, W / 2, H / 2); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(1 / 1.25, W / 2, H / 2); }
+    else if (e.key === '0') { e.preventDefault(); animateTo(fitView(sel)); }
+    else if (e.key.toLowerCase() === 'e') { e.preventDefault(); setTool(tool === 'erase' ? prevTool : 'erase'); }
+    else if (e.key.toLowerCase() === 't') { e.preventDefault(); setTool('text'); }
+  });
+  syncUndo();
+  syncShape();
+
+  /* ---------- start: a hash link lands on its area, otherwise the last NOW ---------- */
+  var startId = hashId() || sel;
+  sel = startId; lsSet(K.sel, sel);
+  syncIndex();
+  resize();
+  if (!hashId()) { try { history.replaceState(null, '', '#' + sel); } catch (e) {} }
+})();
+</script>
+</body>
+</html>
