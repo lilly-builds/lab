@@ -4,7 +4,7 @@
    enabled is the runtime gate (plan KTD5): false = zero backend calls, app behaves as the
    pure local demo. ?sync=on opts in per session, ?sync=off always wins. */
 window.AIWB_SUPABASE = {
-  url: 'https://YOUR-PROJECT-REF.supabase.co',
-  anonKey: 'PUBLISHABLE-ANON-KEY',
+  url: 'https://bgnjzyaxgjlpqnnbcfjs.supabase.co',
+  anonKey: 'sb_publishable_o9F68Ot-Yb0UgmJsnHhAUg_loE-FE3A',
   enabled: false
 };
