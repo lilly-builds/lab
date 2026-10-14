@@ -7,8 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<meta name="color-scheme" content="dark">
 <style>
-  :root { --ink: #000; --paper: #fff; --f: "Special Elite", "Courier New", monospace; }
+  :root { --ink: #e6e6e6; --paper: #0f1115; --f: "Special Elite", "Courier New", monospace; }
   * { box-sizing: border-box; border-radius: 0; box-shadow: none; }
   html, body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--f); font-weight: normal; font-style: normal; }
   body { padding: 20px 16px 60px; max-width: 1280px; }
@@ -19,7 +20,7 @@
   .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
   button.tog { font-family: var(--f); font-size: 14px; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 6px 16px; cursor: pointer; }
   button.tog[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
-  #scroller { border: 1px solid var(--ink); overflow-x: auto; background: var(--paper); -webkit-overflow-scrolling: touch; }
+  #scroller { border: 1px solid #3a3f4b; overflow-x: auto; background: var(--paper); -webkit-overflow-scrolling: touch; }
   svg { display: block; width: 100%; height: auto; }
   .key[hidden], .bar[hidden] { display: none; }
   .key svg { display: inline-block; width: auto; height: auto; }
@@ -45,15 +46,11 @@
 <ul class="key" id="key-spec" hidden></ul>
 
 <div class="bar" role="group" aria-label="View">
-  <button class="tog vw" data-w="pipeline" aria-pressed="true">Pipeline</button>
+  <button class="tog vw" data-w="spectrum" aria-pressed="true">Spectrum</button>
   <button class="tog vw" data-w="git" aria-pressed="false">Git branches</button>
-  <button class="tog vw" data-w="spectrum" aria-pressed="false">Spectrum</button>
 </div>
 
-<div class="bar" id="layout-bar" role="group" aria-label="Layout">
-  <button class="tog vr" data-v="A" aria-pressed="false">A</button>
-  <button class="tog vr" data-v="B" aria-pressed="true">B</button>
-</div>
+<div class="bar" id="layout-bar" role="group" aria-label="Layout" hidden></div>
 
 <div id="scroller"><svg id="art" role="img" xmlns="http://www.w3.org/2000/svg"></svg></div>
 
@@ -65,33 +62,43 @@
   var STAGES = ["Idea", "Spec", "Spec review", "Tests", "Build", "Code review", "Fix/optimize", "Security & deps scan", "PR", "CI", "Preview deploy", "CD", "Live", "Observe & rollback"];
   var LAST = STAGES.length - 1, LIVE = 12;
   var WORK = [
-    { name: "Search bug", stage: 4, state: "green", attn: null },
-    { name: "New onboarding", stage: 2, state: "yellow", attn: "square" },
-    { name: "Billing spike", stage: 13, state: "red", attn: "diamond" },
-    { name: "Dark mode", stage: 7, state: "yellow", attn: "triangle" },
-    { name: "Email digest", stage: 10, state: "green", attn: null }
+    { name: "Owner live dashboard", stage: 4, state: "green", attn: null },
+    { name: "Builder manifesto docs", stage: 12, state: "green", attn: null },
+    { name: "Guidance tool", stage: 12, state: "green", attn: null },
+    { name: "Report panels", stage: 12, state: "green", attn: null },
+    { name: "Evals schema", stage: 12, state: "green", attn: null },
+    { name: "Eval runbook", stage: 12, state: "green", attn: null },
+    { name: "Build contracts", stage: 12, state: "green", attn: null },
+    { name: "Main caught up to live", stage: 12, state: "green", attn: null },
+    { name: "Polish CI tests", stage: 0, state: "green", attn: null },
+    { name: "Dev docs", stage: 0, state: "green", attn: null },
+    { name: "8 git issues", stage: 1, state: "green", attn: null }
   ];
-  var VARS = { A: 1, B: 1 };
-  var VIEWS = { pipeline: 1, git: 1, spectrum: 1 };
+  var VARS = { B: 1 };
+  var VIEWS = { spectrum: 1, git: 1 };
   // Spectrum view: attention shapes and what they mean.
   var SHAPE_WORD = { diamond: "needs human judgment", square: "agent stuck", triangle: "needs debugging" };
   var SHAPE_BLINK = { diamond: "blink-slow", square: "blink-fast", triangle: "blink-double" };
   var BAND_L = 20, BAND_R = 1450;
   // Git story for the same builds. Time slots t run oldest (0) to newest (11).
   // A build at or past Live is merged into main; the rest are live branches.
-  var MAIN_T = [0, 4, 5, 6, 11];
+  // Slots: 0 #133 opened Oct 10; 1-3 #136 (Oct 13); 5 #138, 6 #139, 7 #137, 8 #133, 9 #140, 11 manifesto.
+  var MAIN_T = [0, 3, 5, 6, 7, 8, 9, 11];
   var BRANCHES = [
-    { name: "Billing spike", fork: 0, commits: [1, 2, 3], merge: 4 },
-    { name: "New onboarding", fork: 6, commits: [10] },
-    { name: "Search bug", fork: 6, commits: [7, 8, 9] },
-    { name: "Email digest", fork: 5, commits: [6, 7, 8] },
-    { name: "Dark mode", fork: 5, commits: [6, 7] }
+    { name: "Report panels", fork: 0, commits: [1], merge: 8 },
+    { name: "Owner live dashboard", fork: 1, commits: [2] },
+    { name: "Main caught up to live", fork: 1, commits: [2], merge: 3 },
+    { name: "Evals schema", fork: 3, commits: [4], merge: 5 },
+    { name: "Eval runbook", fork: 3, commits: [4], merge: 6 },
+    { name: "Build contracts", fork: 3, commits: [4], merge: 7 },
+    { name: "Guidance tool", fork: 7, commits: [8], merge: 9 },
+    { name: "Builder manifesto docs", fork: 9, commits: [10], merge: 11 }
   ];
   function work(name) { return WORK.filter(function (w) { return w.name === name; })[0]; }
 
   var svg = document.getElementById("art");
   var X0 = 70, DX = 100;
-  var view = "pipeline", variant = "B";
+  var view = "spectrum", variant = "B";
   var sx = function (i) { return X0 + DX * i; };
 
   function el(tag, attrs, parent, text) {
@@ -102,7 +109,7 @@
     return e;
   }
   function line(p, x1, y1, x2, y2, w, dash) {
-    var a = { x1: x1, y1: y1, x2: x2, y2: y2, stroke: "#000", "stroke-width": w };
+    var a = { x1: x1, y1: y1, x2: x2, y2: y2, stroke: "#e6e6e6", "stroke-width": w };
     if (dash) a["stroke-dasharray"] = dash;
     return el("line", a, p);
   }
@@ -118,8 +125,8 @@
   }
   function dot(p, i, y, big) {
     var r = i === LIVE ? (big ? 16 : 9) : (big ? 9 : 5);
-    if (i === LIVE) el("circle", { cx: sx(i), cy: y, r: r + 5, fill: "none", stroke: "#000", "stroke-width": 1.5 }, p);
-    el("circle", { cx: sx(i), cy: y, r: r, fill: "#fff", stroke: "#000", "stroke-width": big ? 3 : 2 }, p);
+    if (i === LIVE) el("circle", { cx: sx(i), cy: y, r: r + 5, fill: "none", stroke: "#e6e6e6", "stroke-width": 1.5 }, p);
+    el("circle", { cx: sx(i), cy: y, r: r, fill: "#0f1115", stroke: "#e6e6e6", "stroke-width": big ? 3 : 2 }, p);
   }
   function setSize(w, h, min) {
     svg.style.minWidth = min ? min + "px" : "0";
@@ -133,15 +140,15 @@
     line(svg, sx(0), Y, sx(LAST), Y, 4);
     // loopback from Fix/optimize back to Code review
     var a = sx(5), b = sx(6);
-    el("path", { d: "M " + b + " " + Y + " C " + b + " " + (Y + 70) + " " + a + " " + (Y + 70) + " " + a + " " + Y, fill: "none", stroke: "#000", "stroke-width": 4 }, svg);
-    el("path", { d: "M " + (a - 7) + " " + (Y + 10) + " L " + a + " " + Y + " L " + (a + 7) + " " + (Y + 10), fill: "none", stroke: "#000", "stroke-width": 3 }, svg);
+    el("path", { d: "M " + b + " " + Y + " C " + b + " " + (Y + 70) + " " + a + " " + (Y + 70) + " " + a + " " + Y, fill: "none", stroke: "#e6e6e6", "stroke-width": 4 }, svg);
+    el("path", { d: "M " + (a - 7) + " " + (Y + 10) + " L " + a + " " + Y + " L " + (a + 7) + " " + (Y + 10), fill: "none", stroke: "#e6e6e6", "stroke-width": 3 }, svg);
     el("text", { x: (a + b) / 2, y: Y + 76, "text-anchor": "middle", "font-size": 11 }, svg, "loops until done");
     for (var i = 0; i <= LAST; i++) dot(svg, i, Y, true);
     stageLabels(svg, Y + 36, 11);
     WORK.forEach(function (w) {
       var x = sx(w.stage);
       line(svg, x, Y - 60, x, Y - 12, 1.5);
-      el("rect", { x: x - 46, y: Y - 128, width: 92, height: 68, fill: COL[w.state], stroke: "#000", "stroke-width": 1.5 }, svg);
+      el("rect", { x: x - 46, y: Y - 128, width: 92, height: 68, fill: COL[w.state], stroke: "#e6e6e6", "stroke-width": 1.5 }, svg);
       el("text", { x: x, y: Y - 100, "text-anchor": "middle", "font-size": 11 }, svg, w.name);
       el("text", { x: x, y: Y - 76, "text-anchor": "middle", "font-size": 10 }, svg, WORD[w.state]);
     });
@@ -157,7 +164,7 @@
       for (var i = 0; i <= LAST; i++) dot(svg, i, y, false);
       el("text", { x: sx(0) - 50, y: y - 14, "font-size": 12 }, svg, w.name + " (" + WORD[w.state] + ")");
       var x = sx(w.stage);
-      el("circle", { cx: x, cy: y, r: 13, fill: COL[w.state], stroke: "#000", "stroke-width": 3 }, svg);
+      el("circle", { cx: x, cy: y, r: 13, fill: COL[w.state], stroke: "#e6e6e6", "stroke-width": 3 }, svg);
     });
   }
 
@@ -169,7 +176,7 @@
     for (var k = 0; k <= 54; k++) el("stop", { offset: (k / 54 * 100) + "%", "stop-color": spectrum(k / 54) }, g);
   }
   function shapeEl(p, kind, x, y, r, fill, w, cls) {
-    var a = { fill: fill, stroke: "#000", "stroke-width": w };
+    var a = { fill: fill, stroke: "#e6e6e6", "stroke-width": w };
     if (cls) a["class"] = cls;
     if (kind === "diamond") { a.points = [x, y - r - 3, x + r + 3, y, x, y + r + 3, x - r - 3, y].join(" "); return el("polygon", a, p); }
     if (kind === "triangle") { a.points = [x, y - r - 2, x + r + 3, y + r - 1, x - r - 3, y + r - 1].join(" "); return el("polygon", a, p); }
@@ -177,16 +184,16 @@
     a.cx = x; a.cy = y; a.r = r; return el("circle", a, p);
   }
   function drawSpectrum() {
-    var BT = 8, BH = 26, ROW = 54, T = BT + BH + 40, H = T + ROW * WORK.length + 6;
+    var BT = 8, BH = 26, ROW = 62, T = BT + BH + 40, H = T + ROW * WORK.length + 6;
     setSize(1470, H, 1190);
     bandDefs(svg, "bandmain", BAND_L, BAND_R);
-    el("rect", { x: BAND_L, y: BT, width: BAND_R - BAND_L, height: BH, fill: "url(#bandmain)", stroke: "#000", "stroke-width": 1.5 }, svg);
+    el("rect", { x: BAND_L, y: BT, width: BAND_R - BAND_L, height: BH, fill: "url(#bandmain)", stroke: "#e6e6e6", "stroke-width": 1.5 }, svg);
     stageLabels(svg, BT + BH + 18, 11);
     WORK.forEach(function (w, r) {
       var y = T + ROW * r + 14, x = sx(w.stage);
       line(svg, sx(0), y, sx(LAST), y, 3);
-      for (var i = 0; i <= LAST; i++) el("circle", { cx: sx(i), cy: y, r: 5, fill: "#fff", stroke: "#000", "stroke-width": 2 }, svg);
-      el("text", { x: sx(0) - 50, y: y - 14, "font-size": 12 }, svg, w.name + " (" + (w.attn ? SHAPE_WORD[w.attn] : "moving") + ")");
+      for (var i = 0; i <= LAST; i++) el("circle", { cx: sx(i), cy: y, r: 5, fill: "#0f1115", stroke: "#e6e6e6", "stroke-width": 2 }, svg);
+      el("text", { x: sx(0) - 50, y: y - 20, "font-size": 12 }, svg, w.name + " (" + (w.attn ? SHAPE_WORD[w.attn] : "moving") + ")");
       shapeEl(svg, w.attn || "circle", x, y, 13, spectrum((x - BAND_L) / (BAND_R - BAND_L)), 3, w.attn ? SHAPE_BLINK[w.attn] : "");
     });
   }
@@ -197,7 +204,7 @@
     bs.setAttribute("width", 90); bs.setAttribute("height", 11); bs.setAttribute("viewBox", "0 0 90 11");
     bs.setAttribute("aria-hidden", "true");
     bandDefs(bs, "bandkey", 0, 90);
-    el("rect", { x: 0.5, y: 0.5, width: 89, height: 10, fill: "url(#bandkey)", stroke: "#000", "stroke-width": 1 }, bs);
+    el("rect", { x: 0.5, y: 0.5, width: 89, height: 10, fill: "url(#bandkey)", stroke: "#e6e6e6", "stroke-width": 1 }, bs);
     li.appendChild(bs); li.appendChild(document.createTextNode("where it is in the process"));
     ["diamond", "square", "triangle"].forEach(function (s) {
       var l = document.createElement("li"), v = document.createElementNS(NS, "svg");
@@ -213,13 +220,13 @@
   function chev(p, x, y, dir) {
     var d = dir === "left" ? "M " + (x + 8) + " " + (y - 6) + " L " + x + " " + y + " L " + (x + 8) + " " + (y + 6)
                            : "M " + (x - 6) + " " + (y + 8) + " L " + x + " " + y + " L " + (x + 6) + " " + (y + 8);
-    el("path", { d: d, fill: "none", stroke: "#000", "stroke-width": 3 }, p);
+    el("path", { d: d, fill: "none", stroke: "#e6e6e6", "stroke-width": 3 }, p);
   }
   function gdot(p, x, y, kind) {
     // kind: plain | ink (merged commit) | a state colour (live tip, or the light on main)
-    if (kind === "plain") el("circle", { cx: x, cy: y, r: 5, fill: "#fff", stroke: "#000", "stroke-width": 2 }, p);
-    else if (kind === "ink") el("circle", { cx: x, cy: y, r: 5, fill: "#000", stroke: "#000", "stroke-width": 2 }, p);
-    else el("circle", { cx: x, cy: y, r: 10, fill: COL[kind], stroke: "#000", "stroke-width": 3 }, p);
+    if (kind === "plain") el("circle", { cx: x, cy: y, r: 5, fill: "#0f1115", stroke: "#e6e6e6", "stroke-width": 2 }, p);
+    else if (kind === "ink") el("circle", { cx: x, cy: y, r: 5, fill: "#e6e6e6", stroke: "#e6e6e6", "stroke-width": 2 }, p);
+    else el("circle", { cx: x, cy: y, r: 10, fill: COL[kind], stroke: "#e6e6e6", "stroke-width": 3 }, p);
   }
   function glabel(p, x, y, w) {
     el("text", { x: x, y: y - 2, "font-size": 14 }, p, w.name);
@@ -230,7 +237,7 @@
       var m = BRANCHES.filter(function (b) { return b.merge === t; })[0];
       var q = pos(t);
       if (t === 11) {
-        el("circle", { cx: q[0], cy: q[1], r: 8, fill: "#fff", stroke: "#000", "stroke-width": 3 }, p);
+        el("circle", { cx: q[0], cy: q[1], r: 8, fill: "#0f1115", stroke: "#e6e6e6", "stroke-width": 3 }, p);
         el("text", { x: q[0] + head[0], y: q[1] + head[1], "font-size": 14 }, p, "main");
       } else gdot(p, q[0], q[1], m ? work(m.name).state : "plain");
     });
@@ -238,16 +245,17 @@
 
   // Layout B: vertical git graph, newest on top.
   function gitB() {
-    var ROW = 44, TOP = 30, MX = 40, LBL = 306, TN = 11;
-    var LANE = { "Billing spike": 90, "New onboarding": 134, "Search bug": 178, "Email digest": 222, "Dark mode": 266 };
+    var ROW = 44, TOP = 44, MX = 40, LBL = 306, TN = 11;
+    var LANE = {};
+    BRANCHES.forEach(function (b, i) { LANE[b.name] = 90 + i * 26; });
     var y = function (t) { return TOP + (TN - t) * ROW; };
-    setSize(440, TOP * 2 + TN * ROW, 0);
+    setSize(560, TOP * 2 + TN * ROW, 0); svg.style.maxWidth = "760px";
     line(svg, MX, y(0), MX, y(TN), 4);
     BRANCHES.forEach(function (b) {
       var w = work(b.name), lx = LANE[b.name], merged = w.stage >= LIVE;
       var last = merged ? b.merge : b.commits[b.commits.length - 1];
       var d = "M " + MX + " " + y(b.fork) + " H " + lx + " V " + y(last) + (merged ? " H " + MX : "");
-      el("path", { d: d, fill: "none", stroke: "#000", "stroke-width": 3 }, svg);
+      el("path", { d: d, fill: "none", stroke: "#e6e6e6", "stroke-width": 3 }, svg);
       if (merged) chev(svg, MX + 12, y(b.merge), "left");
       b.commits.forEach(function (t, i) {
         var tip = !merged && i === b.commits.length - 1;
@@ -256,7 +264,7 @@
       line(svg, lx + 14, y(last), LBL - 8, y(last), 1, "2 4");
       glabel(svg, LBL, y(last), w);
     });
-    mainDots(svg, function (t) { return [MX, y(t)]; }, [18, 5]);
+    mainDots(svg, function (t) { return [MX, y(t)]; }, [-16, -16]);
   }
 
   // Layout A: horizontal main, branches forking above and below.
@@ -270,7 +278,7 @@
       var w = work(b.name), ly = YM + LANE[b.name], merged = w.stage >= LIVE;
       var last = merged ? b.merge : b.commits[b.commits.length - 1];
       var d = "M " + x(b.fork) + " " + YM + " V " + ly + " H " + x(last) + (merged ? " V " + YM : "");
-      el("path", { d: d, fill: "none", stroke: "#000", "stroke-width": 3 }, svg);
+      el("path", { d: d, fill: "none", stroke: "#e6e6e6", "stroke-width": 3 }, svg);
       if (merged) chev(svg, x(b.merge), YM + 12, "up");
       b.commits.forEach(function (t, i) {
         var tip = !merged && i === b.commits.length - 1;
@@ -294,8 +302,10 @@
     document.getElementById("key-circles").hidden = spec;
     document.getElementById("key-spec").hidden = !spec;
     document.getElementById("layout-bar").hidden = spec;
+    svg.style.maxWidth = "none";
+    document.getElementById("scroller").style.maxWidth = spec ? "none" : "762px";
     if (spec) drawSpectrum();
-    else ({ pipeline: { A: drawA, B: drawB }, git: { A: gitA, B: gitB } })[w][v]();
+    else gitB();
     if (history.replaceState) history.replaceState(null, "", "#" + w + "-" + v);
   }
 
@@ -309,7 +319,7 @@
   buildKeys();
   var parts = (location.hash || "").replace("#", "").toLowerCase().split("-");
   var hv = (parts[1] || parts[0]).toUpperCase();
-  show(VIEWS[parts[0]] ? parts[0] : "pipeline", VARS[hv] ? hv : "B");
+  show(VIEWS[parts[0]] ? parts[0] : "spectrum", "B");
 })();
 </script>
 </body>
