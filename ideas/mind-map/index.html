@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Mind map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #000; --paper: #fff; --her: #ffec99; --ai: #bfd7ff; --f: "Special Elite", "Courier New", monospace; }
+  * { box-sizing: border-box; border-radius: 0; box-shadow: none; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); color: var(--ink); font-family: var(--f); font-weight: normal; font-style: normal; overscroll-behavior: none; }
+  header { position: fixed; top: 0; left: 0; right: 0; z-index: 2; padding: 14px 16px 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
+  h1 { font-weight: normal; margin: 0; font-size: 26px; letter-spacing: 0.5px; }
+  .bar { display: flex; gap: 8px; pointer-events: auto; }
+  button.tog { font-family: var(--f); font-size: 14px; min-height: 32px; background: var(--paper); color: var(--ink); border: 1px solid var(--ink); padding: 4px 16px; cursor: pointer; }
+  button.tog[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  svg { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+  svg text { font-family: var(--f); font-weight: normal; fill: var(--ink); text-anchor: middle; pointer-events: none; }
+  .mv { transition: transform .45s ease, opacity .35s ease; }
+  .fade { transition: opacity .35s ease; }
+  .thread { cursor: pointer; }
+  .lbl { font-size: 13px; letter-spacing: 1px; }
+  @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+  .live { transform-box: fill-box; transform-origin: center; animation: pulse 2.2s ease-in-out infinite; }
+  @keyframes dot { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
+  .dot { animation: dot 1.4s ease-in-out infinite; }
+  .dot:nth-child(2) { animation-delay: .25s; }
+  .dot:nth-child(3) { animation-delay: .5s; }
+  @media (prefers-reduced-motion: reduce) { .live, .dot { animation: none; } .mv, .fade { transition: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mind map</h1>
+  <div class="bar" role="group" aria-label="Layout">
+    <button class="tog vr" data-v="A" aria-pressed="false">A Areas</button>
+    <button class="tog vr" data-v="B" aria-pressed="true">B Radial</button>
+  </div>
+</header>
+
+<svg id="art" role="img" aria-label="Chat threads as a mind map" xmlns="http://www.w3.org/2000/svg"></svg>
+
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  var HER = "#ffec99", AI = "#bfd7ff";
+  var RT = 64, RS = 44;               // thread radius, small-circle radius
+
+  // A: thread position + direction its circles run along.
+  // B: angle (deg, 0 = right) around the Today node.
+  var THREADS = [
+    { name: "Laundry reminder", a: { x: 680, y: 150, dx: 0, dy: 1 }, b: -54,
+      kids: [["her", "remind me to switch laundry"], ["ai", "reminder set for 6 PM"]] },
+    { name: "AI whiteboard", a: { x: 110, y: 400, dx: 1, dy: 0 }, b: 234,
+      kids: [["her", "share link for the board"], ["ai", "link sent"], ["her", "invite button broken?"], ["ai", "fixed and live"]] },
+    { name: "Dev workflow tracks", a: { x: 110, y: 640, dx: 1, dy: 0 }, b: 162,
+      kids: [["her", "train tracks for the pipeline"], ["ai", "live, 3 layouts"], ["her", "cut C, B as main"], ["ai", "rebuilding now"]] },
+    { name: "DB setup", a: { x: 110, y: 880, dx: 1, dy: 0 }, b: 90,
+      kids: [["her", "run the db setup"], ["ai", "", true]] },
+    { name: "Samarth call", a: { x: 680, y: 860, dx: 0, dy: -1 }, b: 18,
+      kids: [["her", "prep for the Samarth call"], ["ai", "prep notes ready"]] }
+  ];
+  var AREAS = [
+    { t: "Life admin", x: 680, y: 52 },
+    { t: "Project", x: 110, y: 296 },
+    { t: "People", x: 680, y: 968 }
+  ];
+  var CX = 500, CY = 500, RING = 300, ORBIT = 122, STEP = 96;
+
+  var layout = "B";
+  var view = { x: 0, y: 0, k: 1 };
+  var svg = document.getElementById("art");
+
+  function el(name, attrs, parent) {
+    var n = document.createElementNS(NS, name);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function wrap(s, max) {
+    var words = s.split(" "), lines = [], cur = "";
+    words.forEach(function (w) {
+      if (cur && (cur + " " + w).length > max) { lines.push(cur); cur = w; }
+      else cur = cur ? cur + " " + w : w;
+    });
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function text(g, s, max, size, lh) {
+    var lines = wrap(s, max), y0 = -(lines.length - 1) * lh / 2 + size * 0.35;
+    lines.forEach(function (l, i) {
+      var t = el("text", { x: 0, y: y0 + i * lh, "font-size": size }, g);
+      t.textContent = l;
+    });
+  }
+
+  var world = el("g", {}, svg);
+  var gLines = el("g", {}, world), gNodes = el("g", {}, world);
+
+  var today = el("g", { class: "fade" }, gNodes);
+  el("circle", { r: 52, fill: "#fff", stroke: "#000", "stroke-width": 2 }, today);
+  text(today, "Today", 9, 16, 16);
+  today.setAttribute("transform", "translate(" + CX + " " + CY + ")");
+
+  var areaEls = AREAS.map(function (a) {
+    var t = el("text", { class: "lbl fade", x: a.x, y: a.y }, gNodes);
+    t.textContent = a.t.toLowerCase();
+    return t;
+  });
+
+  THREADS.forEach(function (T, ti) {
+    T.open = true;
+    T.spoke = el("line", { stroke: "#000", "stroke-width": 1, class: "fade" }, gLines);
+    T.line = el("line", { stroke: "#000", "stroke-width": 1.2, class: "fade" }, gLines);
+    T.orbit = el("circle", { fill: "none", stroke: "#000", "stroke-width": 1, "stroke-dasharray": "2 6", class: "fade" }, gLines);
+
+    T.kidEls = T.kids.map(function (k) {
+      var g = el("g", { class: "mv" }, gNodes);
+      var inner = el("g", {}, g);
+      var live = k[2];
+      if (live) inner.setAttribute("class", "live");
+      el("circle", { r: RS, fill: k[0] === "her" ? HER : AI, stroke: "#000", "stroke-width": 1 }, inner);
+      if (live) {
+        var d = el("g", {}, inner);
+        [-12, 0, 12].forEach(function (x) {
+          el("circle", { cx: x, cy: 0, r: 3.2, fill: "#000", class: "dot" }, d);
+        });
+      } else text(inner, k[1], 9, 12, 13);
+      return g;
+    });
+
+    T.node = el("g", { class: "thread mv", "data-t": ti }, gNodes);
+    el("circle", { r: RT + 8, fill: "transparent" }, T.node);
+    el("circle", { r: RT, fill: "#fff", stroke: "#000", "stroke-width": 2.5 }, T.node);
+    text(T.node, T.name, 11, 15, 17);
+  });
+
+  function pos(T) {
+    if (layout === "A") return { x: T.a.x, y: T.a.y };
+    var r = T.b * Math.PI / 180;
+    return { x: CX + RING * Math.cos(r), y: CY + RING * Math.sin(r) };
+  }
+  function outward(T) {
+    if (layout === "A") return Math.atan2(T.a.dy, T.a.dx);
+    return T.b * Math.PI / 180;
+  }
+  function kidPos(T, i) {
+    var p = pos(T);
+    if (layout === "A") return { x: p.x + T.a.dx * (STEP * i + 125), y: p.y + T.a.dy * (STEP * i + 125) };
+    var n = T.kids.length, ang = outward(T) + (i - (n - 1) / 2) * (72 * Math.PI / 180);
+    return { x: p.x + ORBIT * Math.cos(ang), y: p.y + ORBIT * Math.sin(ang) };
+  }
+  function tr(x, y, s) { return "translate(" + x + "px," + y + "px) scale(" + s + ")"; }
+
+  function apply() {
+    var A = layout === "A";
+    today.style.opacity = A ? 0 : 1;
+    areaEls.forEach(function (t) { t.style.opacity = A ? 1 : 0; });
+    THREADS.forEach(function (T) {
+      var p = pos(T), n = T.kids.length, last = kidPos(T, n - 1);
+      T.node.style.transform = tr(p.x, p.y, 1);
+      T.spoke.setAttribute("x1", CX); T.spoke.setAttribute("y1", CY);
+      T.spoke.setAttribute("x2", p.x); T.spoke.setAttribute("y2", p.y);
+      T.spoke.style.opacity = A ? 0 : 1;
+      T.line.setAttribute("x1", p.x); T.line.setAttribute("y1", p.y);
+      T.line.setAttribute("x2", last.x); T.line.setAttribute("y2", last.y);
+      T.line.style.opacity = A && T.open ? 1 : 0;
+      T.orbit.setAttribute("cx", p.x); T.orbit.setAttribute("cy", p.y); T.orbit.setAttribute("r", ORBIT);
+      T.orbit.style.opacity = !A && T.open ? 1 : 0;
+      T.kidEls.forEach(function (g, i) {
+        var live = T.kids[i][2];
+        if (T.open) { var q = kidPos(T, i); g.style.transform = tr(q.x, q.y, 1); g.style.opacity = 1; }
+        else if (live) {
+          // in-flight reply stays visible as a small pulsing badge on the node
+          var o = outward(T);
+          g.style.transform = tr(p.x + Math.cos(o) * RT * 0.95, p.y + Math.sin(o) * RT * 0.95, 0.4);
+          g.style.opacity = 1;
+        } else { g.style.transform = tr(p.x, p.y, 0); g.style.opacity = 0; }
+      });
+    });
+  }
+
+  // ---- view: pan / zoom ----
+  function setView() { world.setAttribute("transform", "translate(" + view.x + " " + view.y + ") scale(" + view.k + ")"); }
+  function bounds() {
+    var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    function add(x, y, r) { x0 = Math.min(x0, x - r); y0 = Math.min(y0, y - r); x1 = Math.max(x1, x + r); y1 = Math.max(y1, y + r); }
+    if (layout === "B") add(CX, CY, 52);
+    THREADS.forEach(function (T) {
+      var p = pos(T); add(p.x, p.y, RT);
+      if (T.open) T.kids.forEach(function (k, i) { var q = kidPos(T, i); add(q.x, q.y, RS); });
+    });
+    if (layout === "A") AREAS.forEach(function (a) { add(a.x, a.y, 40); });
+    return { x0: x0, y0: y0, x1: x1, y1: y1 };
+  }
+  function fitTarget() {
+    var b = bounds(), W = innerWidth, H = innerHeight, top = 70, pad = 16;
+    var k = Math.min((W - pad * 2) / (b.x1 - b.x0), (H - top - pad) / (b.y1 - b.y0));
+    k = Math.min(k, 1.4);
+    return { k: k, x: W / 2 - k * (b.x0 + b.x1) / 2, y: top + (H - top - pad) / 2 - k * (b.y0 + b.y1) / 2 };
+  }
+  var anim = 0;
+  function fit(animate) {
+    var t = fitTarget();
+    cancelAnimationFrame(anim);
+    if (!animate) { view = t; setView(); return; }
+    var s = { x: view.x, y: view.y, k: view.k }, t0 = performance.now();
+    (function step(now) {
+      var u = Math.min(1, (now - t0) / 450), e = 1 - Math.pow(1 - u, 3);
+      view = { x: s.x + (t.x - s.x) * e, y: s.y + (t.y - s.y) * e, k: s.k + (t.k - s.k) * e };
+      setView();
+      if (u < 1) anim = requestAnimationFrame(step);
+    })(t0);
+  }
+  function zoomAt(px, py, f) {
+    var k = Math.max(0.25, Math.min(3, view.k * f)); f = k / view.k;
+    view.x = px - (px - view.x) * f; view.y = py - (py - view.y) * f; view.k = k; setView();
+  }
+
+  var ptrs = {}, down = null, pinch = null;
+  function count() { return Object.keys(ptrs).length; }
+  function list() { return Object.keys(ptrs).map(function (k) { return ptrs[k]; }); }
+  svg.addEventListener("pointerdown", function (e) {
+    cancelAnimationFrame(anim);
+    ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+    svg.setPointerCapture(e.pointerId);
+    var th = e.target.closest && e.target.closest("[data-t]");
+    if (count() === 1) down = { x: e.clientX, y: e.clientY, t: th ? +th.getAttribute("data-t") : -1, moved: false };
+    else {
+      if (down) down.moved = true;
+      var ps = list();
+      pinch = { d: Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) };
+    }
+  });
+  svg.addEventListener("pointermove", function (e) {
+    var p = ptrs[e.pointerId]; if (!p) return;
+    var dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    if (count() >= 2 && pinch) {
+      var ps = list();
+      var d = Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y);
+      view.x += dx / 2; view.y += dy / 2;
+      zoomAt((ps[0].x + ps[1].x) / 2, (ps[0].y + ps[1].y) / 2, d / pinch.d);
+      pinch.d = d;
+    } else if (down) {
+      if (!down.moved && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) down.moved = true;
+      if (down.moved) { view.x += dx; view.y += dy; setView(); }
+    }
+  });
+  function up(e) {
+    if (!ptrs[e.pointerId]) return;
+    delete ptrs[e.pointerId];
+    if (count() < 2) pinch = null;
+    if (count() === 0 && down) {
+      if (!down.moved && down.t >= 0 && e.type === "pointerup") toggle(down.t);
+      down = null;
+    }
+  }
+  svg.addEventListener("pointerup", up);
+  svg.addEventListener("pointercancel", up);
+  svg.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
+  }, { passive: false });
+
+  function toggle(i) { THREADS[i].open = !THREADS[i].open; apply(); fit(true); }
+
+  function setLayout(v) {
+    layout = v;
+    Array.prototype.forEach.call(document.querySelectorAll(".vr"), function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-v") === v ? "true" : "false");
+    });
+    apply(); fit(true);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".vr"), function (b) {
+    b.addEventListener("click", function () { setLayout(b.getAttribute("data-v")); });
+  });
+  addEventListener("resize", function () { fit(false); });
+
+  apply(); fit(false);
+})();
+</script>
+</body>
+</html>
