@@ -300,6 +300,7 @@
           if (!(opts && opts.restoreMissing) ||
               engine.scene.some(function (e) { return e.id === key; }) ||
               (sceneKeys && sceneKeys[key] && !(opts && opts.discardScene)) ||
+              dead.some(function (op) { return op.element_key === key && op.deleted; }) ||
               (outbox[key] && outbox[key].deleted)) { ignored++; return; }
         }
         var el = Object.assign({}, row.payload, { id: key, type: row.type });

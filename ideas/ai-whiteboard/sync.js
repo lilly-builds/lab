@@ -269,7 +269,7 @@
           app.setEls(engine.scene);   /* remote rows won conflicts: show the merged scene */
           app.save();
           engine.diff(app.getEls()); /* includes genuine saves made with ?sync=off */
-          if (storedSceneMatches() && !engine.outboxOps().length) {
+          if (storedSceneMatches() && !engine.outboxOps().length && !engine.deadLetters().length) {
             engine.markSceneSaved(app.getEls());
             engine.ensureDurable();
           }
@@ -397,7 +397,7 @@
       if (state !== 'online' || !engine) return;
       try {
         await engine.flush();
-        if (storedSceneMatches() && !engine.outboxOps().length) {
+        if (storedSceneMatches() && !engine.outboxOps().length && !engine.deadLetters().length) {
           engine.markSceneSaved(app.getEls());
           engine.ensureDurable();
         }

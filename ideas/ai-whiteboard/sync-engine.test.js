@@ -258,6 +258,24 @@ tests.push(['server down: writes dead-letter after bounded retries; local board 
   assert.strictEqual(server.rows.get(scene[0].id).payload.text, 'queued', 'replayed after recovery');
 }]);
 
+tests.push(['an exhausted deletion is not silently undone on reload', async () => {
+  const server = fakeServer(), storage = memStorage();
+  const eng = mk(server, { storage });
+  const { scene } = await eng.importScene([note('e1')]);
+  eng.markSceneSaved(scene);
+  const id = scene[0].id;
+  scene.splice(0, 1); eng.diff(scene);
+  server.setDown(true);
+  for (let i = 0; i < 6; i++) await eng.flush();
+  assert.strictEqual(eng.deadLetters().length, 1);
+  server.setDown(false);
+  const returned = mk(server, { storage });
+  returned.seedScene([]);
+  await returned.pullAll();
+  assert.strictEqual(returned.scene.length, 0, 'visible deletion remains local');
+  assert(server.rows.has(id), 'server still has the row until retry');
+}]);
+
 tests.push(['malicious inbound rows are defused by the sanitizer before touching the scene', async () => {
   const server = fakeServer(), eng = mk(server);
   await eng.importScene([]);
