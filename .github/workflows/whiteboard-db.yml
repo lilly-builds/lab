@@ -1,0 +1,50 @@
+name: whiteboard-db
+
+# Gates for the dreamspace whiteboard sync layer (plan U10):
+# every PR touching ideas/ai-whiteboard runs the client suites (including the
+# demo-safety and conflict-matrix tests), applies the migrations twice on a
+# clean local Supabase stack, and runs the RLS/RPC policy suite.
+on:
+  pull_request:
+    paths: ['ideas/ai-whiteboard/**']
+  push:
+    branches: [main]
+    paths: ['ideas/ai-whiteboard/**']
+  workflow_dispatch:
+
+jobs:
+  client:
+    name: Client suites + demo-safety gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run every client suite
+        run: |
+          set -e
+          for f in ideas/ai-whiteboard/*.test.js; do
+            echo "== $f"
+            node "$f"
+          done
+
+  database:
+    name: Migrations twice + policy suite (local Supabase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+      - name: Start the local stack
+        working-directory: ideas/ai-whiteboard
+        run: supabase start
+      - name: Migrations apply repeatably (reset twice)
+        working-directory: ideas/ai-whiteboard
+        run: |
+          supabase db reset
+          supabase db reset
+      - name: RLS/RPC policy suite
+        run: >-
+          psql "postgresql://postgres:postgres@localhost:54322/postgres"
+          -v ON_ERROR_STOP=1
+          -f ideas/ai-whiteboard/supabase/tests/policy_tests.sql

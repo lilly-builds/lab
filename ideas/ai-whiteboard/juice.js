@@ -76,8 +76,12 @@
       balance += n; save();
       liquid.setAttribute('fill', COLORS[c] || '#ffec99');
       animateTo(balance); floatText(n);
+      if (api.onEarn) { try { api.onEarn(note); } catch (e) {} } /* sync.js: ledger write when synced */
       return n;
-    }
+    },
+    /* server-authoritative balance (synced mode): the ledger sum replaces the local count */
+    setBalance: function (n) { balance = Math.max(0, n | 0); save(); animateTo(balance); },
+    onEarn: null
   };
   window.Juice = api;
 
