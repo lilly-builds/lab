@@ -35,6 +35,12 @@
   #focus button { width: 32px; height: 32px; border: 1px solid var(--ink); margin-left: -1px; font-size: 13px; line-height: 1; background: var(--paper); }
   #focus button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 
+  input#areaEdit { position: fixed; transform-origin: 0 0; display: none; margin: 0; padding: 0; border: 0; background: var(--paper); font: 400 28px/36px var(--f); outline: 1px solid var(--ink); outline-offset: 4px; z-index: 5; }
+  #areaTools { position: fixed; z-index: 7; display: none; gap: 12px; font-size: 13px; line-height: 1; }
+  #areaTools button { text-decoration: underline; text-underline-offset: 3px; padding: 6px 0; background: var(--paper); }
+  #toast { position: fixed; left: 50%; transform: translateX(-50%); z-index: 10; display: none; gap: 14px; align-items: center; max-width: calc(100% - 16px); padding: 6px 12px; background: var(--paper); border: 1px solid var(--ink); font-size: 14px; }
+  #toast button { text-decoration: underline; text-underline-offset: 3px; }
+
   #dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0 8px calc(8px + env(safe-area-inset-bottom)); pointer-events: none; }
   #dock > * { pointer-events: auto; }
   #bar { display: flex; justify-content: center; max-width: 100%; background: var(--paper); border: 1px solid var(--ink); }
@@ -59,6 +65,10 @@
 <div id="eraseCur" aria-hidden="true"></div>
 <textarea id="noteEdit" aria-label="Note" maxlength="400"></textarea>
 <textarea id="textEdit" aria-label="Text" maxlength="2000" rows="1" spellcheck="false" autocorrect="off" wrap="soft"></textarea>
+
+<input id="areaEdit" aria-label="Area title" maxlength="60" spellcheck="false" autocomplete="off">
+<div id="areaTools"><button type="button" id="areaRename">rename</button><button type="button" id="areaRemove">remove</button></div>
+<div id="toast" role="status"><span id="toastMsg"></span><button type="button" id="toastUndo">undo</button></div>
 
 <div id="top">
   <h1>Everything, everywhere, all at once.</h1>
@@ -97,7 +107,8 @@
      w     -> width reserved for the area (focus framing and ownership of what sits inside it)
      notes -> sticky notes under the title, top to bottom; "ask\ncontext" is a bold line plus a smaller one
      embed -> true puts a same-origin iframe card (../plot-your-purpose/) under the title
-     Areas are always drawn from this block. Notes and embeds are copied into localStorage
+     Areas are always drawn from this block, with the user's own layer on top (K.areas: moved x/y, renamed
+     title, removed) that only ever stores differences from the seed. Notes and embeds are copied into localStorage
      ("everything.scene") only when no board of this seed version exists, then belong to the user. */
   var SEED_VER = '2', EMBED_SRC = '../plot-your-purpose/', EMBED_W = 520, EMBED_H = 640;
   var SEED = [
@@ -121,7 +132,7 @@
   ];
 
   /* storage: every key starts with "everything." and never touches the whiteboard's own keys */
-  var K = { scene: 'everything.scene', ver: 'everything.ver', sel: 'everything.sel', mode: 'everything.mode', shape: 'everything.shape' };
+  var K = { scene: 'everything.scene', ver: 'everything.ver', sel: 'everything.sel', mode: 'everything.mode', shape: 'everything.shape', areas: 'everything.areas' };
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
@@ -130,18 +141,39 @@
   var els = [], view = { x: 0, y: 0, z: 1 }, tool = 'move', undoStack = [], editing = null, selId = null, eraseIds = {};
   var NOTE_W = 200, NOTE_H = 88, LH = 20, nextId = 1, editNew = false;
   var dpr = 1, W = 0, H = 0, lastW = 0, TOP = 56;
-  var sel = SEED[0].id, mode = 'A', anim = null;
+  var sel = SEED[0].id, mode = 'A', anim = null, selArea = null, editingArea = null, areaCancel = false;
   var areaById = {};
   /* first-pass note height, before the font is measured; growNotes() only ever grows it */
   function estH(t, w) { return t.indexOf('\n') > 0 ? 56 : Math.max(44, Math.ceil(t.length * 9.6 / (w - 16)) * 20 + 20); }
   SEED.forEach(function (a) {
     var y = 76;
+    a.x0 = a.x; a.y0 = a.y; a.t0 = a.title; a.gone = false;
     a.nw = Math.min(a.w, 340);
     a.layout = a.notes.map(function (t) { var h = estH(t, a.nw), r = { t: t, y: y, h: h }; y += h + 16; return r; });
     if (a.embed) { a.embedY = y; y += EMBED_H + 16; }
     a.h = Math.max(120, y + 8);
-    areaById[a.id] = a;
   });
+  var areas = SEED.slice();
+  function computeAreas() {
+    areas = SEED.filter(function (a) { return !a.gone; });
+    areaById = {}; areas.forEach(function (a) { areaById[a.id] = a; });
+  }
+  function areaState() { return SEED.map(function (a) { return [a.id, a.x, a.y, a.title, a.gone]; }); }
+  function applyAreaState(st) {
+    st.forEach(function (r) { var a = SEED.filter(function (q) { return q.id === r[0]; })[0]; if (a) { a.x = r[1]; a.y = r[2]; a.title = r[3]; a.gone = !!r[4]; } });
+    computeAreas();
+  }
+  function saveAreas() {
+    var o = {};
+    SEED.forEach(function (a) {
+      var d = {};
+      if (a.x !== a.x0 || a.y !== a.y0) { d.x = a.x; d.y = a.y; }
+      if (a.title !== a.t0) d.t = a.title;
+      if (a.gone) d.gone = true;
+      if (Object.keys(d).length) o[a.id] = d;
+    });
+    lsSet(K.areas, JSON.stringify(o));
+  }
 
   var MIN_Z = 0.15, MAX_Z = 4;
   function clampZ(z) { return Math.max(MIN_Z, Math.min(MAX_Z, z)); }
@@ -186,15 +218,37 @@
     return out;
   }
   var saved = lsGet(K.scene);
-  if (saved === null || lsGet(K.ver) !== SEED_VER) { lsSet(K.ver, SEED_VER); els = seedEls(); lsSet(K.scene, JSON.stringify(els)); }
+  if (saved === null || lsGet(K.ver) !== SEED_VER) { lsSet(K.ver, SEED_VER); els = seedEls(); lsSet(K.scene, JSON.stringify(els)); lsSet(K.areas, '{}'); }
   else { try { var s = JSON.parse(saved); if (Array.isArray(s)) els = s.map(cleanEl).filter(Boolean); } catch (e) {} }
+  /* the user's layer over the seed; anything missing or malformed falls back to the seed values */
+  (function () {
+    var o = null;
+    try { o = JSON.parse(lsGet(K.areas)); } catch (e) {}
+    if (!o || typeof o !== 'object') return;
+    SEED.forEach(function (a) {
+      var d = o[a.id];
+      if (!d || typeof d !== 'object') return;
+      if (typeof d.x === 'number' && typeof d.y === 'number') { a.x = num(d.x, a.x); a.y = num(d.y, a.y); }
+      if (typeof d.t === 'string' && d.t.trim()) a.title = d.t.trim().slice(0, 60);
+      if (d.gone === true) a.gone = true;
+    });
+    if (SEED.every(function (a) { return a.gone; })) SEED.forEach(function (a) { a.gone = false; });
+  })();
+  computeAreas();
+  if (!areaById[sel]) sel = areas[0].id;
   els.forEach(function (e) { var n = parseInt(String(e.id).replace(/\D/g, ''), 10); if (n >= nextId) nextId = n + 1; });
   els.forEach(function (e) { if (!e.id) e.id = newId(); });
   if (lsGet(K.mode) === 'B' || lsGet(K.mode) === 'C') mode = lsGet(K.mode);
   if (areaById[lsGet(K.sel)]) sel = lsGet(K.sel);
 
   function save() { lsSet(K.scene, JSON.stringify(els)); }
-  function snap() { undoStack.push(JSON.stringify(els)); if (undoStack.length > 60) undoStack.shift(); syncUndo(); }
+  function snap() { undoStack.push(JSON.stringify({ e: els, a: areaState() })); if (undoStack.length > 60) undoStack.shift(); syncUndo(); }
+  function restoreSnap(s) {
+    var o = JSON.parse(s);
+    els = o.e; applyAreaState(o.a); selArea = null;
+    if (!areaById[sel]) { sel = areas[0].id; lsSet(K.sel, sel); }
+    buildIndex(); syncIndex(); save(); saveAreas();
+  }
   function syncUndo() { document.getElementById('undo').disabled = !undoStack.length; }
   function selEl() {
     if (!selId) return null;
@@ -278,8 +332,8 @@
   /* which area an element belongs to: the one holding its center */
   function ownerOf(el) {
     var b = bbox(el), cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-    for (var i = 0; i < SEED.length; i++) {
-      var a = SEED[i];
+    for (var i = 0; i < areas.length; i++) {
+      var a = areas[i];
       if (cx >= a.x && cx <= a.x + a.w && cy >= a.y && cy <= a.y + a.h) return a.id;
     }
     return null;
@@ -367,9 +421,7 @@
     g.globalAlpha = alpha;
     g.fillStyle = '#000';
     g.font = '400 28px ' + FAMILY; g.textBaseline = 'top'; g.textAlign = 'left';
-    var tt = a.title;
-    while (tt.length > 1 && g.measureText(tt).width > a.w) tt = tt.slice(0, -1);
-    g.fillText(tt, a.x - view.x, a.y - view.y + 4);
+    if (editingArea !== a.id) g.fillText(a.title, a.x - view.x, a.y - view.y + 4);
     g.restore();
   }
   function drawSel(g, el) {
@@ -386,7 +438,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     ctx.setTransform(dpr * view.z, 0, 0, dpr * view.z, 0, 0);
-    SEED.forEach(function (a) {
+    areas.forEach(function (a) {
       if (mode === 'B' && a.id !== sel) return;
       drawArea(ctx, a, mode === 'C' && a.id !== sel ? 0.25 : 1);
     });
@@ -401,8 +453,95 @@
     var s = selEl();
     if (s && editing !== s.id) drawSel(ctx, s);
     document.getElementById('del').hidden = !s;
+    syncAreaUI();
     syncEmbeds();
   }
+  /* ---------- area titles: select, drag, rename, remove ---------- */
+  var areaEdit = document.getElementById('areaEdit'), areaTools = document.getElementById('areaTools'), toast = document.getElementById('toast'), toastTimer = 0;
+  function titleBox(a) {
+    ctx.font = '400 28px ' + FAMILY;
+    return { x: a.x, y: a.y, w: Math.max(24, ctx.measureText(a.title).width), h: 36 };
+  }
+  function areaTitleAt(px, py) {
+    var pad = 6 / view.z;
+    for (var i = areas.length - 1; i >= 0; i--) {
+      var a = areas[i];
+      if (mode === 'B' && a.id !== sel) continue;
+      var b = titleBox(a);
+      if (px >= b.x - pad && px <= b.x + b.w + pad && py >= b.y - pad && py <= b.y + b.h + pad) return a;
+    }
+    return null;
+  }
+  function syncAreaUI() {
+    var a = selArea && areaById[selArea];
+    if (!a || (mode === 'B' && a.id !== sel) || editingArea) areaTools.style.display = 'none';
+    else {
+      var b = titleBox(a), p = toScreen(b.x + b.w, b.y), o = toScreen(b.x, b.y);
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.lineWidth = 1; ctx.strokeStyle = '#000'; ctx.setLineDash([4, 3]);
+      ctx.strokeRect(o.x - 5.5, o.y - 5.5, b.w * view.z + 11, b.h * view.z + 11);
+      ctx.restore();
+      areaTools.style.display = 'flex';
+      areaTools.style.left = Math.max(4, Math.min(W - 130, p.x + 16)) + 'px';
+      areaTools.style.top = Math.max(TOP - 8, p.y + (b.h * view.z - 28) / 2) + 'px';
+      document.getElementById('areaRemove').hidden = areas.length < 2;
+    }
+    if (editingArea) placeAreaEdit();
+  }
+  function placeAreaEdit() {
+    var a = areaById[editingArea];
+    if (!a) return;
+    var p = toScreen(a.x, a.y), b = titleBox(a), st = areaEdit.style;
+    st.left = p.x + 'px'; st.top = p.y + 'px'; st.transform = 'scale(' + view.z + ')';
+    st.width = Math.max(b.w + 40, 220) + 'px'; st.height = '36px';
+  }
+  function editArea(a) {
+    commitEdit();
+    snap(); editingArea = a.id; areaCancel = false; selArea = a.id;
+    areaEdit.value = a.title; areaEdit.style.display = 'block'; draw();
+    areaEdit.focus(); areaEdit.select();
+  }
+  function commitAreaEdit() {
+    if (!editingArea) return;
+    var a = areaById[editingArea], v = areaEdit.value.trim().slice(0, 60);
+    editingArea = null; areaEdit.style.display = 'none';
+    if (!a || areaCancel || !v || v === a.title) { undoStack.pop(); syncUndo(); }
+    else { a.title = v; saveAreas(); buildIndex(); syncIndex(); }
+    areaCancel = false;
+    draw();
+  }
+  areaEdit.addEventListener('blur', commitAreaEdit);
+  areaEdit.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); areaEdit.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); areaCancel = true; areaEdit.blur(); }
+  });
+  function showToast(msg) {
+    document.getElementById('toastMsg').textContent = msg;
+    toast.style.display = 'flex'; toast.style.bottom = (dock.offsetHeight + 12) + 'px';
+    clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, 9000);
+  }
+  function hideToast() { toast.style.display = 'none'; }
+  function removeArea(a) {
+    if (!a || areas.length < 2) return;
+    var owned = els.filter(function (e) { return ownerOf(e) === a.id; });
+    if (owned.length && !window.confirm('Remove "' + a.title + '" and its ' + owned.length + (owned.length === 1 ? ' item' : ' items') + ' from the board?')) return;
+    commitEdit();
+    snap();
+    var next = areas[(areas.indexOf(a) + 1) % areas.length];
+    els = els.filter(function (e) { return owned.indexOf(e) < 0; });
+    a.gone = true; selArea = null; selId = null;
+    computeAreas(); save(); saveAreas(); buildIndex();
+    if (sel === a.id) {
+      select(next.id, true);
+      try { history.replaceState(null, '', '#' + next.id); } catch (err) {}
+    } else { syncIndex(); draw(); }
+    showToast('Removed "' + a.title + '".');
+  }
+  document.getElementById('areaRename').addEventListener('click', function () { if (selArea) editArea(areaById[selArea]); });
+  document.getElementById('areaRemove').addEventListener('click', function () { if (selArea) removeArea(areaById[selArea]); });
+  document.getElementById('toastUndo').addEventListener('click', function () { hideToast(); undo(); });
+
   /* embed cards are real iframes in a layer over the canvas, placed with the same view transform */
   var embedLayer = document.getElementById('embeds'), embedNodes = {};
   function syncEmbeds() {
@@ -478,11 +617,13 @@
   function select(id, animate) {
     if (!areaById[id]) return;
     commitEdit();
-    sel = id; selId = null; lsSet(K.sel, id);
+    sel = id; selId = null; selArea = null; lsSet(K.sel, id);
     syncIndex();
     if (animate) animateTo(fitView(id)); else { anim = null; view = fitView(id); draw(); }
   }
-  SEED.forEach(function (a) {
+  function buildIndex() {
+  indexEl.innerHTML = '';
+  areas.forEach(function (a) {
     var b = document.createElement('button');
     b.type = 'button'; b.dataset.id = a.id;
     b.appendChild(document.createTextNode(a.title));
@@ -493,12 +634,14 @@
     });
     indexEl.appendChild(b);
   });
+  }
+  buildIndex();
   function hashId() { var h = ''; try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) {} if (h === 'work') h = 'restoreops'; return areaById[h] ? h : null; }
   window.addEventListener('hashchange', function () { var id = hashId(); if (id) select(id, true); });
   Array.prototype.forEach.call(document.querySelectorAll('#focus [data-mode]'), function (b) {
     b.addEventListener('click', function () {
       commitEdit();
-      mode = b.dataset.mode; lsSet(K.mode, mode); selId = null;
+      mode = b.dataset.mode; lsSet(K.mode, mode); selId = null; selArea = null;
       syncIndex();
       if (mode === 'B') animateTo(fitView(sel)); else draw();
     });
@@ -550,6 +693,7 @@
   tx.addEventListener('keydown', function (e) { if (e.key === 'Escape') { e.preventDefault(); tx.blur(); } });
   if (window.visualViewport) { window.visualViewport.addEventListener('resize', keepInView); window.visualViewport.addEventListener('scroll', keepInView); }
   function commitEdit() {
+    if (editingArea) commitAreaEdit();
     if (!editing) return;
     var id = editing; editing = null;
     ta.style.display = 'none'; tx.style.display = 'none';
@@ -598,8 +742,8 @@
     var d = drag; drag = null;
     if (!d) return;
     if (d.kind === 'erase') endErase(false);
-    else if (d.kind === 'pen' || d.kind === 'shape' || d.kind === 'handle' || d.kind === 'move' || (d.kind === 'text' && d.isNew)) {
-      if (undoStack.length) { els = JSON.parse(undoStack.pop()); syncUndo(); save(); }
+    else if (d.kind === 'pen' || d.kind === 'shape' || d.kind === 'handle' || d.kind === 'move' || d.kind === 'area' || (d.kind === 'text' && d.isNew)) {
+      if (undoStack.length) { restoreSnap(undoStack.pop()); syncUndo(); }
       if (selId && !selEl()) selId = null;
     }
     eraseCur.style.display = 'none';
@@ -657,8 +801,14 @@
         if (cur.type === 'text') { var b0 = bbox(cur); drag.w0 = b0.w; drag.h0 = b0.h; drag.size0 = cur.size; drag.ew0 = cur.w; }
       } else {
         var t = topAt(p.x, p.y);
-        if (t) { snap(); selId = t.id; drag = { kind: 'move', el: t, sx: e.clientX, sy: e.clientY, ox: t.x, oy: t.y, moved: false }; }
-        else { selId = null; drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }; }
+        var ar = t ? null : areaTitleAt(p.x, p.y);
+        if (ar) {
+          snap(); selId = null; selArea = ar.id;
+          drag = { kind: 'area', a: ar, sx: e.clientX, sy: e.clientY, ox: ar.x, oy: ar.y, moved: false,
+            owned: els.filter(function (q) { return ownerOf(q) === ar.id; }).map(function (q) { return { el: q, x: q.x, y: q.y }; }) };
+        }
+        else if (t) { snap(); selId = t.id; selArea = null; drag = { kind: 'move', el: t, sx: e.clientX, sy: e.clientY, ox: t.x, oy: t.y, moved: false }; }
+        else { selId = null; selArea = null; drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }; }
       }
     }
     draw();
@@ -743,6 +893,14 @@
       var dx = (e.clientX - drag.sx) / view.z, dy = (e.clientY - drag.sy) / view.z;
       if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
       drag.el.x = drag.ox + dx; drag.el.y = drag.oy + dy; draw();
+    } else if (drag.kind === 'area') {
+      var ax = (e.clientX - drag.sx) / view.z, ay = (e.clientY - drag.sy) / view.z;
+      if (Math.abs(ax) + Math.abs(ay) > 3) drag.moved = true;
+      if (drag.moved) {
+        drag.a.x = drag.ox + ax; drag.a.y = drag.oy + ay;
+        drag.owned.forEach(function (r) { r.el.x = r.x + ax; r.el.y = r.y + ay; });
+        draw();
+      }
     } else if (drag.kind === 'pan') {
       view.x = drag.vx - (e.clientX - drag.sx) / view.z; view.y = drag.vy - (e.clientY - drag.sy) / view.z; draw();
     }
@@ -755,7 +913,14 @@
       if (e && e.pointerType && e.pointerType !== 'mouse') eraseCur.style.display = 'none';
       return;
     }
-    if (d.kind === 'move') {
+    if (d.kind === 'area') {
+      if (!d.moved) {
+        undoStack.pop(); syncUndo();
+        var nowA = Date.now();
+        if (lastTap.id === 'area:' + d.a.id && nowA - lastTap.t < 350) { lastTap = { id: null, t: 0 }; editArea(d.a); }
+        else lastTap = { id: 'area:' + d.a.id, t: nowA };
+      } else { d.a.x = Math.round(d.a.x); d.a.y = Math.round(d.a.y); d.owned.forEach(function (r) { r.el.x = Math.round(r.el.x); r.el.y = Math.round(r.el.y); }); save(); saveAreas(); }
+    } else if (d.kind === 'move') {
       if (!d.moved) {
         undoStack.pop(); syncUndo();
         if (d.el.type === 'note') editNote(d.el);
@@ -813,7 +978,7 @@
   function setTool(t) {
     if (t === 'erase' && tool !== 'erase') prevTool = tool;
     if (drag && drag.kind === 'erase') { drag = null; endErase(false); }
-    tool = t; selId = null;
+    tool = t; selId = null; selArea = null;
     if (SHAPES.indexOf(t) >= 0) { shape = t; lsSet(K.shape, t); }
     if (t !== 'erase') eraseCur.style.display = 'none';
     cv.classList.toggle('erase', t === 'erase');
@@ -832,7 +997,7 @@
   function undo() {
     commitEdit();
     if (!undoStack.length) return;
-    els = JSON.parse(undoStack.pop()); save(); syncUndo(); draw();
+    restoreSnap(undoStack.pop()); syncUndo(); draw();
   }
   function deleteSel() {
     var s = selEl();
@@ -846,6 +1011,8 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); return; }
     if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && selEl()) { e.preventDefault(); deleteSel(); }
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && selArea && areaById[selArea]) { e.preventDefault(); removeArea(areaById[selArea]); }
+    else if ((e.key === 'Enter' || e.key === 'F2') && selArea && areaById[selArea]) { e.preventDefault(); editArea(areaById[selArea]); }
     else if (e.key === 'Escape' && tool === 'erase') setTool(prevTool);
     else if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomBy(1.25, W / 2, H / 2); }
     else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(1 / 1.25, W / 2, H / 2); }
