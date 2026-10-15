@@ -79,6 +79,11 @@
   .more-wrap .more { margin-top: 0; }
   [hidden] { display: none !important; }
 
+  /* the one splash of color: confetti and rainbow waves around a just-published card */
+  .thanks { grid-column: 1 / -1; margin: 0; text-align: center; font: 400 clamp(22px, 5vw, 30px)/1.2 var(--serif); }
+  .hoorah { z-index: 1; }
+  .celebrate { position: absolute; left: -90px; top: -90px; width: calc(100% + 180px); height: calc(100% + 180px); pointer-events: none; z-index: 3; }
+
   .add { display: flex; justify-content: center; margin-top: 48px; }
   .add a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; font: 300 14px/1 var(--mono); }
   .add a:hover { text-decoration: underline; text-underline-offset: 4px; }
@@ -104,9 +109,10 @@
   var FONT_BIG = '400 22px ' + FAMILY;
   var probe = document.createElement('canvas').getContext('2d');
 
-  var issueTitle = 'Template: ';
-  var issueBody = 'Template name:\n\nYour name:\n\nPaste the template JSON from the share button below.\n\n```json\n\n```\n';
-  document.getElementById('add').href = 'https://github.com/lilly-builds/lab/issues/new?title=' + encodeURIComponent(issueTitle) + '&body=' + encodeURIComponent(issueBody);
+  /* publishing happens on a board: make one, tap share, it lands here */
+  document.getElementById('add').href = '../ai-whiteboard/';
+  var publishedId = new URLSearchParams(location.search).get('published') || '';
+  if (!/^[\w-]{1,60}$/.test(publishedId)) publishedId = '';
 
   /* ---------- the whiteboard's element format ---------- */
   function wrap(g, text, maxW, font) {
@@ -299,10 +305,12 @@
     }).catch(function () {});
   }
   var staticList = function () { return fetch('templates.json').then(function (r) { return r.json(); }); };
-  (window.AIWB_TEMPLATES
-    ? AIWB_TEMPLATES.list().then(function (db) { return db || staticList(); })
-    : staticList()
-  ).then(function (list) {
+  /* database first; null on any failure (flag off, offline, timeout) */
+  var dbP = (window.AIWB_TEMPLATES ? AIWB_TEMPLATES.list() : Promise.resolve(null)).catch(function () { return null; });
+  dbP.then(function (db) {
+    var samples = window.AIWB_TEMPLATES ? AIWB_TEMPLATES.plan(db, [], '').samples : null;
+    return samples || staticList();
+  }).then(function (list) {
     if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && (t.file || t.payload) && !t.mine) builtinCard(t); });
   }).catch(function () {});
 
@@ -396,6 +404,78 @@
     return out;
   }
 
+  /* rows from the database are untrusted text: clamp every field to the dialog's caps */
+  function tidy(t) {
+    var title = clean(t && t.title, 60);
+    if (!title || !Array.isArray(t.elements)) return null;
+    t.title = title;
+    t.why = clean(t.why, 802) || '';
+    t.author = clean(t.author, 40) || '';
+    t.x = typeof t.x === 'string' && /^[A-Za-z0-9_]{1,15}$/.test(t.x) ? t.x : '';
+    t.elements = t.elements.slice(0, 120).filter(function (e) { return e && typeof e === 'object' && !Array.isArray(e); });
+    return t;
+  }
+
+  var RAINBOW = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#af52de'];
+  /* short confetti burst and rippling rainbow waves around one card, then they fade; the words stay */
+  function celebrate(box) {
+    box.classList.add('hoorah');
+    var thanks = document.createElement('p');
+    thanks.className = 'thanks'; thanks.setAttribute('role', 'status');
+    thanks.textContent = 'thanks for contributing';
+    grid.insertBefore(thanks, box);
+    var cv = document.createElement('canvas');
+    cv.className = 'celebrate'; cv.setAttribute('aria-hidden', 'true');
+    box.appendChild(cv);
+    var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var W = cv.clientWidth || box.offsetWidth + 180, H = cv.clientHeight || box.offsetHeight + 180;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    var g = cv.getContext('2d'), M = 90, DUR = 4500, FADE = 900;
+    var bits = [];
+    for (var i = 0; i < 110 && !still; i++) {
+      bits.push({
+        x: M + (box.offsetWidth * (0.15 + 0.7 * Math.random())), y: M + 20,
+        vx: (Math.random() - 0.5) * 520, vy: -(260 + Math.random() * 420),
+        w: 6 + Math.random() * 6, h: 3 + Math.random() * 5,
+        r: Math.random() * 6, vr: (Math.random() - 0.5) * 14, c: RAINBOW[i % RAINBOW.length]
+      });
+    }
+    function waves(t, alpha) {
+      g.lineWidth = 3; g.lineCap = 'round';
+      [M - 28, M + box.offsetHeight + 28].forEach(function (baseY, side) {
+        RAINBOW.forEach(function (col, k) {
+          g.strokeStyle = col; g.globalAlpha = alpha;
+          g.beginPath();
+          for (var x = 0; x <= W; x += 6) {
+            var y = baseY + (side ? 1 : -1) * k * 4 + Math.sin(x / 38 + t * 3 + k * 0.35) * (7 + 3 * Math.sin(t * 1.5));
+            if (x) g.lineTo(x, y); else g.moveTo(x, y);
+          }
+          g.stroke();
+        });
+      });
+      g.globalAlpha = 1;
+    }
+    var t0 = null, last = 0;
+    function frame(now) {
+      if (t0 === null) { t0 = now; last = now; }
+      var el = now - t0, dt = Math.min(0.05, (now - last) / 1000); last = now;
+      var alpha = Math.max(0, Math.min(1, (DUR - el) / FADE));
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, W, H);
+      waves(el / 1000, alpha);
+      bits.forEach(function (b) {
+        b.vy += 900 * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.r += b.vr * dt; b.vx *= 0.995;
+        g.save(); g.translate(b.x, b.y); g.rotate(b.r); g.globalAlpha = alpha; g.fillStyle = b.c;
+        g.fillRect(-b.w / 2, -b.h / 2, b.w, b.h); g.restore();
+      });
+      if (el < DUR) requestAnimationFrame(frame); else cv.remove();
+    }
+    if (still) { g.setTransform(dpr, 0, 0, dpr, 0, 0); waves(0, 1); }
+    else requestAnimationFrame(frame);
+    if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
+  }
+
   function communityCard(t) {
     var c = card(t, {
       community: true,
@@ -406,6 +486,7 @@
       }
     });
     drawLater(c.cv, previewEls(t.elements));
+    if (publishedId && t.id === publishedId) celebrate(c.box);
   }
   function showMore() {
     community.slice(shown, shown + PAGE).forEach(communityCard);
@@ -413,9 +494,16 @@
     cmoreWrap.hidden = shown >= community.length;
   }
   cmore.addEventListener('click', showMore);
-  loadCommunity().then(function (items) {
-    community = items;
+  /* newest first: database rows and the older GitHub-issue submissions together, so nothing vanishes */
+  Promise.all([dbP, loadCommunity().catch(function () { return []; })]).then(function (r) {
+    var pl = window.AIWB_TEMPLATES ? AIWB_TEMPLATES.plan(r[0], r[1], publishedId) : { community: r[1] };
+    community = pl.community.map(tidy).filter(Boolean);
     showMore();
+    if (publishedId && !grid.querySelector('.thanks')) { /* published, but the list could not show it yet: still say thanks */
+      var thanks = document.createElement('p');
+      thanks.className = 'thanks'; thanks.setAttribute('role', 'status'); thanks.textContent = 'thanks for contributing';
+      grid.insertBefore(thanks, grid.firstChild);
+    }
   }).catch(function () {});
 })();
 </script>
