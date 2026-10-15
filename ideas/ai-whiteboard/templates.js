@@ -129,11 +129,18 @@
           var r = await withTimeout(c.from('templates').insert(row), PUBLISH_TIMEOUT_MS);
           if (!r.error) return { ok: true, mode: 'db', slug: row.slug };
           var msg = String(r.error.message || '');
-          if (/duplicate key/.test(msg) && attempt === 0) { row.slug = makeSlug(t.title); continue; }
+          if (/duplicate key/.test(msg) && attempt === 0) { row = retryRow(t, row.slug); continue; }
           return { ok: false, error: 'rejected' };
         } catch (e) { return { ok: false, error: 'offline' }; }
       }
       return { ok: false, error: 'rejected' };
+    }
+
+    /* a fresh row object (never mutate the one already sent) with a slug that differs from the collided one */
+    function retryRow(t, taken) {
+      var slug = makeSlug(t.title);
+      for (var i = 0; i < 5 && slug === taken; i++) slug = makeSlug(t.title);
+      return shapeRow(t, slug);
     }
 
     function makeSlug(title) {
