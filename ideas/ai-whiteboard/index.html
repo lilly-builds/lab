@@ -231,7 +231,6 @@
   #ipop .btn { margin-top: 10px; min-height: 40px; font: 300 14px/1 var(--mono); }
   #cMsg { margin: 12px 0 0; font: 300 14px/1.4 var(--mono); }
   #cMsg:empty { display: none; }
-  #cDone p { margin: 0 0 24px; font: 300 19px/1.4 var(--serif); }
 </style>
 </head>
 <body>
@@ -373,13 +372,9 @@
       <div class="field"><input id="cX" type="text" maxlength="16" placeholder="@yourhandle" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="cXErr"></div>
       <div class="cnt" id="cXN"></div>
       <p id="cXErr" role="alert" hidden>That doesn't look like an X handle.</p>
-      <button type="submit" class="btn solid" id="cSubmit">Add to community</button>
+      <button type="submit" class="btn solid" id="cSubmit">Share</button>
       <p id="cMsg" role="status" aria-live="polite"></p>
     </form>
-    <div id="cDone" hidden>
-      <p>Almost there. Tap Submit new issue on GitHub and your template joins the gallery.</p>
-      <button type="button" class="btn solid" id="cDoneBtn">Close</button>
-    </div>
   </div>
 </div>
 
@@ -2659,13 +2654,13 @@
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   });
 
-  /* ---------- add to community templates: prefilled GitHub issue ---------- */
+  /* ---------- add to community templates: published straight to the Board Room ---------- */
   var cBtn = document.getElementById('community'), cScrim = document.getElementById('cscrim'), cDlg = document.getElementById('cdlg');
-  var cForm = document.getElementById('cForm'), cDone = document.getElementById('cDone'), cMsg = document.getElementById('cMsg');
+  var cForm = document.getElementById('cForm'), cMsg = document.getElementById('cMsg');
   var cFields = [['cName', 'cNameN', 60], ['cWhy', 'cWhyN', 400], ['cLove', 'cLoveN', 400], ['cAuthor', 'cAuthorN', 40], ['cX', 'cXN', 16]].map(function (a) {
     return { el: document.getElementById(a[0]), n: document.getElementById(a[1]), max: a[2] };
   });
-  var ISSUE_URL = 'https://github.com/lilly-builds/lab/issues/new', URL_MAX = 7000, EL_MAX = 120;
+  var EL_MAX = 120;
   function syncCommunity() { cBtn.hidden = !els.some(function (e) { return e.type !== 'embed' && !e.pending; }); }
   var drawBase = draw;
   draw = function () { drawBase(); syncCommunity(); };
@@ -2696,7 +2691,7 @@
     commitEdit(); save();
     cOpen = true;
     cFields.forEach(function (f, i) { f.el.value = cDraft ? cDraft[i] : ''; cHint(f); });
-    cMsg.textContent = ''; cForm.hidden = false; cDone.hidden = true; document.getElementById('cSubmit').disabled = false;
+    cMsg.textContent = ''; document.getElementById('cSubmit').disabled = false;
     cScrim.hidden = false; dock.inert = true;
     cFields[0].el.focus();
   }
@@ -2736,13 +2731,8 @@
     }
     return out;
   }
-  function buildUrl(f, enc) {
-    var body = '**Why I made it**\n' + f.why + '\n\n**Why I love it**\n' + f.love + '\n\n**Made by** ' + (f.author || 'anonymous') + (f.x ? '\n\n**X** @' + f.x : '') + '\n\n<!-- lab-template:v1:' + enc + ' -->';
-    return ISSUE_URL + '?title=' + encodeURIComponent('Community template: ' + f.title) + '&body=' + encodeURIComponent(body);
-  }
   cBtn.addEventListener('click', openCommunity);
   document.getElementById('cClose').addEventListener('click', closeCommunity);
-  document.getElementById('cDoneBtn').addEventListener('click', closeCommunity);
   cScrim.addEventListener('pointerdown', function (e) { if (e.target === cScrim) closeCommunity(); });
   cDlg.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCommunity(); return; }
@@ -2770,36 +2760,18 @@
     cXErr.hidden = true;
     var btn = document.getElementById('cSubmit');
     btn.disabled = true; cMsg.textContent = '';
-    if (window.AIWB_TEMPLATES) {
-      try {
-        var dbr = await AIWB_TEMPLATES.submit({ title: f.title, why: f.why, love: f.love, author: f.author, x: f.x, elements: snapshot(false) });
-        if (dbr && dbr.ok) {
-          if (!cOpen) return;
-          btn.disabled = false;
-          cDone.querySelector('p').textContent = 'Shared. It joins the gallery once it is approved.';
-          cForm.hidden = true; cDone.hidden = false;
-          document.getElementById('cDoneBtn').focus();
-          return;
-        }
-      } catch (err) { /* fall through to the issue flow */ }
-    }
-    var url = '';
+    var res = null;
     try {
-      for (var pass = 0; pass < 2 && !url; pass++) {
-        var payload = { v: 1, title: f.title, why: f.why, love: f.love, author: f.author };
-        if (f.x) payload.x = f.x;
-        payload.elements = snapshot(pass === 1);
-        var enc = await encodePayload(payload);
-        var u = buildUrl(f, enc);
-        if (u.length < URL_MAX) url = u;
-      }
-    } catch (err) { url = ''; }
+      res = window.AIWB_TEMPLATES ? await AIWB_TEMPLATES.submit({ title: f.title, why: f.why, love: f.love, author: f.author, x: f.x, elements: snapshot(true) }) : null;
+    } catch (err) { res = null; }
+    if (res && res.ok) { location.href = '../templates/?published=' + encodeURIComponent(res.slug); return; }
+    /* the draft stays in the form; say what happened and bring the button back */
     if (!cOpen) return;
     btn.disabled = false;
-    if (!url) { cMsg.textContent = 'This board is too big to share. Try fewer elements.'; return; }
-    window.open(url, '_blank', 'noopener');
-    cForm.hidden = true; cDone.hidden = false;
-    document.getElementById('cDoneBtn').focus();
+    cMsg.textContent = res && res.error === 'rejected' ? 'The gallery turned that down. Check the fields and try again.'
+      : res && res.error === 'empty' ? 'Add something to the board first.'
+      : res && res.error === 'busy' ? 'Lots of people are sharing right now. Your answers are still here. Try again in a minute.'
+      : 'Could not reach the gallery. Your answers are still here. Try again in a moment.';
   });
   syncCommunity();
 
