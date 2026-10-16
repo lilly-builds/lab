@@ -285,7 +285,7 @@
     if (opts.onOpen) title.addEventListener('click', opts.onOpen);
     var author = authorLine(t.author, t.x, opts.byline);
     decorate(box, cv, [title, author, rules(t.desc || t.why)]);
-    if (opts.community) grid.insertBefore(box, firstBuiltin);
+    if (opts.community) grid.insertBefore(box, opts.before || firstBuiltin);
     else { grid.appendChild(box); if (!firstBuiltin) firstBuiltin = box; }
     return { cv: cv, box: box };
   }
@@ -299,24 +299,24 @@
   function builtinCard(t) {
     var c = card(t, { href: '../ai-whiteboard/?template=' + encodeURIComponent(t.id) });
     if (t.id === 'dream-board') { var flag = document.createElement('span'); flag.className = 'flag'; flag.textContent = 'Start here'; c.box.appendChild(flag); }
-    (t.payload ? Promise.resolve(t.payload) : fetch(t.file).then(function (r) { return r.json(); })).then(function (els) {
+    (t.payload ? Promise.resolve(t.payload) : t.file ? fetch(t.file).then(function (r) { return r.json(); }) : AIWB_TEMPLATES.loadPayload(t.id)).then(function (els) {
       if (!Array.isArray(els)) return;
       drawLater(c.cv, els.filter(function (e) { return e && typeof e === 'object' && e.type; }));
     }).catch(function () {});
   }
   var staticList = function () { return fetch('templates.json').then(function (r) { return r.json(); }); };
   /* database first; null on any failure (flag off, offline, timeout) */
-  var dbP = (window.AIWB_TEMPLATES ? AIWB_TEMPLATES.list() : Promise.resolve(null)).catch(function () { return null; });
-  dbP.then(function (db) {
-    var samples = window.AIWB_TEMPLATES ? AIWB_TEMPLATES.plan(db, [], '').samples : null;
-    return samples || staticList();
+  var T = window.AIWB_TEMPLATES;
+  var orNull = function (p) { return p.catch(function () { return null; }); };
+  orNull(T ? T.samples() : Promise.resolve(null)).then(function (db) {
+    return db && db.length ? db : staticList();
   }).then(function (list) {
-    if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && (t.file || t.payload) && !t.mine) builtinCard(t); });
+    if (Array.isArray(list)) list.forEach(function (t) { if (t && t.id && (t.file || t.payload || t.lazy) && !t.mine) builtinCard(t); });
   }).catch(function () {});
 
   /* ---------- submitted templates (open issues in lilly-builds/lab) ---------- */
   var API = 'https://api.github.com/repos/lilly-builds/lab/issues?state=open&per_page=100';
-  var CACHE_KEY = 'labtpl.community.v1', CACHE_MS = 5 * 60 * 1000, PAGE = 24;
+  var CACHE_KEY = 'labtpl.community.v1', CACHE_MS = 5 * 60 * 1000, PAGE = 24, GH_MS = 4000;
   var MARKER = /<!--\s*lab-template:v1:([A-Za-z0-9_-]+)\s*-->/;
   var cmoreWrap = document.getElementById('cmorewrap'), cmore = document.getElementById('cmore');
   var community = [], shown = 0;
@@ -362,7 +362,12 @@
       var c = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
       if (c && Array.isArray(c.items) && Date.now() - c.t < CACHE_MS) return Promise.resolve(c.items);
     } catch (e) {}
-    return fetch(API, { headers: { Accept: 'application/vnd.github+json' } }).then(function (r) {
+    /* a stalled GitHub must not hold the gallery: give up after GH_MS and show what we have */
+    var ctl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, GH_MS);
+    var timeout = new Promise(function (_, reject) { setTimeout(function () { reject(new Error('github timeout')); }, GH_MS + 200); });
+    return Promise.race([fetch(API, { headers: { Accept: 'application/vnd.github+json' }, signal: ctl ? ctl.signal : undefined }), timeout]).then(function (r) {
+      clearTimeout(timer);
       if (!r.ok) throw new Error('http ' + r.status);
       return r.json();
     }).then(function (list) {
@@ -407,13 +412,16 @@
   /* rows from the database are untrusted text: clamp every field to the dialog's caps */
   function tidy(t) {
     var title = clean(t && t.title, 60);
-    if (!title || !Array.isArray(t.elements)) return null;
+    if (!title || (!t.lazy && !Array.isArray(t.elements))) return null;
     t.title = title;
     t.why = clean(t.why, 802) || '';
     t.author = clean(t.author, 40) || '';
     t.x = typeof t.x === 'string' && /^[A-Za-z0-9_]{1,15}$/.test(t.x) ? t.x : '';
-    t.elements = t.elements.slice(0, 120).filter(function (e) { return e && typeof e === 'object' && !Array.isArray(e); });
+    t.elements = t.lazy ? null : tidyEls(t.elements);
     return t;
+  }
+  function tidyEls(els) {
+    return Array.isArray(els) ? els.slice(0, 120).filter(function (e) { return e && typeof e === 'object' && !Array.isArray(e); }) : [];
   }
 
   var RAINBOW = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#af52de'];
@@ -476,30 +484,92 @@
     if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
   }
 
-  function communityCard(t) {
+  /* Community cards, newest first. Database rows are paged by the server (24 a page, no
+     payloads: each card fetches its own preview when it scrolls into view) and render the
+     moment they arrive; GitHub-issue submissions merge in by date whenever they land, so
+     a slow GitHub never holds the gallery and no older submission vanishes. */
+  var rendered = [], seen = {}; /* rendered: {s: sort stamp, box} newest first */
+  var dbOK = false, dbMore = false, dbPageN = 0, lastCreated = '', ghPool = [], loadingMore = false;
+  var when = function (v) { var n = Date.parse(v); return isNaN(n) ? 0 : n; };
+
+  /* a database card's preview: its payload is fetched when the card nears the screen */
+  function lazyPreview(cv, id) {
+    var go = function () {
+      T.loadPayload(id).then(function (els) { if (els) drawLater(cv, previewEls(tidyEls(els))); }).catch(function () {});
+    };
+    if (!window.IntersectionObserver) return go();
+    var io = new IntersectionObserver(function (es) {
+      if (es.some(function (e) { return e.isIntersecting; })) { io.disconnect(); go(); }
+    }, { rootMargin: '300px' });
+    io.observe(cv);
+  }
+  function communityCard(t, pin) {
+    t = tidy(Object.assign({}, t, { why: t.why != null ? t.why : t.desc, desc: undefined })); /* database rows call the text desc; only the clamped why is drawn */
+    if (!t || (t.id && seen[t.id])) return;
+    if (t.id) seen[t.id] = 1;
+    var s = pin ? Infinity : when(t.created), at = 0;
+    while (at < rendered.length && rendered[at].s >= s) at++;
     var c = card(t, {
       community: true,
       byline: true,
-      href: '../ai-whiteboard/?template=pending',
-      onOpen: function () {
+      before: rendered[at] ? rendered[at].box : null,
+      /* a database template opens by id and is fetched fresh; a GitHub one hands its elements over */
+      href: t.lazy ? '../ai-whiteboard/?template=' + encodeURIComponent(t.id) : '../ai-whiteboard/?template=pending',
+      onOpen: t.lazy ? null : function () {
         try { sessionStorage.setItem('aiwb.pendingTemplate', JSON.stringify(t.elements)); } catch (e) {}
       }
     });
-    drawLater(c.cv, previewEls(t.elements));
+    rendered.splice(at, 0, { s: s, box: c.box });
+    if (t.lazy) lazyPreview(c.cv, t.id); else drawLater(c.cv, previewEls(t.elements));
     if (publishedId && t.id === publishedId) celebrate(c.box);
   }
-  function showMore() {
-    community.slice(shown, shown + PAGE).forEach(communityCard);
-    shown = Math.min(community.length, shown + PAGE);
-    cmoreWrap.hidden = shown >= community.length;
+  function syncMore() { cmoreWrap.hidden = !(dbOK ? dbMore : ghPool.length > 0); }
+  /* hand GitHub items to the gallery: those at least as new as the last database row read
+     (all of them once the database has no more pages); with no database, 24 at a time */
+  function releaseGithub() {
+    if (dbOK) {
+      var m = AIWB_TEMPLATES.mergePage([], dbMore, ghPool, lastCreated);
+      ghPool = m.rest; m.items.forEach(function (t) { communityCard(t); });
+    } else {
+      ghPool.splice(0, PAGE).forEach(function (t) { communityCard(t); });
+    }
+    syncMore();
   }
-  cmore.addEventListener('click', showMore);
-  /* newest first: database rows and the older GitHub-issue submissions together, so nothing vanishes */
-  Promise.all([dbP, loadCommunity().catch(function () { return []; })]).then(function (r) {
-    var pl = window.AIWB_TEMPLATES ? AIWB_TEMPLATES.plan(r[0], r[1], publishedId) : { community: r[1] };
-    community = pl.community.map(tidy).filter(Boolean);
-    showMore();
-    if (publishedId && !grid.querySelector('.thanks')) { /* published, but the list could not show it yet: still say thanks */
+  cmore.addEventListener('click', function () {
+    if (loadingMore) return;
+    if (!dbOK) return releaseGithub();
+    loadingMore = true;
+    orNull(T.page(dbPageN + 1)).then(function (p) {
+      loadingMore = false;
+      if (!p) return; /* leave the button so they can try again */
+      dbPageN++; dbMore = p.more;
+      if (p.rows.length) lastCreated = p.rows[p.rows.length - 1].created;
+      var m = AIWB_TEMPLATES.mergePage(p.rows, p.more, ghPool);
+      ghPool = m.rest; m.items.forEach(function (t) { communityCard(t); });
+      syncMore();
+    });
+  });
+
+  var ghP = loadCommunity().catch(function () { return []; });
+  var pinP = publishedId && T ? orNull(T.one(publishedId)) : Promise.resolve(null);
+  Promise.all([orNull(T ? T.page(0) : Promise.resolve(null)), pinP]).then(function (r) {
+    var first = r[0], pin = r[1];
+    dbOK = !!first;
+    if (first) {
+      dbMore = first.more;
+      if (first.rows.length) lastCreated = first.rows[first.rows.length - 1].created;
+      /* the just-published card goes on top even when it is not on this page */
+      if (pin && !pin.sample) communityCard(pin, true);
+      first.rows.forEach(function (t) { communityCard(t, t.id === publishedId); });
+    }
+    syncMore();
+  }).catch(function () {}).then(function () {
+    return ghP.then(function (items) {
+      ghPool = (Array.isArray(items) ? items : []).slice();
+      releaseGithub();
+    });
+  }).then(function () {
+    if (publishedId && !grid.querySelector('.thanks')) { /* published, but the list could not show it: still say thanks */
       var thanks = document.createElement('p');
       thanks.className = 'thanks'; thanks.setAttribute('role', 'status'); thanks.textContent = 'thanks for contributing';
       grid.insertBefore(thanks, grid.firstChild);

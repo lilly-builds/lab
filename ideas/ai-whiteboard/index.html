@@ -2770,6 +2770,7 @@
     btn.disabled = false;
     cMsg.textContent = res && res.error === 'rejected' ? 'The gallery turned that down. Check the fields and try again.'
       : res && res.error === 'empty' ? 'Add something to the board first.'
+      : res && res.error === 'busy' ? 'Lots of people are sharing right now. Your answers are still here. Try again in a minute.'
       : 'Could not reach the gallery. Your answers are still here. Try again in a moment.';
   });
   syncCommunity();
