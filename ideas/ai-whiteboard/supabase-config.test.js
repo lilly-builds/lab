@@ -10,6 +10,7 @@ const cfg = sandbox.window.AIWB_SUPABASE;
 
 t('config object exists', () => assert(cfg && typeof cfg === 'object'));
 t('sync defaults off', () => assert.strictEqual(cfg.enabled, false));
+t('board room has its own gate, on, independent of sync', () => assert.strictEqual(cfg.templatesEnabled, true));
 t('no secret key in committed values', () => {
   const values = Object.values(cfg).join(' ');
   assert(!/service[_-]?role/i.test(values), 'service-role key in config values');
