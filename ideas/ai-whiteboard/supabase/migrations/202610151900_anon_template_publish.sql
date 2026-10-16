@@ -28,11 +28,11 @@ begin
     alter table public.templates add constraint templates_caps check (
       is_sample or (
         char_length(btrim(title)) between 1 and 60
-        and title ~ '[^[:space:]­͏ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁯ㅤ﻿ﾠ]'
+        and title ~ '[^[:space:]\u00AD\u034F\u115F\u1160\u17B4\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFEFF\uFFA0]'
         and char_length(description) <= 802
         and (author_name is null or (
           char_length(author_name) <= 40
-          and author_name ~ '[^[:space:]­͏ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁯ㅤ﻿ﾠ]'
+          and author_name ~ '[^[:space:]\u00AD\u034F\u115F\u1160\u17B4\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFEFF\uFFA0]'
         ))
         and (author_x is null or author_x ~ '^[A-Za-z0-9_]{1,15}$')
         and slug ~ '^[a-z0-9-]{1,40}$'
