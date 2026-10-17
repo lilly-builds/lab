@@ -631,6 +631,79 @@ select pg_temp.ok('the child slot is won once',
   public.ticket_take_child('t1', 'aaaaaaaa-0000-0000-0000-000000000002')
   and not public.ticket_take_child('t1', 'aaaaaaaa-0000-0000-0000-000000000002'));
 
+-- ------------------------------------------------------------ AI toolbox: server doors (plan 1.8 to 1.12, 1.20)
+-- every server function is closed to the browser roles; my_balance is the one door (I7)
+select pg_temp.ok('browser roles can run no AI server function except my_balance',
+  not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and (p.proname like 'ai\_%' or p.proname like 'ledger\_%' or p.proname like 'ticket\_%')
+                and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))),
+  (select string_agg(p.proname, ', ') from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and (p.proname like 'ai\_%' or p.proname like 'ledger\_%' or p.proname like 'ticket\_%')
+     and has_function_privilege('anon', p.oid, 'execute')));
+select pg_temp.ok('browser roles have no privilege on ai_outcomes',
+  not has_table_privilege('anon', 'public.ai_outcomes', 'select,insert,update,delete')
+  and not has_table_privilege('authenticated', 'public.ai_outcomes', 'select,insert,update,delete'));
+
+select pg_temp.ok('find_pass returns the row for a hash and nothing for a stranger',
+  (select count(*) from public.ai_find_pass(encode(sha256(convert_to('pass-two','utf8')),'hex'))) = 1
+  and (select count(*) from public.ai_find_pass('nope')) = 0);
+select pg_temp.ok('a rate counter counts hits in its window',
+  public.ai_rate_hit('p:test', 3600) = 1 and public.ai_rate_hit('p:test', 3600) = 2 and public.ai_rate_hit('p:other', 3600) = 1);
+select pg_temp.ok('a recorded block comes back with the earlier ones in the window',
+  array_length(public.ai_record_block('aaaaaaaa-0000-0000-0000-000000000002', 86400), 1) = 1
+  and array_length(public.ai_record_block('aaaaaaaa-0000-0000-0000-000000000002', 86400), 1) = 2);
+
+select pg_temp.ok('a person with no finished job is on their first ask',
+  public.ai_first_ask('aaaaaaaa-0000-0000-0000-000000000002'));
+select public.ai_usage_start('u-gate', 'h-x', 'aaaaaaaa-0000-0000-0000-000000000002', 'gate', 1);
+select public.ai_usage_finish('u-gate', 'g-0', 'm/gate', 10, 0.0001, 'ok');
+select pg_temp.ok('a gate call does not end the first ask', public.ai_first_ask('aaaaaaaa-0000-0000-0000-000000000002'));
+select public.ai_usage_start('u-1', 'h-x', 'aaaaaaaa-0000-0000-0000-000000000002', 'draw', 1);
+select public.ai_usage_seen('u-1', 'g-1');
+select public.ai_usage_finish('u-1', null, 'm/a', 1200, 0.002, 'cut_off');
+select pg_temp.ok('a failed job does not end the first ask', public.ai_first_ask('aaaaaaaa-0000-0000-0000-000000000002'));
+select pg_temp.ok('the generation seen on the first chunk is kept when the finish has none',
+  (select generation_id from public.ai_usage where request_id = 'u-1') = 'g-1');
+select public.ai_usage_start('u-2', 'h-x', 'aaaaaaaa-0000-0000-0000-000000000002', 'draw', 2);
+select public.ai_usage_finish('u-2', 'g-2', 'm/b', 900, 0.003, 'ok');
+select pg_temp.ok('an ok job ends the first ask', not public.ai_first_ask('aaaaaaaa-0000-0000-0000-000000000002'));
+select pg_temp.throws('a usage outcome outside the list is refused',
+  $$select public.ai_usage_finish('u-2', 'g-2', 'm/b', 1, 0, 'great')$$, 'unknown outcome');
+select pg_temp.ok('model failures count only finished job calls',
+  (select failures from public.ai_model_failures(50) where model = 'm/a') = 1
+  and (select failures from public.ai_model_failures(50) where model = 'm/b') = 0
+  and not exists (select 1 from public.ai_model_failures(50) where model = 'm/gate'));
+select pg_temp.ok('usage rows hold no text column',
+  not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'ai_usage'
+              and column_name ~ '(prompt|text|answer|reply|content|message)'));
+
+select pg_temp.ok('a flag is written once per open cause',
+  public.ai_flag('test:cause', 'normal', null, '{}') and not public.ai_flag('test:cause', 'high', null, '{}'));
+
+insert into public.ai_holds (request_id, person_id, amount, created_at)
+  values ('h-stale', 'aaaaaaaa-0000-0000-0000-000000000002', 0.5, now() - interval '20 minutes');
+select public.ai_usage_start('h-stale:0', 'h-stale', 'aaaaaaaa-0000-0000-0000-000000000002', 'gate', 1);
+select pg_temp.ok('a stale open hold is listed with its usage rows',
+  (select jsonb_array_length(usage) from public.ai_stale_holds(600) where request_id = 'h-stale') = 1
+  and not exists (select 1 from public.ai_stale_holds(600) where request_id = 'r4'));
+
+select public.ai_limit_enqueue('aaaaaaaa-0000-0000-0000-000000000002');
+select public.ai_limit_enqueue('aaaaaaaa-0000-0000-0000-000000000002');
+select pg_temp.ok('one waiting limit retry per person',
+  (select count(*) from public.limit_updates where person_id = 'aaaaaaaa-0000-0000-0000-000000000002' and not done) = 1);
+
+select public.ai_set_paused('aaaaaaaa-0000-0000-0000-000000000002', true, 'gate blocks');
+select pg_temp.ok('a pause flags Lilly once',
+  (select count(*) from public.ops_flags where cause = 'paused:aaaaaaaa-0000-0000-0000-000000000002' and resolved_at is null) = 1);
+select public.ai_set_paused('aaaaaaaa-0000-0000-0000-000000000002', false, null);
+select pg_temp.ok('unpausing resolves the flag and lifts the pause',
+  not (select paused from public.tester_passes where id = 'aaaaaaaa-0000-0000-0000-000000000002')
+  and (select count(*) from public.ops_flags where cause = 'paused:aaaaaaaa-0000-0000-0000-000000000002' and resolved_at is null) = 0);
+update public.tester_passes set key_hash = 'kh-2' where id = 'aaaaaaaa-0000-0000-0000-000000000002';
+select pg_temp.ok('revoking returns the key hash', public.ai_revoke_pass('aaaaaaaa-0000-0000-0000-000000000002') = 'kh-2');
+select pg_temp.ok('revoking disables the pass',
+  (select disabled from public.tester_passes where id = 'aaaaaaaa-0000-0000-0000-000000000002'));
+
 -- ------------------------------------------------------------ final gate
 -- Any failed assertion aborts the session; with psql -v ON_ERROR_STOP=1 the
 -- exit code is non-zero, so CI cannot wave a red suite through.
