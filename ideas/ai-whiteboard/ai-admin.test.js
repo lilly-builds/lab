@@ -135,6 +135,15 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
         assert.strictEqual((await admin(w.deps, { action: 'settle_hold', request: 'x', cost: -1 })).status, 400);
       } finally { await w.mock.close(); }
     }],
+    ['the terminal tool turns each command into one admin request; a grant always carries a retry key', async () => {
+      const { requestFor } = await import('./tools/toolbox-admin.mjs');
+      assert.deepStrictEqual(requestFor(['create', '--label', 'Sam', '--grant', '5']), { action: 'create', label: 'Sam', grant: 5 });
+      const g = requestFor(['grant', '--person', 'p1', '--amount', '3'], '2026-10-17');
+      assert.ok(/^2026-10-17-[0-9a-f]{8}$/.test(g.idem) && g.amount === 3);
+      assert.strictEqual(requestFor(['grant', '--person', 'p1', '--amount', '3', '--idem', 'k1']).idem, 'k1');
+      assert.deepStrictEqual(requestFor(['settle-hold', '--request', 'run:t:1', '--cost', '0']), { action: 'settle_hold', request: 'run:t:1', cost: 0 });
+      assert.strictEqual(requestFor(['drop']), null);
+    }],
     ['an unknown action or a malformed person id is refused', async () => {
       const w = await world();
       try {

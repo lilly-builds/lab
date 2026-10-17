@@ -138,6 +138,15 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
       const flags = await psqlRows(DB, "select cause from public.ops_flags where person_id = '" + person + "' and resolved_at is null and cause not like 'key_near_cap%'");
       assert.deepStrictEqual(flags, []);
     }],
+    ['the terminal admin tool grants more credit through the admin door, and the key limit follows', async () => {
+      // async on purpose: the dev server runs in this process, so a blocking call would never get its answer
+      const { execFile } = require('child_process');
+      const out = await new Promise((ok, fail) => execFile('node', [require('path').join(__dirname, 'tools/toolbox-admin.mjs'), 'grant', '--person', person, '--amount', '2', '--url', s.url],
+        { env: { ...process.env, AI_ADMIN_SECRET: s.env.AI_ADMIN_SECRET }, encoding: 'utf8', timeout: 30000 }, (e, so) => (e ? fail(e) : ok(so))));
+      assert.ok(/retry key: /.test(out) && /"ok": true/.test(out), out);
+      const keyHash = (await psqlRows(DB, "select key_hash from public.tester_passes where id = '" + person + "'"))[0].key_hash;
+      assert.strictEqual(s.mock.state.keys.get(keyHash).limit, 3, '$1 first grant + $2 = a $3 cap');
+    }],
     ['revoke: the next ask is refused and the key is disabled at OpenRouter', async () => {
       const r = await (await post('admin', { action: 'revoke', person }, s.env.AI_ADMIN_SECRET)).json();
       assert.strictEqual(r.keyDisabled, true);

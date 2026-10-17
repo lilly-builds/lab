@@ -56,6 +56,9 @@
   }
   /* AICLIENT-PURE-END */
 
+  /* TODO (build plan 1.17, session memory): waits on gate G2, whether "Remember stuff" means board saving or AI memory. When it lands:
+     keep the last 5 asks and what each did here, send them with each ask (the server caps their size and gates them with the rest),
+     and show them as an editable "what I remember" list (repo rule 1). Nothing is remembered between asks until then. */
   var cfg = window.AIWB_SUPABASE || {};
   var MODE = mode(cfg, location.search, location.hostname);
   var END = MODE === 'off' ? null : endpoints(MODE, cfg, location.origin);
