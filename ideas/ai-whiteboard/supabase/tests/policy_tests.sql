@@ -595,6 +595,8 @@ select pg_temp.ok('settling twice writes one spend row',
   (select count(*) from public.credit_ledger where request_id = 'r1') = 1);
 select pg_temp.ok('balance is grants minus spend after settle',
   public.ai_balance('aaaaaaaa-0000-0000-0000-000000000001', true) = 7.5);
+select pg_temp.throws('reusing a settled request id is refused (a replay never runs calls that settle into nothing)',
+  $$select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r1', 1)$$, 'already closed');
 
 -- release returns the held amount
 select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r4', 7);

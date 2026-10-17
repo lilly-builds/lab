@@ -2,13 +2,19 @@
 -- Idempotent (create or replace). Service role only. Invariants: I1 (never spend past the balance), I3 (one settle per request), I5 (two attempts).
 
 -- THIS SECTION IS FOR: placing a hold. A per-person lock makes two holds that together exceed the balance impossible.
+-- A request id names one hold for life: a retry while it is open is the same hold, but reusing the id of a settled or
+-- released hold is refused. Otherwise a replayed id would run calls whose settle is a no-op, and they would cost nothing.
 create or replace function public.ledger_place_hold(p_person uuid, p_request text, p_amount numeric) returns void
   language plpgsql security definer set search_path = pg_catalog, public as $$
-declare v_paused boolean;
+declare v_paused boolean; v_state text;
 begin
   if p_amount is null or p_amount <= 0 then raise exception 'hold must be positive'; end if;
   perform pg_advisory_xact_lock(hashtextextended(p_person::text, 0));
-  if exists (select 1 from public.ai_holds where request_id = p_request) then return; end if; -- retry of the same request
+  select state into v_state from public.ai_holds where request_id = p_request;
+  if found then
+    if v_state = 'open' then return; end if; -- retry of the same request
+    raise exception 'request already closed';
+  end if;
   select paused or disabled into v_paused from public.tester_passes where id = p_person;
   if v_paused is null then raise exception 'unknown person'; end if;
   if v_paused then raise exception 'access paused'; end if;
