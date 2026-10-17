@@ -5,7 +5,8 @@ Review history: v1 fresh-eyes (fix first, 10 findings), v1 feasibility (11 findi
 v3 re-review (pass with fixes, 3 partial gaps plus 9 new issues). v4 addresses all of them. Lilly answered questions 15 and 17
 and half of 16 on 2026-10-17. v4 itself has not been re-reviewed.
 Building waits on three things: Remember stuff verified, the live-board freeze lifted, and the database check (is Supabase the right one?).
-PR #171 (board saving on Supabase) merged 2026-10-15 with sync switched off, so this doc's index.html line numbers need a recheck.
+PR #171 (board saving on Supabase) merged 2026-10-15 with sync switched off. Every `index.html` line number below was rechecked on 2026-10-17 against main (fbe66a1).
+`index.html` means `ideas/ai-whiteboard/index.html`, and `loop1.js` sits next to it.
 Decisions and research behind this doc: `plans/2026-10-14-invisible-ai-toolbox-brief.md`.
 Diagrams and step counts: https://claude.ai/artifact/Nk153vwTLu693xr8RRWXoe (private).
 
@@ -70,30 +71,30 @@ flowchart LR
 Every AI call holds first and settles after, with no exceptions: the gate, the router, handlers, retries, and next-moves follow-ups.
 The browser never chooses a model, writes a prompt template, or sees a key we provisioned.
 Today the job prompts live in the browser (index.html), so they move to the server. Draw's prompt uses a font measurement
-taken in the browser (index.html:840-843, used at 645), which gets sent along as an input.
+taken in the browser (index.html:851-855, used at 624), which gets sent along as an input.
 
 ### Every AI entry point
 
 | Where in the board | Job | How it gets a ticket |
 |---|---|---|
 | The ask box, `send()` | draw, edit, or build | `/route` with the router check |
-| "Make it real" (index.html:3759-3767) | build | `/route` with the job named, no router call, tied to the app's `el.prompt` |
-| An app's Retry (index.html:3049) | build | same as "Make it real" |
-| Dream plan (index.html:3885) | plan | `/route` with the job named, no router call, fixed rulebook row |
-| Have-to loop (loop1.js:41, via index.html:3970) | todo | `/route` with the job named, no router call, fixed rulebook row |
+| "Make it real" (index.html:3764-3772) | build | `/route` with the job named, no router call, tied to the app's `el.prompt` |
+| An app's Retry (index.html:3054, into startApp at 3528) | build | same as "Make it real" |
+| Dream plan (index.html:3884) | plan | `/route` with the job named, no router call, fixed rulebook row |
+| Have-to loop (loop1.js:41, via the hook at index.html:3969-3975) | todo | `/route` with the job named, no router call, fixed rulebook row |
 | Next moves after an app build | nextmoves | the server issues it from the build's ticket, fixed rulebook row |
 
-Every ask passes the safety gate, even when the job is named. Every key check in today's code (index.html:2236-2237,
-3527-3528, 3764, 3880-3881, loop1.js:74) becomes a check for a signed-in session or tester pass. Merchant users go to
+Every ask passes the safety gate, even when the job is named. Every key check in today's code (index.html:2248-2249,
+3532-3533, 3769, 3885-3886, loop1.js:74) becomes a check for a signed-in session or tester pass. Merchant users go to
 `/route` and `/run`, and never see the paste-a-key screen.
 
 ## 4. Components
 
 ### 4.1 Ask box
-Today: index.html:268. New: typewriter hints. The third prompt's wording is still pending.
+Today: index.html:267. New: typewriter hints. The third prompt's wording is still pending.
 
 ### 4.2 Router check
-Today: one fast browser call returns the job (index.html:2156-2231). If the reply is junk, the ask falls back to draw.
+Today: one fast browser call returns the job (index.html:2168-2243). If the reply is junk, the ask falls back to draw.
 New: it runs on the server inside `/route`, and the same single call returns more clues. It's held and billed like any call.
 
 ```json
@@ -103,14 +104,14 @@ New: it runs on the server inside `/route`, and the same single call returns mor
 
 Whether a picture is attached isn't a router clue, since the router never sees the picture. `/run` reads it from the actual payload.
 The safety gate is separate (4.3), so named jobs that skip the router still get gated.
-The router keeps today's rule that text inside the request is never an instruction (index.html:2165).
+The router keeps today's rule that text inside the request is never an instruction (index.html:2177).
 
 ### 4.3 Rulebook
 New. A pure function on the server:
 `pick(job, clues, payload, person) -> { models: [first, ...backups], effort, answerBudget, thinkingBudget, sort, temperature, maxPrice }`.
 It's table-driven, and every model comes from an allowlist. If a picture is attached, it only picks models that can see images.
 Answer length and thinking length are budgeted separately, because on many models thinking comes out of the same budget
-as the answer. Today's build cap (9000 tokens, index.html:3555) could otherwise get eaten by thinking.
+as the answer. Today's build cap (9000 tokens, index.html:3560) could otherwise get eaten by thinking.
 Fixed rows: the router (thinking off), the safety gate, plan, todo, and nextmoves.
 The safety gate row is a cheap check model, held and billed like any call. Phase 0 picks it, including whether it can read
 pictures. If it can't, pictures go to a separate check or get described in text first.
@@ -124,8 +125,8 @@ thinking budget), and `user` (a hashed person ID). Every call runs on the person
 including the gate and the router check.
 OpenRouter's `models` list only falls back when an error happens before the answer starts. Cut-off and unreadable answers
 get handled by the attempt-2 step in section 3.
-There's no bring-your-own-key path (decision 18). Today's paste-your-key setup, the Anthropic and OpenAI translators (index.html:440-560),
-and the "key stays on this device" copy (index.html:326, 3997) go away when this ships. Line numbers are from before PR #171 merged; recheck them.
+There's no bring-your-own-key path (decision 18). Today's paste-your-key setup, the Anthropic and OpenAI translators (index.html:440-578),
+and the "key stays on this device" copy (index.html:325, 4002) go away when this ships.
 
 ### 4.5 Server piece
 New. The host follows the database decision. Supabase Edge Functions is today's candidate.
@@ -141,7 +142,7 @@ New. The host follows the database decision. Supabase Edge Functions is today's 
 - A daily reconciliation job compares the money records. It only flags, and never fixes money.
 
 Time limit: assume the Supabase cap (150s free, 400s paid) applies to streamed answers too. Phase 1 runs on a paid plan,
-which also avoids free projects pausing after 7 days of low activity. The board's own build cap (today up to 300s, index.html:3532)
+which also avoids free projects pausing after 7 days of low activity. The board's own build cap (today up to 300s, index.html:3537)
 stays under 400s. Phase 0 tests a streamed answer running past 150s.
 
 ### 4.6 Accounts and credits
@@ -159,11 +160,11 @@ The browser can read its own balance and nothing else, and it can write nothing.
 
 ### 4.7 Memory (proposed)
 Session memory: the last few asks and what each did, kept in the browser and sent with each ask.
-Origin: everything the AI makes stores the ask that made it (apps already do this as `el.prompt`, index.html:3538).
+Origin: everything the AI makes stores the ask that made it (apps already do this as `el.prompt`, index.html:3543).
 Long-term memory across sessions comes later.
 
 ### 4.8 Your team and recovery (defaults, open for review)
-While it works: today's status words (index.html:2110-2130), plus job-specific ones.
+While it works: today's status words (index.html:2114-2141), plus job-specific ones.
 On failure: the failed attempt settles to its real cost, then attempt 2 runs on the next model. If that fails too,
 the ask stays in the box and the board says what happened in plain words.
 Locked: the person pays the real cost of a failed attempt for now (decision 17), so a failure plus its retry costs them both.
@@ -172,7 +173,7 @@ per AI per job, have the router stop picking an AI that fails too often, and set
 
 ### 4.9 Next moves (proposed)
 After each result, the board offers 2-3 specific next steps tied to it. Each tap is a normal ask.
-Draw and edit replies carry them in a `nextMoves` field. App builds reply with bare HTML (index.html:596),
+Draw and edit replies carry them in a `nextMoves` field. App builds reply with bare HTML (index.html:597),
 so builds get one cheap follow-up call (the nextmoves row), held and billed. The phase 0 cost measurement includes this.
 
 ## 5. Money
@@ -193,7 +194,7 @@ so builds get one cheap follow-up call (the nextmoves row), held and billed. The
   Prices come after measuring what one idea map costs, next moves included.
 - Holds: before every call, the server holds the worst-case cost: an estimate of the input (prompt plus picture) plus
   `answerBudget + thinkingBudget` at `max_price`. Holds count against the balance, so calls running at once can't overspend.
-  Up to 6 app builds can run at once today (index.html:698). After the call, the hold settles to the exact `usage.cost`.
+  Up to 6 frames (so 6 app builds) can run at once today (EMB_MAX, index.html:699). After the call, the hold settles to the exact `usage.cost`.
   If the cost never arrives (Stop, a closed tab, or a timeout), the cleanup job settles it by generation ID through
   OpenRouter's lookup. UNVERIFIED: that lookup endpoint (GET /api/v1/generation). Phase 0 confirms it.
   If a call died before its first chunk, there's no generation ID to look up. After N minutes, the cleanup job flags it to Lilly
@@ -255,7 +256,7 @@ so builds get one cheap follow-up call (the nextmoves row), held and billed. The
 | Runaway spend | The OpenRouter balance stays small. An alert fires when the balance or daily spend crosses a threshold. Phase 1 auto top-up is off. |
 | Admin mistakes | Refunds, disabling, permanent bans, adjustments, and balance fixes are human-only. |
 
-AI-built apps already run in a sandbox without same-origin access (index.html:3240), so they can't reach sign-in sessions.
+AI-built apps already run in a sandbox without same-origin access (index.html:3245), so they can't reach sign-in sessions.
 
 Verification: a Tier 4 verification contract gets written before any phase 1 code, since real money (Lilly's balance) moves from day one.
 A second agent does a security review before merge.
@@ -292,7 +293,7 @@ next moves, and logging how each ask went. The Tier 4 verification contract come
 
 Phase 2 prerequisites: database backups (on Supabase that means the Pro plan), CAPTCHA turned on, the hosted sign-in site URL fixed
 (it's still localhost), our own email sender (the built-in one sends 2 per hour), OpenRouter's written OK, the lawyer and accountant
-checks, and updated app copy where it says "Your key stays on this device" (index.html:326) and "it never leaves your device" (index.html:3997).
+checks, and updated app copy where it says "Your key stays on this device" (index.html:325) and "it never leaves your device" (index.html:4002).
 
 Phase 2, merchant: email sign-in, per-person keys on email confirmation, Stripe monthly plus Customer Portal,
 the webhook events in section 5, the free plan with its monthly job, the invite bonus, the billing resume job, reconciliation,
@@ -322,8 +323,9 @@ images and video, an "only open models" setting, and a trained router.
 
 ## 10. Open questions
 
-1. What counts as "the first ask": someone's first ask ever, or the first ask on each new board? Checking for an empty board
-   won't work, because new boards start with welcome notes (index.html:3978-4005).
+1. What counts as "the first ask": someone's first ask ever, or the first ask on each new board?
+   DEFAULT (Lilly can change it): someone's first ask ever. The build plan assumes this. Checking for an empty board
+   won't work, because new boards start with welcome notes (index.html:3983-4010).
 2. The third typewriter prompt.
 3. What "your team" shows, and the failure-screen copy (defaults in 4.8).
 4. Is a "why this AI?" peek in the MVP or not?
@@ -339,6 +341,7 @@ images and video, an "only open models" setting, and a trained router.
 14. How many safety-gate blocks (N) before an automatic pause?
 15. Answered 2026-10-17: failed attempts are not free for now (decision 17).
 16. Free credits are spent first (decision 16). Still open: does unused free credit expire each month? (Paid credits never expire either way.)
+    DEFAULT (Lilly can change it): unused free credit expires monthly. The build plan assumes this.
 17. Answered 2026-10-17: no bring-your-own-key (decision 18).
 
 ## 11. Not touching

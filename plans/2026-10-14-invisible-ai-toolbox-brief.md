@@ -56,10 +56,10 @@ Diagram: https://claude.ai/artifact/Nk153vwTLu693xr8RRWXoe (private)
     CORRECTION to item 10: handing testers raw keys has the same problem. Phase 1 needs a tiny server piece too
     (holds Lilly's key, passes calls through, caps each tester), just without Stripe. The other route is
     OpenRouter's written OK. The tiny server piece is the same one phase 2 needs, so it isn't wasted work.
-    App copy to change when the merchant version ships (true today, don't touch yet): index.html:326
-    "Your key stays on this device." and index.html:3997 "...it never leaves your device."
+    App copy to change when the merchant version ships (true today, don't touch yet): index.html:325
+    "Your key stays on this device." and index.html:4002 "...it never leaves your device."
 13. Lilly wants the rulebook to weigh how hard each ask is. How it decides is under discussion.
-    Proposed: the router call that already runs on every ask (index.html:2211-2231, picks the job) also returns
+    Proposed: the router call that already runs on every ask (index.html:2223-2243, picks the job) also returns
     easy/medium/hard. NOT BUILT: today it only picks the job. A generic "Go deeper" button was REJECTED by Lilly
     as too generic. Proposed instead: after each result, the AI offers 2-3 specific next moves tied to what it made
     (e.g. "Price out supplies", "Turn this into a 30-day plan"). Each tap gets rated like any other ask.
@@ -75,12 +75,12 @@ Diagram: https://claude.ai/artifact/Nk153vwTLu693xr8RRWXoe (private)
     Knobs it can turn: which AI, thinking effort (OpenRouter `reasoning.effort`), speed sort, how adventurous the wording is,
     answer length, web search on/off. https://openrouter.ai/docs/api_reference/parameters ,
     https://openrouter.ai/docs/guides/features/server-tools/web-search
-13b. Conversation memory. VERIFIED today (index.html:475, 491): every AI call is a brand-new one-message conversation.
+13b. Conversation memory. VERIFIED today (index.html:488, 550): every AI call is a brand-new one-message conversation.
     The AI gets the ask plus the board (a text list of everything on it, and a picture for idea maps), so the board
-    is the only memory. The one exception: a clarifying question's answer gets stitched to the original ask (index.html:2239-2245).
+    is the only memory. The one exception: a clarifying question's answer gets stitched to the original ask (index.html:2250-2257).
     So "make it more detailed" only works if the AI can tell "it" from the board alone.
     Proposed for MVP: (a) short session memory, meaning the last few asks and what each did, sent with each new ask;
-    (b) everything the AI makes remembers the ask that made it (apps already store their prompt as el.prompt, index.html:3538).
+    (b) everything the AI makes remembers the ask that made it (apps already store their prompt as el.prompt, index.html:3543).
     Later, not MVP: long-term memory across sessions ("remembers you're starting a candle business"), which needs server storage
     and its own privacy rules. OPEN: is "Remember stuff" (the work that finishes first) PR #171's board saving, or AI memory?
     If it's AI memory, this overlaps and should line up with it.
@@ -235,7 +235,7 @@ act as a backstop. https://openrouter.ai/docs/guides/features/guardrails
   it's tied to a board, and `import_board` lets the browser set any balance, PR #171 rls.sql:129, 184-187.)
 - Edge Function limits: 150s idle timeout, 150s run time on free (400s paid), 2s CPU. https://supabase.com/docs/guides/functions/limits
   UNVERIFIED: whether streaming resets the idle timer, so long builds might get cut off. Needs a test.
-- Cost: 500k free invocations, then $2 per million. Both of today's AI call paths (index.html:447, 509, 527) get rewritten.
+- Cost: 500k free invocations, then $2 per million. Both of today's AI call paths (index.html:448, 510, 528) get rewritten.
 - Abuse: Turnstile CAPTCHA is free and supported by Supabase Auth. No free credits for anonymous guests.
   Starter credits only after a confirmed email, once per email.
 
