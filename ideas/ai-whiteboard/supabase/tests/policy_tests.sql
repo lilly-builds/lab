@@ -534,6 +534,101 @@ select pg_temp.throws('the 4,001st stored row is rejected',
   'storage cap');
 reset role;
 
+-- ------------------------------------------------------------ AI toolbox: access, ledger, holds, tickets (plan 1.1, 1.2)
+insert into public.tester_passes (id, pass_hash, label) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', encode(sha256(convert_to('pass-one','utf8')),'hex'), 'one'),
+  ('aaaaaaaa-0000-0000-0000-000000000002', encode(sha256(convert_to('pass-two','utf8')),'hex'), 'two');
+
+-- browser roles see and write nothing in the AI tables
+do $$
+declare t text; r text;
+begin
+  foreach r in array array['anon','authenticated'] loop
+    foreach t in array array['tester_passes','credit_ledger','ai_holds','ai_usage','route_tickets',
+                             'ops_flags','gate_blocks','limit_updates','rate_counters'] loop
+      perform pg_temp.ok(r || ' has no privilege on ' || t,
+        not has_table_privilege(r, 'public.' || t, 'select,insert,update,delete'));
+    end loop;
+  end loop;
+end $$;
+select pg_temp.ok('anon cannot run the ledger functions',
+  not has_function_privilege('anon', 'public.ledger_place_hold(uuid,text,numeric)', 'execute')
+  and not has_function_privilege('authenticated', 'public.ledger_settle(text,numeric)', 'execute')
+  and not has_function_privilege('anon', 'public.ledger_adjust(uuid,numeric,text,text)', 'execute')
+  and not has_function_privilege('anon', 'public.ticket_take_attempt(text,uuid)', 'execute'));
+
+select public.ledger_adjust('aaaaaaaa-0000-0000-0000-000000000001', 10, 'grant', 'k1');
+select public.ledger_adjust('aaaaaaaa-0000-0000-0000-000000000001', 10, 'grant again', 'k1');
+select pg_temp.ok('a retried grant with the same key is one grant',
+  public.ai_balance('aaaaaaaa-0000-0000-0000-000000000001', false) = 10);
+
+select pg_temp.throws('the ledger rejects update', $$update public.credit_ledger set amount = 99$$, 'append-only');
+select pg_temp.throws('the ledger rejects delete', $$delete from public.credit_ledger$$, 'append-only');
+select pg_temp.throws('duplicate stripe_event_id is rejected',
+  $$insert into public.credit_ledger (person_id, reason, amount, stripe_event_id) select 'aaaaaaaa-0000-0000-0000-000000000002','paid',1,'evt_1' from generate_series(1,2)$$,
+  'duplicate key');
+select pg_temp.throws('duplicate refund_id is rejected',
+  $$insert into public.credit_ledger (person_id, reason, amount, refund_id) select 'aaaaaaaa-0000-0000-0000-000000000002','refund',1,'re_1' from generate_series(1,2)$$,
+  'duplicate key');
+
+-- my_balance: only the pass holder's number
+set role anon;
+select pg_temp.ok('my_balance returns the caller''s own number', public.my_balance('pass-one') = 10);
+select pg_temp.ok('my_balance with another pass returns that person''s number only', public.my_balance('pass-two') = 0);
+select pg_temp.ok('my_balance with a wrong pass returns nothing', public.my_balance('nope') is null);
+reset role;
+
+-- holds: the second hold that would pass the balance fails; same request id twice is one hold
+select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r1', 6);
+select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r1', 6);
+select pg_temp.ok('a retried hold is one hold',
+  (select count(*) from public.ai_holds where request_id = 'r1') = 1);
+select pg_temp.throws('a second hold past the balance fails',
+  $$select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r2', 5)$$, 'insufficient');
+select pg_temp.throws('a hold for a person with no balance fails',
+  $$select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000002', 'r3', 1)$$, 'insufficient');
+
+-- settle: once only, real cost recorded
+select public.ledger_settle('r1', 2.5);
+select public.ledger_settle('r1', 2.5);
+select pg_temp.ok('settling twice writes one spend row',
+  (select count(*) from public.credit_ledger where request_id = 'r1') = 1);
+select pg_temp.ok('balance is grants minus spend after settle',
+  public.ai_balance('aaaaaaaa-0000-0000-0000-000000000001', true) = 7.5);
+
+-- release returns the held amount
+select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r4', 7);
+select pg_temp.ok('an open hold lowers the available balance',
+  public.ai_balance('aaaaaaaa-0000-0000-0000-000000000001', true) = 0.5);
+select public.ledger_release('r4');
+select pg_temp.ok('release gives the amount back',
+  public.ai_balance('aaaaaaaa-0000-0000-0000-000000000001', true) = 7.5);
+
+-- settle over the hold: cost still recorded, flag written, person paused
+select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r5', 1);
+select public.ledger_settle('r5', 1.5);
+select pg_temp.ok('settle past the hold still records the real cost',
+  (select amount from public.credit_ledger where request_id = 'r5') = 1.5);
+select pg_temp.ok('settle past the hold writes a high flag and pauses the person',
+  (select count(*) from public.ops_flags where severity = 'high' and cause = 'settle_over_hold:r5') = 1
+  and (select paused from public.tester_passes where id = 'aaaaaaaa-0000-0000-0000-000000000001'));
+select pg_temp.throws('a paused person cannot place a hold',
+  $$select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r6', 1)$$, 'paused');
+
+-- tickets: two attempts, right person, not expired; one child
+insert into public.route_tickets (id, person_id, ask_hash, expires_at) values
+  ('t1', 'aaaaaaaa-0000-0000-0000-000000000002', 'h', now() + interval '5 minutes'),
+  ('t2', 'aaaaaaaa-0000-0000-0000-000000000002', 'h', now() - interval '1 minute');
+select pg_temp.ok('attempt 1 and 2 succeed in order',
+  public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') = 1
+  and public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') = 2);
+select pg_temp.ok('attempt 3 is refused', public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') is null);
+select pg_temp.ok('wrong person is refused', public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000001') is null);
+select pg_temp.ok('an expired ticket is refused', public.ticket_take_attempt('t2', 'aaaaaaaa-0000-0000-0000-000000000002') is null);
+select pg_temp.ok('the child slot is won once',
+  public.ticket_take_child('t1', 'aaaaaaaa-0000-0000-0000-000000000002')
+  and not public.ticket_take_child('t1', 'aaaaaaaa-0000-0000-0000-000000000002'));
+
 -- ------------------------------------------------------------ final gate
 -- Any failed assertion aborts the session; with psql -v ON_ERROR_STOP=1 the
 -- exit code is non-zero, so CI cannot wave a red suite through.
