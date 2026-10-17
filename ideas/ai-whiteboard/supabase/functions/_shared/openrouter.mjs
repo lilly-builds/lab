@@ -20,6 +20,14 @@ export function buildRequest({ pick, messages, person, stream = true }) {
   return body;
 }
 
+// THIS SECTION IS FOR: the user turn. With a board picture (base64 PNG, as the browser's boardPng() makes it) the content is
+// the text then an image part, the OpenAI-style shape OpenRouter accepts; without one it stays a plain string.
+export function userContent(text, imagePng) {
+  if (!imagePng) return String(text);
+  if (!/^[A-Za-z0-9+/]+=*$/.test(imagePng)) throw new Error('picture is not base64');
+  return [{ type: 'text', text: String(text) }, { type: 'image_url', image_url: { url: 'data:image/png;base64,' + imagePng } }];
+}
+
 // THIS SECTION IS FOR: keeping secrets out of errors and logs (I6).
 function scrub(msg, secrets) {
   let s = String(msg);
@@ -27,10 +35,13 @@ function scrub(msg, secrets) {
   return s.replace(/sk-[A-Za-z0-9_-]{6,}/g, '[redacted]');
 }
 
-// THIS SECTION IS FOR: one call. Returns { outcome, text, cost, generationId, error? }.
+// THIS SECTION IS FOR: one call. Returns { outcome, text, cost, generationId, model, error? }.
 // outcome: ok | error_before_start | cut_off | unreadable | unknown. error_before_start was not charged; unknown needs a flag.
-export async function callOpenRouter({ baseUrl, apiKey, body, fetchImpl = fetch, signal }) {
+// onStart(generationId) fires once, when the first chunk names the generation (the cleanup job's lookup key if the call dies later).
+// onDelta(text) fires for each piece of answer text. A hook that throws is ignored: it must never change what the call cost.
+export async function callOpenRouter({ baseUrl, apiKey, body, fetchImpl = fetch, signal, onStart, onDelta }) {
   const secrets = [apiKey];
+  const safe = (fn, v) => { if (typeof fn === 'function') { try { fn(v); } catch (e) { /* a hook never breaks billing */ } } };
   let res;
   try {
     res = await fetchImpl(baseUrl + '/chat/completions', {
@@ -46,25 +57,29 @@ export async function callOpenRouter({ baseUrl, apiKey, body, fetchImpl = fetch,
   if (!body.stream) {
     try {
       const j = await res.json();
+      if (j.id) safe(onStart, j.id);
       const text = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      if (typeof text !== 'string') return { outcome: 'unreadable', text: '', cost: j.usage ? j.usage.cost : null, generationId: j.id || null };
-      return { outcome: 'ok', text, cost: j.usage ? j.usage.cost : null, generationId: j.id || null };
+      const base = { cost: j.usage ? j.usage.cost : null, generationId: j.id || null, model: j.model || null };
+      if (typeof text !== 'string') return { outcome: 'unreadable', text: '', ...base };
+      safe(onDelta, text);
+      return { outcome: 'ok', text, ...base };
     } catch (e) {
-      return { outcome: 'unreadable', text: '', cost: null, generationId: null, error: scrub(e && e.message, secrets) };
+      return { outcome: 'unreadable', text: '', cost: null, generationId: null, model: null, error: scrub(e && e.message, secrets) };
     }
   }
 
-  let text = '', cost = null, generationId = null, done = false, bad = false, buf = '';
+  let text = '', cost = null, generationId = null, model = null, done = false, bad = false, buf = '';
   const eat = (line) => {
     if (!line.startsWith('data:')) return;
     const d = line.slice(5).trim();
     if (d === '[DONE]') { done = true; return; }
     try {
       const j = JSON.parse(d);
-      if (j.id) generationId = j.id;
+      if (j.id && !generationId) { generationId = j.id; safe(onStart, j.id); }
+      if (j.model) model = j.model;
       if (j.usage && typeof j.usage.cost === 'number') cost = j.usage.cost;
       const c = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
-      if (typeof c === 'string') text += c;
+      if (typeof c === 'string' && c) { text += c; safe(onDelta, c); }
     } catch (e) { bad = true; }
   };
   try {
@@ -76,9 +91,9 @@ export async function callOpenRouter({ baseUrl, apiKey, body, fetchImpl = fetch,
     }
     if (buf.trim()) eat(buf.trim());
   } catch (e) {
-    return { outcome: generationId ? 'cut_off' : 'unknown', text, cost, generationId, error: scrub(e && e.message, secrets) };
+    return { outcome: generationId ? 'cut_off' : 'unknown', text, cost, generationId, model, error: scrub(e && e.message, secrets) };
   }
-  if (bad && !text) return { outcome: 'unreadable', text, cost, generationId };
-  if (!done) return { outcome: generationId ? 'cut_off' : 'unknown', text, cost, generationId };
-  return { outcome: 'ok', text, cost, generationId };
+  if (bad && !text) return { outcome: 'unreadable', text, cost, generationId, model };
+  if (!done) return { outcome: generationId ? 'cut_off' : 'unknown', text, cost, generationId, model };
+  return { outcome: 'ok', text, cost, generationId, model };
 }

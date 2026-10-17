@@ -2,7 +2,7 @@
 // It mirrors the refusals the SQL gives (insufficient balance, double settle is a no-op, two attempts per ticket).
 // The real behavior is proven by supabase/tests/policy_tests.sql against the local stack.
 export function fakeLedger(balance) {
-  const s = { balance, holds: new Map(), settled: [], released: [], attempts: new Map() };
+  const s = { balance, holds: new Map(), settled: [], released: [], attempts: new Map(), children: new Set() };
   const rpc = async (name, a) => {
     if (name === 'ledger_place_hold') {
       const held = [...s.holds.values()].reduce((t, h) => t + h, 0);
@@ -20,6 +20,11 @@ export function fakeLedger(balance) {
       if (n > 2) return { data: null };
       s.attempts.set(a.p_ticket, n);
       return { data: n };
+    }
+    if (name === 'ticket_take_child') {
+      if (s.children.has(a.p_ticket)) return { data: false };
+      s.children.add(a.p_ticket);
+      return { data: true };
     }
     return { error: { message: 'unknown rpc ' + name } };
   };

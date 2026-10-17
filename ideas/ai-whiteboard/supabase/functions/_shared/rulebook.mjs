@@ -10,8 +10,8 @@ export const ALLOWLIST = JSON.parse(readFileSync(new URL('./allowlist.json', imp
 export const ROWS = {
   router:    { tier: 'open',     answerBudget: 200,  thinkingBudget: 0,    sort: 'price',      temperature: 0,   upgrade: false },
   gate:      { tier: 'open',     answerBudget: 100,  thinkingBudget: 0,    sort: 'price',      temperature: 0,   upgrade: false },
-  plan:      { tier: 'open',     answerBudget: 4000, thinkingBudget: 1000, sort: 'price',      temperature: 0.7, upgrade: false },
-  todo:      { tier: 'open',     answerBudget: 2000, thinkingBudget: 0,    sort: 'price',      temperature: 0.5, upgrade: false },
+  plan:      { tier: 'open',     answerBudget: 400,  thinkingBudget: 0,    sort: 'price',      temperature: 0.7, upgrade: false }, // browser: 400
+  todo:      { tier: 'open',     answerBudget: 300,  thinkingBudget: 0,    sort: 'price',      temperature: 0.5, upgrade: false }, // browser: 300
   nextmoves: { tier: 'open',     answerBudget: 400,  thinkingBudget: 0,    sort: 'price',      temperature: 0.7, upgrade: false },
   ideamap:   { tier: 'frontier', answerBudget: 4000, thinkingBudget: 2000, sort: 'throughput', temperature: 0.7, upgrade: false },
   draw:      { tier: 'open',     answerBudget: 4000, thinkingBudget: 2000, sort: 'throughput', temperature: 0.7, upgrade: true },
@@ -30,12 +30,15 @@ function usableList(env) {
 }
 
 // clues: { difficulty: 'hard'|... }. payload: { hasImage }. person is accepted for the caller's logging and not used to choose.
-export function pick(job, clues, payload, person, env = (typeof process !== 'undefined' ? process.env : {})) {
+// avoid: model ids failing too often lately (step 1.20); dropped unless that would leave no model for the job.
+export function pick(job, clues, payload, person, env = (typeof process !== 'undefined' ? process.env : {}), avoid = []) {
   const row = ROWS[job];
   if (!row) throw new Error('unknown job: ' + job);
   const models = usableList(env);
   const needImage = !!(payload && payload.hasImage);
-  const fit = models.filter((m) => !needImage || m.image);
+  const capable = models.filter((m) => !needImage || m.image);
+  const healthy = capable.filter((m) => !avoid.includes(m.id));
+  const fit = healthy.length ? healthy : capable;
   const wantFrontier = row.tier === 'frontier' || (row.upgrade && clues && clues.difficulty === 'hard');
   const first = wantFrontier ? 'frontier' : 'open';
   const ordered = fit.filter((m) => m.tier === first).concat(fit.filter((m) => m.tier !== first)).slice(0, MAX_MODELS);

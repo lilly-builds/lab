@@ -3,56 +3,69 @@
 import { authenticate } from './auth.mjs';
 import { LedgerError } from './ledger.mjs';
 import { pick, worstCaseCost } from './rulebook.mjs';
-import { buildRouteSystem } from './prompts.mjs';
-import { runGate, shouldPause } from './gate.mjs';
+import { buildRouteSystem, ROUTER_ROUTES, ROUTER_CLUES, userText } from './prompts.mjs';
+import { runGate, shouldPause, gateMessages, BLOCK_WINDOW_MS } from './gate.mjs';
 import { issueTicket, hashAsk } from './ticket.mjs';
-import { withHold, tally, estTokens } from './billing.mjs';
+import { withHold, tally, messageTokens } from './billing.mjs';
 
-// THIS SECTION IS FOR: limits. All DEFAULTS Lilly can change (build plan 1.10).
-export const LIMITS = { askChars: 2000, boardChars: 20000, memoryChars: 4000, imageChars: 1500000, perPersonHour: 30, perIpHour: 120 };
-const PROMPT_TOKENS = 700; // the fixed system prompt on router and gate calls
+// THIS SECTION IS FOR: limits. All DEFAULTS Lilly can change (build plan 1.10). Sizes are checked before anything is held or sent.
+// boardChars fits a heavy board (sceneForModel sends every element); imageChars fits the 1400px board picture as base64.
+export const LIMITS = { askChars: 2000, boardChars: 300000, summaryChars: 4000, imageChars: 1500000, perPersonHour: 30, perIpHour: 120 };
 
-// THIS SECTION IS FOR: the jobs the router may pick. Keys match rulebook rows.
-export const ROUTES = {
-  draw:  { label: 'draw', about: 'add notes, shapes, text or arrows to the board.' },
-  edit:  { label: 'edit', about: 'change, move, restyle or delete what is already on the board.' },
-  build: { label: 'build', about: 'make a small working app or page.' },
-  plan:  { label: 'plan', about: 'turn a dream or goal into a plan.' },
-  todo:  { label: 'todo', about: 'turn tasks into a have-to list.' }
-};
+// THIS SECTION IS FOR: the jobs. The router chooses among the ask box's three; the others are named by their button.
+export const NAMED_JOBS = new Set(['draw', 'edit', 'build', 'plan', 'todo']);
 const DIFFICULTY = ['easy', 'normal', 'hard'];
+const MIN_CONFIDENCE = 0.6;
+export const DEFAULT_ASK = 'Do you want me to change what is on the board, or make something new?';
 
-// THIS SECTION IS FOR: reading the router's reply. Junk falls back to draw, as the browser does today.
-export function parseRoute(raw, routes = ROUTES) {
-  const fallback = { job: 'draw', confidence: 0, ask: null, difficulty: 'normal', stage: null, tone: null };
-  const m = String(raw || '').match(/\{[\s\S]*\}/);
-  if (!m) return fallback;
-  let j;
-  try { j = JSON.parse(m[0]); } catch (e) { return fallback; }
-  if (!j || !Object.prototype.hasOwnProperty.call(routes, j.route)) return fallback;
-  return {
-    job: j.route,
-    confidence: typeof j.confidence === 'number' ? j.confidence : 1,
-    ask: typeof j.ask === 'string' ? j.ask.slice(0, 70) : null,
-    difficulty: DIFFICULTY.includes(j.difficulty) ? j.difficulty : 'normal',
-    stage: typeof j.stage === 'string' ? j.stage.slice(0, 40) : null,
-    tone: typeof j.tone === 'string' ? j.tone.slice(0, 40) : null
-  };
+// THIS SECTION IS FOR: reading the router's reply, the way the browser's parseRoute does (app-09-route.js), plus the difficulty clue.
+// Returns null for junk; the caller falls back to draw.
+function firstJsonObject(s) {
+  for (let a = s.indexOf('{'); a >= 0; a = s.indexOf('{', a + 1)) {
+    let depth = 0, inStr = false, esc = false;
+    for (let i = a; i < s.length; i++) {
+      const c = s[i];
+      if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true;
+      else if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) {
+        try { const o = JSON.parse(s.slice(a, i + 1)); if (o && typeof o === 'object' && !Array.isArray(o)) return o; } catch (e) { /* next brace */ }
+        break;
+      }
+    }
+  }
+  return null;
+}
+export function parseRoute(raw, routes = ROUTER_ROUTES) {
+  if (typeof raw !== 'string') return null;
+  const o = firstJsonObject(raw);
+  if (!o) return null;
+  const has = (k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(routes, k);
+  const steps = Array.isArray(o.steps) ? o.steps.filter(has).slice(0, 2) : [];
+  const route = has(o.route) ? o.route : steps[0];
+  if (!route) return null;
+  const confidence = typeof o.confidence === 'number' && isFinite(o.confidence) ? Math.max(0, Math.min(1, o.confidence)) : 0.8;
+  const ask = typeof o.ask === 'string' ? o.ask.replace(/\s+/g, ' ').trim().slice(0, 140) : '';
+  return { route, confidence, ask: ask || null, steps: steps.length ? steps : [route], difficulty: DIFFICULTY.includes(o.difficulty) ? o.difficulty : 'normal' };
 }
 
 const refuse = (status, reason) => ({ status, body: { ok: false, reason } });
 
-// THIS SECTION IS FOR: the flow. input: { headers, ip, ask, board, memory, image, job? (named job skips the router), requestId }.
-// deps: { rpc, findByHash, call(pick, messages, person), hit(key) -> count, isFirstAsk(person), storeTicket(t), recordBlock(person, now) -> times[],
-//         pause(person), ticketSecret, now(), env, imageMode, describe }
+// THIS SECTION IS FOR: the flow.
+// input: { headers, ip, ask, summary (the browser's boardSummary object), job? (a named job skips the router), second? (the person
+//          already answered one clarifying question: never ask another), hasImage? (the run will send the board picture), requestId
+//          (made by the server, never by the browser) }
+// deps: { rpc, findByHash, call(pick, messages, person, signal, hooks), hit(key) -> count, isFirstAsk(person), storeTicket(t),
+//         recordBlock(person) -> epoch ms[], pause(person), usage: { start, finish }, avoidModels() -> ids, ticketSecret, now(), env, imageMode }
 export async function route(deps, input) {
-  const { headers, ip, ask = '', board = '', memory = '', image = null, requestId } = input;
+  const { headers, ip, ask = '', summary = null, requestId } = input;
   const now = deps.now();
+  const summaryText = summary == null ? '' : JSON.stringify(summary);
 
-  // Sizes first: nothing is held or sent for an oversized payload.
-  if (!ask.trim()) return refuse(400, 'empty');
-  if (ask.length > LIMITS.askChars || String(board).length > LIMITS.boardChars || String(memory).length > LIMITS.memoryChars ||
-      (image && String(image).length > LIMITS.imageChars)) return refuse(413, 'too_big');
+  if (typeof ask !== 'string' || !ask.trim()) return refuse(400, 'empty');
+  if (ask.length > LIMITS.askChars || summaryText.length > LIMITS.summaryChars) return refuse(413, 'too_big');
+  if (input.job != null && !NAMED_JOBS.has(input.job)) return refuse(400, 'unknown_job');
+  if (!requestId) return refuse(500, 'server');
 
   const who = await authenticate(headers, deps.findByHash);
   if (!who.ok) return refuse(who.reason === 'paused' ? 403 : 401, who.reason);
@@ -60,27 +73,34 @@ export async function route(deps, input) {
 
   if ((await deps.hit('p:' + person)) > LIMITS.perPersonHour || (await deps.hit('ip:' + ip)) > LIMITS.perIpHour) return refuse(429, 'rate');
 
-  const named = input.job && Object.prototype.hasOwnProperty.call(ROUTES, input.job) ? input.job : null;
-  const hasImage = !!image;
+  // The first ask ever (DEFAULT, open question 1) from the ask box becomes an idea map; the router is then not needed.
+  const named = input.job || null;
+  const firstAsk = named ? false : await deps.isFirstAsk(person);
+  const useRouter = !named && !firstAsk;
+  const avoid = deps.avoidModels ? await deps.avoidModels() : [];
   let gatePick, routerPick;
-  try { gatePick = pick('gate', {}, { hasImage: false }, person, deps.env); routerPick = pick('router', {}, { hasImage: false }, person, deps.env); }
-  catch (e) { return refuse(503, 'server'); }
-  const inTok = estTokens(ask.length + String(board).length + String(memory).length) + PROMPT_TOKENS;
-  const amount = worstCaseCost(gatePick, inTok) + (named ? 0 : worstCaseCost(routerPick, inTok));
+  try {
+    gatePick = pick('gate', {}, { hasImage: false }, person, deps.env, avoid);
+    routerPick = pick('router', {}, { hasImage: false }, person, deps.env, avoid);
+  } catch (e) { return refuse(503, 'server'); }
+
+  const gateMsgs = gateMessages(ask);
+  const routerMsgs = [{ role: 'system', content: buildRouteSystem(ROUTER_ROUTES) + ' ' + ROUTER_CLUES },
+    { role: 'user', content: userText('router', { ask, summary }) }];
+  const amount = worstCaseCost(gatePick, messageTokens(gateMsgs)) + (useRouter ? worstCaseCost(routerPick, messageTokens(routerMsgs)) : 0);
+  const holdId = 'route:' + requestId;
 
   let out;
   try {
-    out = await withHold({ rpc: deps.rpc, person, requestId: 'route:' + requestId, amount }, async (bill) => {
-      const askModel = (p) => async (messages) => tally(bill, await deps.call(p, messages, person));
-
-      const g = await runGate(askModel(gatePick), { text: ask, hasImage, imageMode: deps.imageMode || 'none', describe: deps.describe });
+    out = await withHold({ rpc: deps.rpc, person, requestId: holdId, amount }, async (bill) => {
+      let n = 0;
+      const askModel = (p, job) => async (messages) => tally(bill, await recordedCall(deps, { p, job, messages, person, holdId, n: n++, attempt: 1 }));
+      const g = await runGate(askModel(gatePick, 'gate'), { text: ask, hasImage: false });
       if (!g.pass) return { gate: g };
-
-      let r = parseRoute('', ROUTES);
-      if (named) r = { ...r, job: named, confidence: 1 };
-      else {
-        const rr = await askModel(routerPick)([{ role: 'system', content: buildRouteSystem(ROUTES) }, { role: 'user', content: ask }]);
-        if (rr.outcome === 'ok') r = parseRoute(rr.text, ROUTES);
+      let r = null;
+      if (useRouter) {
+        const rr = await askModel(routerPick, 'router')(routerMsgs);
+        if (rr.outcome === 'ok') r = parseRoute(rr.text);
       }
       return { gate: g, r };
     });
@@ -91,16 +111,41 @@ export async function route(deps, input) {
 
   if (!out.gate.pass) {
     if (out.gate.kind === 'server') return refuse(503, 'server'); // the gate failed; not an accusation
-    const times = await deps.recordBlock(person, now);
-    if (shouldPause(times, now)) await deps.pause(person);
+    const times = await deps.recordBlock(person);
+    if (shouldPause(times, now, undefined, BLOCK_WINDOW_MS)) await deps.pause(person);
     return refuse(422, 'blocked');
   }
-  if (out.r.confidence < 0.6 && out.r.ask) return { status: 200, body: { ok: true, clarify: out.r.ask } };
 
+  let steps, difficulty = 'normal';
+  if (named) steps = [named];
+  else if (firstAsk) steps = ['ideamap'];
+  else {
+    const r = out.r || { route: 'draw', confidence: 1, ask: null, steps: ['draw'], difficulty: 'normal' }; // junk falls back to draw
+    if ((r.confidence < MIN_CONFIDENCE || r.ask) && !input.second) return { status: 200, body: { ok: true, clarify: r.ask || DEFAULT_ASK } };
+    steps = (r.confidence < MIN_CONFIDENCE || r.ask) ? ['draw'] : r.steps;
+    difficulty = r.difficulty;
+  }
+
+  const job = steps[0];
   let p;
-  try { p = pick(out.r.job, { difficulty: out.r.difficulty }, { hasImage }, person, deps.env); } catch (e) { return refuse(503, 'server'); }
-  const firstAsk = await deps.isFirstAsk(person);
+  try { p = pick(job, { difficulty }, { hasImage: !!input.hasImage && (job === 'draw' || job === 'ideamap') }, person, deps.env, avoid); }
+  catch (e) { return refuse(503, 'server'); }
   const t = issueTicket({ secret: deps.ticketSecret, person, askHash: hashAsk(ask), now });
-  await deps.storeTicket({ id: t.payload.id, person, job: out.r.job, pick: p, exp: t.payload.exp });
-  return { status: 200, body: { ok: true, ticket: t.token, job: out.r.job, stage: out.r.stage, tone: out.r.tone, firstAsk } };
+  await deps.storeTicket({ id: t.payload.id, person, askHash: t.payload.h, job, pick: p, exp: t.payload.exp });
+  return { status: 200, body: { ok: true, ticket: t.token, job, steps, firstAsk } };
+}
+
+// THIS SECTION IS FOR: one model call with its usage row (I3, I6): started before the call so a crash leaves a trace, marked when the
+// first chunk names the generation, finished with the real cost. Shared with run.mjs. Never records any text.
+export async function recordedCall(deps, { p, job, messages, person, holdId, n, attempt, signal, onDelta }) {
+  const id = holdId + ':' + n;
+  const t0 = deps.now();
+  if (deps.usage) await deps.usage.start({ id, holdId, person, job, attempt });
+  const r = await deps.call(p, messages, person, signal, {
+    // best effort: the finish below writes the generation id too; this early write only helps if the function dies mid-answer
+    onStart: (g) => { if (deps.usage) Promise.resolve().then(() => deps.usage.seen({ id, generationId: g })).catch(() => {}); },
+    onDelta
+  });
+  if (deps.usage) await deps.usage.finish({ id, generationId: r.generationId || null, model: r.model || null, latencyMs: deps.now() - t0, cost: typeof r.cost === 'number' ? r.cost : null, outcome: r.outcome });
+  return r;
 }

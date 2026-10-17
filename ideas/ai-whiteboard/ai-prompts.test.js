@@ -50,7 +50,43 @@ const ev = (code, args) => new Function(...(args || []), code);
       assert.strictEqual(p.clampAdvance(99), p.ADVANCE_MAX); assert.strictEqual(p.clampAdvance(-1), p.ADVANCE_MIN);
       assert.strictEqual(p.clampAdvance('x'), 0.6); assert.strictEqual(p.clampAdvance(0.62), 0.62);
     }],
-    ['a hostile advance cannot inject text', () => assert.ok(!p.buildDrawSystem('1"; DROP').includes('DROP'))]
+    ['a hostile advance cannot inject text', () => assert.ok(!p.buildDrawSystem('1"; DROP').includes('DROP'))],
+    ['router routes equal the browser ROUTES labels and abouts, in the same order', () => {
+      const routeSrc = fs.readFileSync(path.join(__dirname, 'app-09-route.js'), 'utf8');
+      const found = {};
+      routeSrc.replace(/^ {4}(\w+): \{ label: '([^']*)', about: '([^']*)'/gm, (m, k, label, about) => { found[k] = { label, about }; return m; });
+      assert.deepStrictEqual(found, p.ROUTER_ROUTES);
+      assert.deepStrictEqual(Object.keys(found), Object.keys(p.ROUTER_ROUTES));
+    }],
+    ['Dream plan and have-to prompts equal their browser copies', () => {
+      const loops = fs.readFileSync(path.join(__dirname, 'app-14-loops.js'), 'utf8');
+      const loop1 = fs.readFileSync(path.join(__dirname, 'loop1.js'), 'utf8');
+      assert.strictEqual(ev('return ' + /var DREAM_SYSTEM = ('.*');/.exec(loops)[1])(), p.DREAM_SYSTEM);
+      assert.strictEqual(ev('return ' + /var SYSTEM = ('.*');/.exec(loop1)[1])(), p.TODO_SYSTEM);
+    }],
+    ['user messages are built the way the browser builds them', () => {
+      assert.strictEqual(p.userText('draw', { ask: 'hi', board: '{"a":1}' }), 'hi\n\nBoard JSON:\n{"a":1}');
+      assert.strictEqual(p.userText('edit', { ask: 'hi', board: '{}' }), 'hi\n\nBoard JSON:\n{}');
+      assert.strictEqual(p.userText('build', { ask: 'a tip calculator' }), 'a tip calculator');
+      assert.strictEqual(p.userText('plan', { ask: 'x'.repeat(700) }), 'Dream: ' + 'x'.repeat(600));
+      assert.strictEqual(p.userText('todo', { ask: 'call mom' }), 'To-do: call mom');
+      assert.strictEqual(p.userText('router', { ask: 'hi', summary: { counts: {} } }), JSON.stringify({ request: 'hi', board: { counts: {} } }));
+      assert.throws(() => p.userText('hack', { ask: 'x' }));
+    }],
+    ['the browser sends those same shapes (draw and edit put the board after "Board JSON:")', () => {
+      const routeSrc = fs.readFileSync(path.join(__dirname, 'app-09-route.js'), 'utf8');
+      assert.ok(routeSrc.includes("var text = c.text + '\\n\\nBoard JSON:\\n' + JSON.stringify(sceneForModel());"));
+      assert.ok(routeSrc.includes("text: c.text + '\\n\\nBoard JSON:\\n' + JSON.stringify(scene)"));
+      assert.ok(routeSrc.includes('text: JSON.stringify({ request: text, board: boardSummary() })'));
+    }],
+    ['every server job has a system prompt; the idea map is the draw prompt plus its rule; next moves can be switched off', () => {
+      for (const j of ['draw', 'ideamap', 'edit', 'build', 'plan', 'todo', 'nextmoves']) assert.ok(p.systemFor(j, 0.6), j);
+      assert.strictEqual(p.systemFor('router', 0.6), null);
+      assert.ok(p.systemFor('ideamap', 0.6, { nextMoves: false }).startsWith(p.buildDrawSystem(0.6)));
+      assert.ok(p.systemFor('ideamap', 0.6).includes(p.IDEAMAP_RULE));
+      assert.ok(!p.systemFor('draw', 0.6, { nextMoves: false }).includes('"next"'));
+      assert.ok(p.systemFor('draw', 0.6).includes(p.NEXT_MOVES_RULE));
+    }]
   ];
   for (const [name, fn] of tests) await t(name, fn);
   console.log('1..' + n);

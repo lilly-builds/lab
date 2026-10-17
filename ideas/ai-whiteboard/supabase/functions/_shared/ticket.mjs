@@ -3,7 +3,8 @@
 import { createHmac, createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 export const MAX_ATTEMPTS = 2;
-export const DEFAULT_TTL_MS = 5 * 60 * 1000;
+// A build may run 5 minutes (the browser's cap) and fail; the retry then starts on the same ticket and may run 5 more.
+export const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
 // THIS SECTION IS FOR: the ask hash. Same ask, same hash, whatever the spacing or case.
 export function hashAsk(text) {

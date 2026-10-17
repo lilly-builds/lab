@@ -37,6 +37,16 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
     ['fixed rows ignore difficulty', () => {
       assert.strictEqual(byId(rb.pick('gate', { difficulty: 'hard' }, {}, 'p', ok).models[0]).tier, 'open');
     }],
+    ['an avoided model is dropped, unless that would leave no model at all', () => {
+      const all = rb.pick('draw', {}, {}, 'p', ok).models;
+      const fewer = rb.pick('draw', {}, {}, 'p', ok, [all[0]]).models;
+      assert.ok(!fewer.includes(all[0]) && fewer.length >= 1, 'the next healthy model takes the slot');
+      assert.deepStrictEqual(rb.pick('draw', {}, {}, 'p', ok, [...ids]).models, all, 'every model avoided: the normal pick stands');
+    }],
+    ['Dream plan and the have-to loop keep the browser\'s answer lengths, with no thinking', () => {
+      assert.deepStrictEqual([rb.ROWS.plan.answerBudget, rb.ROWS.plan.thinkingBudget], [400, 0]);
+      assert.deepStrictEqual([rb.ROWS.todo.answerBudget, rb.ROWS.todo.thinkingBudget], [300, 0]);
+    }],
     ['worst case cost is an upper bound of any in-budget call', () => {
       for (const job of Object.keys(rb.ROWS)) {
         const p = rb.pick(job, {}, {}, 'p', ok);

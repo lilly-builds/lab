@@ -32,6 +32,10 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
     }],
     ['garbage rejected', () => { assert.strictEqual(check('nope').reason, 'malformed'); assert.strictEqual(check(undefined).reason, 'malformed'); }],
     ['expired rejected', () => assert.strictEqual(check(mk().token, { now: now + m.DEFAULT_TTL_MS + 1 }).reason, 'expired')],
+    ['a ticket outlives a full 5-minute build attempt plus the retry that follows it', () => {
+      assert.ok(m.DEFAULT_TTL_MS >= 2 * 5 * 60 * 1000 + 60 * 1000, 'ttl ' + m.DEFAULT_TTL_MS);
+      assert.strictEqual(check(mk().token, { now: now + 5 * 60 * 1000 + 30 * 1000 }).ok, true);
+    }],
     ['wrong person rejected', () => assert.strictEqual(check(mk().token, { person: 'p2' }).reason, 'wrong_person')],
     ['wrong ask hash rejected', () => assert.strictEqual(check(mk().token, { askHash: m.hashAsk('x') }).reason, 'wrong_ask')],
     ['two attempts allowed, third refused', () => {

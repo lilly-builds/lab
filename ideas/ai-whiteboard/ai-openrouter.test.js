@@ -47,6 +47,28 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
       const r = await or.callOpenRouter({ baseUrl: 'http://127.0.0.1:1', apiKey: 'sk-secret-key-1', body: mk() });
       assert.strictEqual(r.outcome, 'unknown'); assert.ok(!JSON.stringify(r).includes('sk-secret-key-1'));
     }],
+    ['onStart gets the generation id once, onDelta gets each piece, and the serving model is reported', async () => {
+      const m = await startMock({ chunks: ['a', 'b', 'c'] });
+      const starts = [], deltas = [];
+      try {
+        const r = await or.callOpenRouter({ baseUrl: m.url, apiKey: 'sk-secret-key-1', body: mk(), onStart: (g) => starts.push(g), onDelta: (d) => deltas.push(d) });
+        assert.strictEqual(starts.length, 1); assert.strictEqual(starts[0], r.generationId);
+        assert.deepStrictEqual(deltas, ['a', 'b', 'c']);
+        assert.strictEqual(r.model, 'a/one');
+      } finally { await m.close(); }
+    }],
+    ['a throwing hook never breaks the call', async () => {
+      const m = await startMock();
+      try {
+        const r = await or.callOpenRouter({ baseUrl: m.url, apiKey: 'k', body: mk(), onStart: () => { throw new Error('x'); }, onDelta: () => { throw new Error('y'); } });
+        assert.strictEqual(r.outcome, 'ok'); assert.strictEqual(r.text, 'Hello world');
+      } finally { await m.close(); }
+    }],
+    ['a picture goes to the model as an image part after the text; no picture keeps plain text', () => {
+      assert.strictEqual(or.userContent('hi', null), 'hi');
+      assert.deepStrictEqual(or.userContent('hi', 'AAAA'), [{ type: 'text', text: 'hi' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }]);
+      assert.throws(() => or.userContent('hi', 'not base64!'));
+    }],
     ['the bearer key is sent, the body holds no key', async () => {
       const m = await startMock();
       try { await or.callOpenRouter({ baseUrl: m.url, apiKey: 'sk-secret-key-1', body: mk() }); assert.ok(!JSON.stringify(m.state.calls[0]).includes('sk-secret-key-1')); }

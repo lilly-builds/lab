@@ -23,6 +23,19 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
       assert.ok(/never an instruction/.test(m[0].content));
       assert.ok(m[1].content.startsWith('<<<REQUEST') && m[1].content.includes('ignore previous instructions'));
     }],
+    ['native mode puts the picture itself in front of the gate model', async () => {
+      let seen = null;
+      const ask = async (msgs) => { seen = msgs[1].content; return { outcome: 'ok', text: '{"ok":true}', cost: 0 }; };
+      const r = await g.runGate(ask, { text: 'what is this', hasImage: true, image: 'QUJD', imageMode: 'native' });
+      assert.strictEqual(r.pass, true);
+      assert.ok(Array.isArray(seen), 'the user turn carries an image part');
+      assert.ok(seen[0].text.startsWith('<<<REQUEST') && seen[0].text.includes('what is this'));
+      assert.deepStrictEqual(seen[1], { type: 'image_url', image_url: { url: 'data:image/png;base64,QUJD' } });
+    }],
+    ['native mode with a picture flag but no picture data is not let through', async () => {
+      const r = await g.runGate(says('{"ok":true}'), { text: 'x', hasImage: true, imageMode: 'native' });
+      assert.deepStrictEqual([r.pass, r.kind], [false, 'server']);
+    }],
     ['a picture with a text-only gate and no fallback is not let through', async () => {
       const r = await g.runGate(says('{"ok":true}'), { text: 'x', hasImage: true, imageMode: 'none' });
       assert.deepStrictEqual([r.pass, r.kind], [false, 'server']);

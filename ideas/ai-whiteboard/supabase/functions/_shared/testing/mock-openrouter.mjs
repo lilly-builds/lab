@@ -48,18 +48,19 @@ export async function startMock(opts = {}) {
       if (state.mode === 'error5xx') return json(res, 503, { error: 'upstream down' });
       if (state.mode === 'drop') return req.socket.destroy();
       const id = 'gen-' + (++state.seq);
+      const model = (body.models && body.models[0]) || body.model || 'mock/model'; // the first model serves, as OpenRouter reports it
       const charge = () => { state.gens.set(id, state.cost); if (key) key.usage += state.cost; };
       if (!body.stream) {
         charge();
-        return json(res, 200, { id, choices: [{ message: { content: state.chunks.join('') } }], usage: { cost: state.cost } });
+        return json(res, 200, { id, model, choices: [{ message: { content: state.chunks.join('') } }], usage: { cost: state.cost } });
       }
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       if (state.mode === 'unreadable') { res.write('data: {not json\n\n'); return res.end(); }
       const parts = state.mode === 'cutoff' ? state.chunks.slice(0, 1) : state.chunks;
-      for (const c of parts) { sse(res, { id, choices: [{ delta: { content: c } }] }); if (state.mode === 'slow') await new Promise((r) => setTimeout(r, 30)); }
+      for (const c of parts) { sse(res, { id, model, choices: [{ delta: { content: c } }] }); if (state.mode === 'slow') await new Promise((r) => setTimeout(r, 30)); }
       if (state.mode === 'cutoff') { charge(); await new Promise((r) => setTimeout(r, 40)); return res.socket.destroy(); } // cut-off answers are charged
       charge();
-      sse(res, { id, choices: [{ delta: {} }], usage: { cost: state.cost } });
+      sse(res, { id, model, choices: [{ delta: {} }], usage: { cost: state.cost } });
       res.write('data: [DONE]\n\n');
       return res.end();
     }
