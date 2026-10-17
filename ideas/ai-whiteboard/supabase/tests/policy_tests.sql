@@ -679,6 +679,13 @@ select pg_temp.ok('usage rows hold no text column',
 
 select pg_temp.ok('a flag is written once per open cause',
   public.ai_flag('test:cause', 'normal', null, '{}') and not public.ai_flag('test:cause', 'high', null, '{}'));
+select pg_temp.ok('open flags list high severity first and include the new cause',
+  (select severity from public.ai_open_flags() limit 1) = 'high'
+  and exists (select 1 from public.ai_open_flags() where cause = 'test:cause'));
+select public.ai_resolve_flag((select id from public.ops_flags where cause = 'test:cause' and resolved_at is null));
+select pg_temp.ok('a resolved flag leaves the list, and the same cause can be flagged again',
+  not exists (select 1 from public.ai_open_flags() where cause = 'test:cause')
+  and public.ai_flag('test:cause', 'normal', null, '{}'));
 
 insert into public.ai_holds (request_id, person_id, amount, created_at)
   values ('h-stale', 'aaaaaaaa-0000-0000-0000-000000000002', 0.5, now() - interval '20 minutes');

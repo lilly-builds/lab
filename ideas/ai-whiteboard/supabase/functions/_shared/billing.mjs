@@ -17,26 +17,32 @@ export function messageTokens(messages) {
   return n;
 }
 
+// THIS SECTION IS FOR: adding money without float drift. The ledger keeps 6 decimals (numeric(14,6)), so sums are kept in
+// millionths of a dollar and turned back into dollars at the end.
+export const toMicros = (dollars) => Math.round(Number(dollars) * 1e6);
+export const fromMicros = (micros) => micros / 1e6;
+
 // THIS SECTION IS FOR: adding up what a call cost. Returns the bill after the call.
 // A call that errored before it started cost nothing. A call whose cost we do not know (dropped connection, no cost in the reply)
 // keeps the hold so the cleanup job (1.12) can look it up and flag it. Money is never quietly released.
 export function tally(bill, r) {
   if (!r || r.outcome === 'unknown') bill.keep = true;
-  else if (r.outcome === 'error_before_start') bill.cost += 0;
-  else if (typeof r.cost !== 'number') bill.keep = true;
-  else bill.cost += r.cost;
+  else if (r.outcome === 'error_before_start') bill.micros += 0;
+  else if (typeof r.cost !== 'number' || !isFinite(r.cost)) bill.keep = true;
+  else bill.micros += toMicros(r.cost);
   return r;
 }
 
 // THIS SECTION IS FOR: the hold lifecycle. work(bill) makes the calls and tallies each one.
 // A refused hold (insufficient, paused) throws a LedgerError before any call is made.
+// The hold is rounded UP to the ledger's millionths, so rounding can never make it smaller than the worst case.
 export async function withHold({ rpc, person, requestId, amount }, work) {
-  await placeHold(rpc, person, requestId, amount);
-  const bill = { cost: 0, keep: false };
+  await placeHold(rpc, person, requestId, fromMicros(Math.ceil(Number(amount) * 1e6)));
+  const bill = { micros: 0, keep: false };
   let result;
   try { result = await work(bill); } catch (e) { bill.keep = true; throw e; }
   if (bill.keep) return result;
-  if (bill.cost === 0) await release(rpc, requestId);
-  else await settle(rpc, requestId, bill.cost);
+  if (bill.micros === 0) await release(rpc, requestId);
+  else await settle(rpc, requestId, fromMicros(bill.micros));
   return result;
 }

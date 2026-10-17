@@ -26,6 +26,14 @@ function psql(url, sql, vars) {
   });
 }
 
+// THIS SECTION IS FOR: tests reading tables directly. sql must be one query; its rows come back as an array of objects.
+export async function psqlRows(url, sql) {
+  assertScratchUrl(url);
+  const r = await psql(url, "select coalesce(jsonb_agg(to_jsonb(q)), '[]'::jsonb) from (" + sql + ') q', {});
+  if (r.code !== 0) throw new Error('query failed: ' + r.err.split('\n')[0]);
+  return JSON.parse(r.out.split('\n').pop());
+}
+
 // url: a postgres URL whose database name says scratch/test/control. Returns rpc(name, args) -> { data, error }.
 export function psqlRpc(url) {
   assertScratchUrl(url);

@@ -38,3 +38,23 @@ export async function createKey(cfg, { name, limit }) {
 }
 export const setKeyLimit = (cfg, hash, limit) => api(cfg, 'PATCH', '/keys/' + encodeURIComponent(hash), { limit });
 export const disableKey = (cfg, hash) => api(cfg, 'PATCH', '/keys/' + encodeURIComponent(hash), { disabled: true });
+
+// THIS SECTION IS FOR: reading a key back (the reconciler compares it with the ledger). Returns { limit, usage, disabled } in dollars.
+export async function getKey(cfg, hash) {
+  const j = await api(cfg, 'GET', '/keys/' + encodeURIComponent(hash));
+  const d = j && j.data;
+  if (!d || typeof d.limit !== 'number' || typeof d.usage !== 'number') throw new Error('key service gave an unreadable reply');
+  return { limit: d.limit, usage: d.usage, disabled: !!d.disabled };
+}
+
+// THIS SECTION IS FOR: what one generation cost (the cleanup job settles orphaned holds with it). Asked with the key that made the
+// call. Returns dollars, or null when the generation is unknown or not ready yet. Endpoint and field (total_cost) UNVERIFIED until 0.7.
+export async function generationCost({ baseUrl, apiKey, fetchImpl }, id) {
+  const f = fetchImpl || fetch;
+  let res;
+  try { res = await f(baseUrl + '/generation?id=' + encodeURIComponent(id), { headers: { authorization: 'Bearer ' + apiKey } }); }
+  catch (e) { return null; }
+  if (!res.ok) return null;
+  try { const j = await res.json(); return j && j.data && typeof j.data.total_cost === 'number' ? j.data.total_cost : null; }
+  catch (e) { return null; }
+}

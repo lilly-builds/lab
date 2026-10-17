@@ -38,6 +38,16 @@ export function verifyTicket({ secret, token, person, askHash, now }) {
   return { ok: true, payload };
 }
 
+// THIS SECTION IS FOR: which ticket an outcome report is about. Checks the signature and the person, not the ask or expiry
+// (an undo can come long after the answer). Returns the ticket id or null.
+export function ticketIdOf({ secret, token, person }) {
+  const parts = typeof token === 'string' ? token.split('.') : [];
+  if (parts.length !== 2) return null;
+  const want = Buffer.from(sign(secret, parts[0])), got = Buffer.from(parts[1]);
+  if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
+  try { const p = JSON.parse(Buffer.from(parts[0], 'base64url').toString()); return p.p === person ? p.id : null; } catch (e) { return null; }
+}
+
 // THIS SECTION IS FOR: attempt counting on a state row { attempts, childIssued }.
 export function takeAttempt(state) {
   if (state.attempts >= MAX_ATTEMPTS) return { ok: false, reason: 'no_attempts_left', state };

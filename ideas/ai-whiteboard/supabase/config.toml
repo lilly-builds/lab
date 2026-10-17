@@ -24,3 +24,23 @@ secret = ""
 [db.seed]
 enabled = true
 sql_paths = ["./seed/templates_seed.sql"]
+
+# AI Magic Toolbox functions check their own credential (a tester pass, the admin secret or the cron secret) in their code,
+# so the platform's Supabase-login check is off for them; without this a tester pass would be refused before the code runs.
+[functions.route]
+verify_jwt = false
+
+[functions.run]
+verify_jwt = false
+
+[functions.outcome]
+verify_jwt = false
+
+[functions.admin]
+verify_jwt = false
+
+[functions.cleanup]
+verify_jwt = false
+
+[functions.reconcile]
+verify_jwt = false

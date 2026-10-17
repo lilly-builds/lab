@@ -211,14 +211,31 @@ create or replace function public.ai_limit_failed(p_id bigint, p_next_ms bigint,
   update public.limit_updates set next_try = to_timestamp(p_next_ms / 1000.0), attempts = p_attempts where id = p_id
 $$;
 
--- THIS SECTION IS FOR: the reconciler (step 1.12). Every person with a key, with their ledger rows, for the limit rule.
+-- THIS SECTION IS FOR: the reconciler (step 1.12). Every person with a key, with their ledger rows (for the limit rule) and the
+-- money held for calls still in flight (OpenRouter may already count those as usage).
+-- Return type changed while unshipped: drop first so a local stack that applied the older shape re-applies cleanly.
+drop function if exists public.ai_reconcile_rows();
 create or replace function public.ai_reconcile_rows()
-  returns table (person_id uuid, key_hash text, disabled boolean, rows jsonb)
+  returns table (person_id uuid, key_hash text, disabled boolean, rows jsonb, open_holds numeric)
   language sql stable security definer set search_path = pg_catalog, public as $$
   select t.id, t.key_hash, t.disabled,
          coalesce((select jsonb_agg(jsonb_build_object('id', l.id, 'reason', l.reason, 'amount', l.amount) order by l.id)
-                   from public.credit_ledger l where l.person_id = t.id), '[]'::jsonb)
+                   from public.credit_ledger l where l.person_id = t.id), '[]'::jsonb),
+         coalesce((select sum(h.amount) from public.ai_holds h where h.person_id = t.id and h.state = 'open'), 0)
   from public.tester_passes t where t.key_hash is not null
+$$;
+
+-- THIS SECTION IS FOR: what Lilly sees (U3: how a flag reaches her is still open; the admin door lists them).
+create or replace function public.ai_open_flags()
+  returns table (id bigint, cause text, severity text, person_id uuid, detail jsonb, created_at timestamptz)
+  language sql stable security definer set search_path = pg_catalog, public as $$
+  select f.id, f.cause, f.severity, f.person_id, f.detail, f.created_at from public.ops_flags f
+  where f.resolved_at is null order by (f.severity = 'high') desc, f.created_at
+$$;
+
+create or replace function public.ai_resolve_flag(p_id bigint) returns void
+  language sql security definer set search_path = pg_catalog, public as $$
+  update public.ops_flags set resolved_at = now() where id = p_id and resolved_at is null
 $$;
 
 -- THIS SECTION IS FOR: outcome logging (step 1.20).
@@ -238,7 +255,7 @@ begin
     'ai_usage_seen(text,text)', 'ai_usage_finish(text,text,text,int,numeric,text)', 'ai_model_failures(int)',
     'ai_flag(text,text,uuid,jsonb)', 'ai_stale_holds(int)', 'ai_spend_since(int)', 'ai_prune(int)', 'ai_ledger_rows(uuid)',
     'ai_limit_enqueue(uuid)', 'ai_limit_take_due(int)', 'ai_limit_done(bigint)', 'ai_limit_failed(bigint,bigint,int)',
-    'ai_reconcile_rows()', 'ai_record_outcome(uuid,text,text)'] loop
+    'ai_reconcile_rows()', 'ai_record_outcome(uuid,text,text)', 'ai_open_flags()', 'ai_resolve_flag(bigint)'] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);
   end loop;
