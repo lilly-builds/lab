@@ -72,7 +72,8 @@ export async function route(deps, input) {
   if (!who.ok) return refuse(who.reason === 'paused' ? 403 : 401, who.reason);
   const person = who.person;
 
-  if ((await deps.hit('p:' + person)) > LIMITS.perPersonHour || (await deps.hit('ip:' + ip)) > LIMITS.perIpHour) return refuse(429, 'rate');
+  // The per-address limit needs an address the platform vouches for (http.mjs clientIp); without one only the person is counted.
+  if ((await deps.hit('p:' + person)) > LIMITS.perPersonHour || (ip && (await deps.hit('ip:' + ip)) > LIMITS.perIpHour)) return refuse(429, 'rate');
 
   // The first ask ever (DEFAULT, open question 1) from the ask box becomes an idea map; the router is then not needed.
   const named = input.job || null;

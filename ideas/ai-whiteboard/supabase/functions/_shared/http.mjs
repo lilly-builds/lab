@@ -51,7 +51,15 @@ export function logError(where, e) {
   const msg = String((e && e.message) || e).replace(/(sk-|tp_)[A-Za-z0-9_-]{4,}/g, '[redacted]').slice(0, 200);
   console.error('[ai-toolbox] ' + where + ': ' + msg);
 }
-const clientIp = (req) => String(req.headers.get('x-forwarded-for') || req.headers.get('cf-connecting-ip') || 'unknown').split(',')[0].trim();
+// THIS SECTION IS FOR: the caller's address, for the per-address rate limit. Only a header the platform sets counts. A caller can put
+// anything in X-Forwarded-For, so that header is never read. DEFAULT cf-connecting-ip (set by the CDN in front of Supabase, UNVERIFIED
+// until the first deploy); AI_IP_HEADER names another. No trusted header means no address: the per-person limit still applies.
+export function clientIp(req, env) {
+  const name = String((env && env.AI_IP_HEADER) || 'cf-connecting-ip').toLowerCase();
+  if (name === 'x-forwarded-for') return null;
+  const v = String(req.headers.get(name) || '').trim();
+  return /^[0-9a-fA-F:.]{2,45}$/.test(v) ? v : null;
+}
 
 // One wrapper for the plain JSON doors: OPTIONS, POST only, body cap, and a 500 that says nothing.
 function door(name, deps, handle) {
@@ -68,7 +76,7 @@ function door(name, deps, handle) {
 
 // THIS SECTION IS FOR: /route. The request id is made here, never taken from the browser.
 export const routeHandler = (deps) => door('route', deps, (req, b) => route(deps, {
-  headers: req.headers, ip: clientIp(req), ask: b.ask, summary: b.summary == null ? null : b.summary, job: b.job == null ? null : b.job,
+  headers: req.headers, ip: clientIp(req, deps.env), ask: b.ask, summary: b.summary == null ? null : b.summary, job: b.job == null ? null : b.job,
   second: b.second === true, hasImage: b.hasImage === true, requestId: crypto.randomUUID()
 }));
 
