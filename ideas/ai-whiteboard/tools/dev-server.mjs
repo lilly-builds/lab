@@ -37,7 +37,7 @@ export async function startDevServer({ port = 0, dbUrl, mockOpts = {}, envOver =
   const doors = { route: H.routeHandler(deps), run: H.runHandler(deps), outcome: H.outcomeHandler(deps), admin: H.adminHandler(deps),
     cleanup: H.cleanupHandler(deps), reconcile: H.reconcileHandler(deps) };
 
-  const rpc = psqlRpc(dbUrl);
+  const rpc = deps.rpc;
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     // the browser's one database door, as Supabase's REST API serves it: POST /rest/v1/rpc/my_balance { p_pass }

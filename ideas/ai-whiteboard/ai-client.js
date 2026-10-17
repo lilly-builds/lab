@@ -69,10 +69,13 @@
     if (pass) h.authorization = 'Bearer ' + pass;
     return h;
   }
-  async function postJson(name, pass, body, signal) {
-    var res;
-    try { res = await fetch(END.fn + '/' + name, { method: 'POST', headers: headers(pass), body: JSON.stringify(body), signal: signal }); }
+  /* one POST to a function; a request the caller cancelled stays a cancel, anything else that stops it is a network error */
+  async function post(name, pass, body, signal) {
+    try { return await fetch(END.fn + '/' + name, { method: 'POST', headers: headers(pass), body: JSON.stringify(body), signal: signal }); }
     catch (e) { if (signal && signal.aborted) throw e; var ne = new Error('Network error'); ne.kind = 'network'; throw ne; }
+  }
+  async function postJson(name, pass, body, signal) {
+    var res = await post(name, pass, body, signal);
     var data = null;
     try { data = await res.json(); } catch (e) { /* not JSON */ }
     if (!res.ok || !data || !data.ok) throw errorFor(data, res.status);
@@ -86,11 +89,7 @@
 
   /* /run, streamed: onText gets the whole text so far, onChunk fires on each piece of answer (never on the keep-alive ticks). */
   async function runOnce(o) {
-    var res;
-    try {
-      res = await fetch(END.fn + '/run', { method: 'POST', headers: headers(o.pass), signal: o.signal,
-        body: JSON.stringify({ ticket: o.ticket, ask: o.ask, board: o.board == null ? '' : o.board, image: o.image || null, advanceEm: o.advanceEm }) });
-    } catch (e) { if (o.signal && o.signal.aborted) throw e; var ne = new Error('Network error'); ne.kind = 'network'; throw ne; }
+    var res = await post('run', o.pass, { ticket: o.ticket, ask: o.ask, board: o.board == null ? '' : o.board, image: o.image || null, advanceEm: o.advanceEm }, o.signal);
     if (!res.ok || !res.body) { var d = null; try { d = await res.json(); } catch (e) {} throw errorFor(d, res.status); }
     var reader = res.body.getReader(), dec = new TextDecoder(), buf = '', text = '', done = null;
     for (;;) {

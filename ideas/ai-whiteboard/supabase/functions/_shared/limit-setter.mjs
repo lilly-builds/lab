@@ -1,13 +1,10 @@
 // THIS FILE IS FOR: the limit setter and its retry queue (build plan 1.8, invariant I4).
 // After any money event it SETS the person's key limit to computeLimit(ledger, usage). It never adds. A failure goes on the retry queue.
-import { computeLimit } from './limit-rule.mjs';
+import { limitFromRows } from './limit-rule.mjs';
 
 // THIS SECTION IS FOR: one SET. deps: { loadRows(person), keyHashOf(person), setLimit(hash, dollars), enqueue(person) }.
-// 'spend' rows are usage, not grants or deductions, so they are split out before the rule runs.
 export async function applyLimit(person, deps) {
-  const rows = await deps.loadRows(person);
-  const usage = rows.filter((r) => r.reason === 'spend').reduce((s, r) => s + Number(r.amount), 0);
-  const limit = computeLimit(rows.filter((r) => r.reason !== 'spend'), usage);
+  const { limit } = limitFromRows(await deps.loadRows(person));
   const hash = await deps.keyHashOf(person);
   if (!hash) return { ok: false, reason: 'no_key' };
   await deps.setLimit(hash, limit);

@@ -76,7 +76,7 @@ function door(name, deps, handle) {
 
 // THIS SECTION IS FOR: /route. The request id is made here, never taken from the browser.
 export const routeHandler = (deps) => door('route', deps, (req, b) => route(deps, {
-  headers: req.headers, ip: clientIp(req, deps.env), ask: b.ask, summary: b.summary == null ? null : b.summary, job: b.job == null ? null : b.job,
+  headers: req.headers, ip: clientIp(req, deps.env), ask: b.ask, summary: b.summary, job: b.job,
   second: b.second === true, hasImage: b.hasImage === true, requestId: crypto.randomUUID()
 }));
 
@@ -114,11 +114,9 @@ export const adminHandler = (deps) => door('admin', deps, (req, b) => {
   if (!isAdmin(req.headers, deps.env.AI_ADMIN_SECRET)) return { status: 401, body: { ok: false, reason: 'admin' } };
   return admin(deps.admin, b);
 });
-export const cleanupHandler = (deps) => door('cleanup', deps, async (req) => {
+const cronDoor = (name, job) => (deps) => door(name, deps, async (req) => {
   if (!isAdmin(req.headers, deps.env.AI_CRON_SECRET)) return { status: 401, body: { ok: false, reason: 'cron' } };
-  return { status: 200, body: { ok: true, report: await cleanup(deps.jobs) } };
+  return { status: 200, body: { ok: true, report: await job(deps.jobs) } };
 });
-export const reconcileHandler = (deps) => door('reconcile', deps, async (req) => {
-  if (!isAdmin(req.headers, deps.env.AI_CRON_SECRET)) return { status: 401, body: { ok: false, reason: 'cron' } };
-  return { status: 200, body: { ok: true, report: await reconcile(deps.jobs) } };
-});
+export const cleanupHandler = cronDoor('cleanup', cleanup);
+export const reconcileHandler = cronDoor('reconcile', reconcile);

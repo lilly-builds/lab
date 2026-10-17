@@ -23,8 +23,8 @@ export function issueTicket({ secret, person, askHash, now, ttlMs = DEFAULT_TTL_
   return { token: body + '.' + sign(secret, body), payload };
 }
 
-// THIS SECTION IS FOR: checking. Returns { ok, payload } or { ok:false, reason }.
-export function verifyTicket({ secret, token, person, askHash, now }) {
+// THIS SECTION IS FOR: the signature, checked before anything inside the token is read. Returns { ok, payload } or { ok:false, reason }.
+function readSigned(secret, token) {
   const parts = typeof token === 'string' ? token.split('.') : [];
   if (parts.length !== 2) return { ok: false, reason: 'malformed' };
   const want = Buffer.from(sign(secret, parts[0]));
@@ -32,6 +32,15 @@ export function verifyTicket({ secret, token, person, askHash, now }) {
   if (want.length !== got.length || !timingSafeEqual(want, got)) return { ok: false, reason: 'bad_signature' };
   let payload;
   try { payload = JSON.parse(Buffer.from(parts[0], 'base64url').toString()); } catch (e) { return { ok: false, reason: 'malformed' }; }
+  if (!payload || typeof payload !== 'object') return { ok: false, reason: 'malformed' };
+  return { ok: true, payload };
+}
+
+// THIS SECTION IS FOR: checking a ticket for /run. Returns { ok, payload } or { ok:false, reason }.
+export function verifyTicket({ secret, token, person, askHash, now }) {
+  const s = readSigned(secret, token);
+  if (!s.ok) return s;
+  const payload = s.payload;
   if (now > payload.exp) return { ok: false, reason: 'expired' };
   if (payload.p !== person) return { ok: false, reason: 'wrong_person' };
   if (payload.h !== askHash) return { ok: false, reason: 'wrong_ask' };
@@ -41,11 +50,8 @@ export function verifyTicket({ secret, token, person, askHash, now }) {
 // THIS SECTION IS FOR: which ticket an outcome report is about. Checks the signature and the person, not the ask or expiry
 // (an undo can come long after the answer). Returns the ticket id or null.
 export function ticketIdOf({ secret, token, person }) {
-  const parts = typeof token === 'string' ? token.split('.') : [];
-  if (parts.length !== 2) return null;
-  const want = Buffer.from(sign(secret, parts[0])), got = Buffer.from(parts[1]);
-  if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
-  try { const p = JSON.parse(Buffer.from(parts[0], 'base64url').toString()); return p.p === person ? p.id : null; } catch (e) { return null; }
+  const s = readSigned(secret, token);
+  return s.ok && s.payload.p === person ? s.payload.id : null;
 }
 
 // THIS SECTION IS FOR: attempt counting on a state row { attempts, childIssued }.

@@ -22,3 +22,11 @@ export function computeLimit(rows, usage) {
   }
   return Math.max(net, cents(usage || 0)) / 100;
 }
+
+// THIS SECTION IS FOR: a person's whole ledger in, their key limit out (the limit setter, the reconciler and a new tester all use it).
+// 'spend' rows are settled calls: they count as usage, not as grants or deductions. Returns { limit, usage } in dollars.
+export function limitFromRows(rows) {
+  const all = (rows || []).map((r) => ({ id: r.id, reason: r.reason, amount: Number(r.amount) }));
+  const usage = all.filter((r) => r.reason === 'spend').reduce((s, r) => s + r.amount, 0);
+  return { limit: computeLimit(all.filter((r) => r.reason !== 'spend'), usage), usage };
+}

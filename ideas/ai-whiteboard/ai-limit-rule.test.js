@@ -10,8 +10,14 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
 const row = (id, reason, amount) => ({ id, reason, amount });
 
 (async () => {
-  const { computeLimit } = await import('./supabase/functions/_shared/limit-rule.mjs');
+  const { computeLimit, limitFromRows } = await import('./supabase/functions/_shared/limit-rule.mjs');
   const tests = [
+    ['a whole ledger: spend rows are usage, the rest feed the rule; database strings are numbers', () => {
+      const rows = [row(1, 'adjustment', '10'), row(2, 'spend', '2.5'), row(3, 'refund', 9), row(4, 'spend', 1)];
+      assert.deepStrictEqual(limitFromRows(rows), { limit: 3.5, usage: 3.5 }, 'max(10 - 9, 3.5)');
+      assert.deepStrictEqual(limitFromRows([row(1, 'adjustment', 5)]), { limit: 5, usage: 0 });
+      assert.deepStrictEqual(limitFromRows([]), { limit: 0, usage: 0 });
+    }],
     ['empty ledger gives usage', () => assert.strictEqual(computeLimit([], 3.5), 3.5)],
     ['empty ledger, no usage, gives 0', () => assert.strictEqual(computeLimit([], 0), 0)],
     ['architecture example: $10 granted, $8 used, $10 refunded gives 8', () => {

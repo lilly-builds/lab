@@ -77,9 +77,9 @@ export async function route(deps, input) {
 
   // The first ask ever (DEFAULT, open question 1) from the ask box becomes an idea map; the router is then not needed.
   const named = input.job || null;
-  const firstAsk = named ? false : await deps.isFirstAsk(person);
+  // Two reads that hold no money and do not depend on each other.
+  const [firstAsk, avoid] = await Promise.all([named ? false : deps.isFirstAsk(person), deps.avoidModels ? deps.avoidModels() : []]);
   const useRouter = !named && !firstAsk;
-  const avoid = deps.avoidModels ? await deps.avoidModels() : [];
   let gatePick, routerPick;
   try {
     gatePick = pick('gate', {}, { hasImage: false }, person, deps.env, avoid);
@@ -125,8 +125,9 @@ export async function route(deps, input) {
   else if (firstAsk) steps = ['ideamap'];
   else {
     const r = out.r || { route: 'draw', confidence: 1, ask: null, steps: ['draw'], difficulty: 'normal' }; // junk falls back to draw
-    if ((r.confidence < MIN_CONFIDENCE || r.ask) && !input.second) return { status: 200, body: { ok: true, clarify: r.ask || DEFAULT_ASK } };
-    steps = (r.confidence < MIN_CONFIDENCE || r.ask) ? ['draw'] : r.steps;
+    const unsure = r.confidence < MIN_CONFIDENCE || !!r.ask;
+    if (unsure && !input.second) return { status: 200, body: { ok: true, clarify: r.ask || DEFAULT_ASK } };
+    steps = unsure ? ['draw'] : r.steps;
     difficulty = r.difficulty;
   }
 

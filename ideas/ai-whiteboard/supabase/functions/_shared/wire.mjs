@@ -1,5 +1,5 @@
 // THIS FILE IS FOR: turning a database rpc and the environment into the deps that route, run, admin, cleanup, reconcile and outcome use.
-// The one place that knows database function names and secret names. Hosted: rpc is supabase-js .rpc (see ../_hosted.ts);
+// The one place that knows database function names and secret names. Hosted: rpc is supabase-js .rpc (see hosted.ts);
 // tests and the local dev server: testing/psql-rpc.mjs. Nothing here decides money; it only connects.
 import { pick } from './rulebook.mjs';
 import { buildRequest, callOpenRouter } from './openrouter.mjs';
@@ -26,15 +26,12 @@ export function makeDeps({ rpc, env, fetchImpl = fetch, now = () => Date.now() }
   const keysCfg = { baseUrl, masterKey: env.AI_OPENROUTER_MASTER_KEY, fetchImpl };
   const db = (name, args) => data(rpc, name, args);
 
-  // THIS SECTION IS FOR: the person's own capped key, decrypted only in memory for the length of one request.
-  const keyCache = new Map();
+  // THIS SECTION IS FOR: the person's own capped key, read and decrypted fresh for each call and never kept, so a pass revoked
+  // mid-session never has its key used again.
   async function personKey(person) {
-    if (keyCache.has(person)) return keyCache.get(person);
     const row = first(await db('ai_key_of', { p_person: person }));
     if (!row || !row.key_enc || row.disabled) throw new Error('no usable key');
-    const k = decryptKey(row.key_enc, env.AI_KEY_ENC_SECRET);
-    keyCache.set(person, k);
-    return k;
+    return decryptKey(row.key_enc, env.AI_KEY_ENC_SECRET);
   }
 
   const flag = (cause, severity, person, detail) => db('ai_flag', { p_cause: cause, p_severity: severity, p_person: person || null, p_detail: detail || {} });

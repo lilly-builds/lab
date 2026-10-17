@@ -1,9 +1,9 @@
 // THIS FILE IS FOR: Lilly's admin door (build plan 1.8 and 1.12). Human-only actions: create a tester pass with its first grant and
 // capped key, grant more, revoke, unpause, settle or release a flagged hold by hand, list and resolve flags.
-// The caller has already checked the admin secret. deps: see wire.mjs adminDeps(). Money moves only through the ledger functions.
+// The caller has already checked the admin secret. deps: makeDeps(...).admin in wire.mjs. Money moves only through the ledger functions.
 import { newPass } from './auth.mjs';
 import { adjust, settle, release, LedgerError } from './ledger.mjs';
-import { computeLimit } from './limit-rule.mjs';
+import { limitFromRows } from './limit-rule.mjs';
 import { setLimitOrQueue } from './limit-setter.mjs';
 
 // DEFAULT: one grant above this is refused as a likely typo (Lilly can raise it). Phase 1 grants are small, hand-entered amounts.
@@ -66,8 +66,7 @@ async function create(deps, a) {
   const p = newPass();
   const person = await deps.createPass(p.hash, label);
   await adjust(deps.rpc, person, a.grant, 'first grant', 'create:' + person);
-  const rows = await deps.limits.loadRows(person);
-  const limit = computeLimit(rows.filter((r) => r.reason !== 'spend'), 0);
+  const { limit } = limitFromRows(await deps.limits.loadRows(person));
   let key;
   try {
     // The key's name goes to OpenRouter, so it carries the person id, never the label (which may be a real name).

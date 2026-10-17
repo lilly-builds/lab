@@ -2,16 +2,14 @@
 // It only flags; it never changes money or limits. A human decides what a mismatch means.
 // deps: { people() -> [{ person_id, key_hash, disabled, rows: [{ id, reason, amount }], open_holds }],
 //         readKey(hash) -> { limit, usage, disabled }, flag(cause, severity, person, detail) -> wroteNew }
-import { computeLimit } from './limit-rule.mjs';
+import { limitFromRows } from './limit-rule.mjs';
 
 export const NEAR_CAP_SHARE = 0.8;   // DEFAULT: a key this close to its limit is flagged so Lilly can top it up
 const CENT = 0.01;
 
 // THIS SECTION IS FOR: one person. Returns the causes found, for the report and the tests.
 export function compare(p, key) {
-  const rows = (p.rows || []).map((r) => ({ id: r.id, reason: r.reason, amount: Number(r.amount) }));
-  const spend = rows.filter((r) => r.reason === 'spend').reduce((s, r) => s + r.amount, 0);
-  const expected = computeLimit(rows.filter((r) => r.reason !== 'spend'), spend);
+  const { limit: expected, usage: spend } = limitFromRows(p.rows);
   const found = [];
   if (p.disabled) {
     if (!key.disabled) found.push({ cause: 'revoked_key_live', severity: 'high', detail: { note: 'pass revoked, key still enabled' } });

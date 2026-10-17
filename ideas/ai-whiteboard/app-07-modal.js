@@ -56,9 +56,11 @@
     if (hintTimer || PROVIDER !== 'toolbox' || ask.value) return;
     if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) { ask.setAttribute('placeholder', HINTS[0]); return; }
     hintT0 = Date.now();
+    var shown = null;
     hintTimer = setInterval(function () {
       if (ask.value || !panel.classList.contains('open')) { stopHints(); return; }
-      ask.setAttribute('placeholder', hintAt(HINTS, Date.now() - hintT0) || ' ');
+      var s = hintAt(HINTS, Date.now() - hintT0) || ' ';
+      if (s !== shown) { shown = s; ask.setAttribute('placeholder', s); }
     }, 50);
   }
   ask.addEventListener('pointerdown', stopHints);
@@ -108,12 +110,15 @@
     replaceBtn.textContent = 'Replace ' + (p.noun || 'key');
     if (managed && p.balance) showBalance(PROVIDER);
   }
-  /* the toolbox's balance, read through the one browser door (my_balance) */
+  /* the toolbox's balance, read through the one browser door (my_balance); a newer read cancels an older one */
+  var balanceAc = null;
   function showBalance(id) {
-    providers[id].balance(getKey(id)).then(function (v) {
+    if (balanceAc) balanceAc.abort();
+    var ac = balanceAc = new AbortController();
+    providers[id].balance(getKey(id), ac.signal).then(function (v) {
       if (!modalOpen || PROVIDER !== id || replacing) return;
       setState(v == null ? "That key didn't work." : 'Balance: $' + Number(v).toFixed(2));
-    }, function () { if (modalOpen && PROVIDER === id) setState("Couldn't read the balance right now."); });
+    }, function () { if (!ac.signal.aborted && modalOpen && PROVIDER === id) setState("Couldn't read the balance right now."); });
   }
   function openModal(o) {
     o = o || {};
@@ -125,6 +130,7 @@
   function closeModal() {
     if (!modalOpen) return;
     if (checking) { checking.abort(); checking = null; }
+    if (balanceAc) { balanceAc.abort(); balanceAc = null; }
     modalOpen = false; scrim.hidden = true; dock.inert = false;
     keyIn.value = ''; setReveal(false); setState('');
     (modalOpener || magic).focus();
