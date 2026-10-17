@@ -386,6 +386,7 @@
 <script src="auth.js"></script>
 <script src="team.js"></script>
 <script src="templates.js"></script>
+<script src="note-resize.js"></script>
 <script>
 (function () {
   'use strict';
@@ -868,6 +869,7 @@
     return out;
   }
   function fitNote(el) {
+    if (el.sized) return;
     var s = NOTE;
     while (s < 280 && wrap(el.text, s - 16, FONT).length * 20 > s - 16) s += 20;
     el.w = el.h = s;
@@ -1083,6 +1085,7 @@
     g.strokeRect(x - 5.5, y - 5.5, b.w * z + 11, b.h * z + 11);
     g.setLineDash([]); g.fillStyle = '#fff';
     handles(el).forEach(function (h) { var hp = toScreen(h.x, h.y); g.fillRect(hp.x - 4.5, hp.y - 4.5, 9, 9); g.strokeRect(hp.x - 4.5, hp.y - 4.5, 9, 9); });
+    if (el.type === 'note' && window.NoteResize) NoteResize.paint(g, el, toScreen);
     g.restore();
   }
   function draw() {
@@ -1488,6 +1491,11 @@
   }
   cv.addEventListener('pointerup', up);
   cv.addEventListener('pointercancel', up);
+  if (window.NoteResize) NoteResize.init({
+    cv: cv, getSel: selEl, getView: function () { return view; }, toScreen: toScreen,
+    canResize: function () { return tool === 'move' && !editing && !drag && !pinch; },
+    snap: snap, popUndo: function () { undoStack.pop(); syncUndo(); }, save: save, draw: draw
+  });
 
   /* ctrl+wheel and trackpad pinch zoom around the pointer; plain wheel is left alone. preventDefault stops browser page zoom */
   window.addEventListener('wheel', function (e) {
