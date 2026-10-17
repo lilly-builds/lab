@@ -1,8 +1,8 @@
 /* node ideas/ai-whiteboard/app-helpers.test.js
-   Runs the APP-PURE block of index.html. cleanReply needs no DOM; the sanitizer tests need
+   Runs the APP-PURE block of app-02-state.js. cleanReply needs no DOM; the sanitizer tests need
    jsdom or linkedom (npm i jsdom) and are skipped with a notice when neither is installed. */
 const fs = require('fs'), path = require('path'), assert = require('assert');
-const src = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const src = fs.readFileSync(path.join(__dirname, 'app-02-state.js'), 'utf8');
 const m = src.match(/\/\* APP-PURE-BEGIN[^\n]*\n([\s\S]*?)\/\* APP-PURE-END \*\//);
 assert(m, 'APP-PURE block not found');
 const csp = src.match(/var APP_CSP = "([^"]*)"/)[1];

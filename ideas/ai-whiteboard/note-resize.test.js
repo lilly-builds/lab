@@ -121,12 +121,14 @@ t('save round-trip keeps w, h and sized as whole numbers; old notes have no flag
 });
 
 const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-t('index.html wiring: script tag, paint, init hook, fitNote early return', () => {
+const render = fs.readFileSync(path.join(__dirname, 'app-03-render.js'), 'utf8');
+const pointer = fs.readFileSync(path.join(__dirname, 'app-05-pointer.js'), 'utf8');
+t('wiring: script tag, paint, init hook, fitNote early return (index.html + app modules)', () => {
   assert.ok(html.includes('<script src="note-resize.js"></script>'));
-  assert.ok(html.indexOf('note-resize.js') < html.indexOf('NoteResize.init'),'module loads before the app script');
-  assert.ok(/NoteResize\.paint\(g, el, toScreen\)/.test(html));
-  assert.ok(/NoteResize\.init\(\{/.test(html));
-  assert.ok(/function fitNote\(el\) \{\n\s+if \(el\.sized\) return;/.test(html));
+  assert.ok(html.indexOf('note-resize.js') < html.indexOf('src="app-05-pointer.js"'), 'module loads before the app scripts');
+  assert.ok(/NoteResize\.paint\(g, el, toScreen\)/.test(render));
+  assert.ok(/NoteResize\.init\(\{/.test(pointer));
+  assert.ok(/function fitNote\(el\) \{\n\s+if \(el\.sized\) return;/.test(render));
 });
 
 console.log('\n' + (n - failures) + '/' + n + ' passed');
