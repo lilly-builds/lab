@@ -46,7 +46,9 @@ export async function run(deps, input) {
   const text = userText(job, { ask, board });
   const p = { ...stored.pick, models: modelsForAttempt(stored.pick.models, attempt) };
   const gatePick = deps.gatePick(!!picture);
-  const gateMsgs = gateMessages(text, deps.imageMode === 'native' ? picture : null);
+  // The gate reads exactly the text the job model reads. More than it can read is refused here, before any hold.
+  let gateMsgs;
+  try { gateMsgs = gateMessages(text, deps.imageMode === 'native' ? picture : null); } catch (e) { return refuse(413, 'too_big'); }
   const messages = [{ role: 'system', content: system }, { role: 'user', content: userContent(text, picture) }];
   const amount = worstCaseCost(p, messageTokens(messages)) + worstCaseCost(gatePick, messageTokens(gateMsgs));
   const holdId = 'run:' + stored.id + ':' + attempt;

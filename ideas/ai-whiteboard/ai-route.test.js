@@ -211,6 +211,29 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
       const gc = w.calls.filter((c) => /safety check/.test(c.sys)).pop();
       assert.ok(Array.isArray(gc.messages[1].content), 'the gate saw the picture');
     }],
+    ['run: the gate sees every character the job model sees, even at the board size limit', async () => {
+      const { LIMITS } = await import(D + 'route.mjs');
+      const w = world({ balance: 10 });
+      const { body } = await route(w.deps, ask);
+      const board = 'x'.repeat(LIMITS.boardChars - 20) + 'END-MARKER-ZZ';
+      const r = await run(w.deps, runIn(body, { board }));
+      assert.strictEqual(r.status, 200);
+      const gc = w.calls.filter((c) => /safety check/.test(c.sys)).pop();
+      assert.ok(gc.messages[1].content.includes('END-MARKER-ZZ'), 'the end of the board reached the gate');
+      assert.ok(gc.messages[1].content.includes(jobCalls(w)[0].messages[1].content), 'the whole job message is inside the gate message');
+    }],
+    ['route: the gate sees the router\'s whole input, board summary included', async () => {
+      const w = world();
+      await route(w.deps, { ...ask, summary: { recentTexts: ['SUMMARY-MARKER'] } });
+      const gc = w.calls.find((c) => /safety check/.test(c.sys));
+      assert.ok(gc.messages[1].content.includes('SUMMARY-MARKER'));
+    }],
+    ['gate: text longer than the gate can read is refused, never cut short', async () => {
+      const g = await import(D + 'gate.mjs');
+      assert.throws(() => g.gateMessages('y'.repeat(g.GATE_MAX_CHARS + 1)), /too long/);
+      const { LIMITS } = await import(D + 'route.mjs');
+      assert.ok(LIMITS.askChars + LIMITS.boardChars + 200 <= g.GATE_MAX_CHARS, 'every allowed payload fits the gate whole');
+    }],
     ['run: an edit ignores a picture the browser sent', async () => {
       const w = world();
       const { body } = await route(w.deps, ask);

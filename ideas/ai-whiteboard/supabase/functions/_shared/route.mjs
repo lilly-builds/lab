@@ -9,8 +9,9 @@ import { issueTicket, hashAsk } from './ticket.mjs';
 import { withHold, tally, messageTokens } from './billing.mjs';
 
 // THIS SECTION IS FOR: limits. All DEFAULTS Lilly can change (build plan 1.10). Sizes are checked before anything is held or sent.
-// boardChars fits a heavy board (sceneForModel sends every element); imageChars fits the 1400px board picture as base64.
-export const LIMITS = { askChars: 2000, boardChars: 300000, summaryChars: 4000, imageChars: 1500000, perPersonHour: 30, perIpHour: 120 };
+// boardChars fits a few hundred notes (sceneForModel sends every element) and, with the ask, stays under the gate's GATE_MAX_CHARS,
+// so the gate always reads the whole payload. imageChars fits the 1400px board picture as base64.
+export const LIMITS = { askChars: 2000, boardChars: 100000, summaryChars: 4000, imageChars: 1500000, perPersonHour: 30, perIpHour: 120 };
 
 // THIS SECTION IS FOR: the jobs. The router chooses among the ask box's three; the others are named by their button.
 export const NAMED_JOBS = new Set(['draw', 'edit', 'build', 'plan', 'todo']);
@@ -84,9 +85,11 @@ export async function route(deps, input) {
     routerPick = pick('router', {}, { hasImage: false }, person, deps.env, avoid);
   } catch (e) { return refuse(503, 'server'); }
 
-  const gateMsgs = gateMessages(ask);
-  const routerMsgs = [{ role: 'system', content: buildRouteSystem(ROUTER_ROUTES) + ' ' + ROUTER_CLUES },
-    { role: 'user', content: userText('router', { ask, summary }) }];
+  // The gate reads everything a model will read here: the router's whole input (ask and board summary), or just the ask.
+  const routerText = userText('router', { ask, summary });
+  const gateText = useRouter ? routerText : ask;
+  const gateMsgs = gateMessages(gateText);
+  const routerMsgs = [{ role: 'system', content: buildRouteSystem(ROUTER_ROUTES) + ' ' + ROUTER_CLUES }, { role: 'user', content: routerText }];
   const amount = worstCaseCost(gatePick, messageTokens(gateMsgs)) + (useRouter ? worstCaseCost(routerPick, messageTokens(routerMsgs)) : 0);
   const holdId = 'route:' + requestId;
 
@@ -95,7 +98,7 @@ export async function route(deps, input) {
     out = await withHold({ rpc: deps.rpc, person, requestId: holdId, amount }, async (bill) => {
       let n = 0;
       const askModel = (p, job) => async (messages) => tally(bill, await recordedCall(deps, { p, job, messages, person, holdId, n: n++, attempt: 1 }));
-      const g = await runGate(askModel(gatePick, 'gate'), { text: ask, hasImage: false });
+      const g = await runGate(askModel(gatePick, 'gate'), { text: gateText, hasImage: false });
       if (!g.pass) return { gate: g };
       let r = null;
       if (useRouter) {
