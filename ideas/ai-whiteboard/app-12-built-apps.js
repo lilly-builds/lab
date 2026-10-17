@@ -403,7 +403,10 @@
       });
     }
     try {
-      var req = { system: SYSTEM_APP, text: idea, model: model, key: key, signal: ac.signal, maxTokens: 9000, plainText: true, onChunk: g.armIdle };
+      /* job, ask and ticket are for the AI Magic Toolbox: the idea text is what the server checks the ticket against */
+      var req = { system: SYSTEM_APP, text: idea, model: model, key: key, signal: ac.signal, maxTokens: 9000, plainText: true, onChunk: g.armIdle,
+        job: 'build', ask: idea, ticket: buildTickets[id] || null };
+      delete buildTickets[id];
       var reply = null, lastScan = 0;
       for (;;) {
         try {
@@ -431,7 +434,8 @@
           info = classify(ae); logFail(info);
           var st = Number(info.status);
           var again = info.kind === 'network' || (info.kind === 'http' && [429, 500, 502, 503, 504, 529].indexOf(st) >= 0);
-          if (attempt > 1 || !again || ac.signal.aborted) throw ae;
+          /* final: the AI Magic Toolbox already made its second attempt on the server; another try here would be a third, paid ask */
+          if (attempt > 1 || !again || ac.signal.aborted || (ae && ae.final)) throw ae;
           /* one retry of the same request; the storm keeps running */
           var ra = ae && ae.retryAfter > 0 ? Math.min(10, Math.max(2, ae.retryAfter)) : 2;
           g.retrying = true; lastScan = 0;
@@ -448,6 +452,8 @@
       if (!storeApp(cur.appId, out.html)) { outcome = 'storage'; return; }
       cur.title = out.title || firstWords(idea);
       outcome = 'ok';
+      /* next moves for the new app: one cheap follow-up, shown under the ask box; its failure never touches the app */
+      if (PROVIDER === 'toolbox') AIToolbox.nextMoves(key).then(showNext, function () {});
       await whirl.land(id);
     } catch (err) {
       if (g.removed) outcome = 'gone';

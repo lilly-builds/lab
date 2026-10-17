@@ -7,7 +7,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { psqlRpc } from '../supabase/functions/_shared/testing/psql-rpc.mjs';
@@ -24,18 +24,42 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 export async function startDevServer({ port = 0, dbUrl, mockOpts = {}, envOver = {} } = {}) {
   const mock = await startMock({ responder: respond, costFor: realisticCost, ...mockOpts });
   let origin = 'http://localhost:' + port;
+  // Random secrets per run, or fixed ones derived from AI_DEV_SECRET so a local tester pass keeps working across restarts.
+  const seed = process.env.AI_DEV_SECRET;
+  const secret = (name) => (seed ? createHash('sha256').update(seed + ':' + name).digest('hex') : randomBytes(24).toString('hex'));
   const env = {
     AI_ALLOW_PLACEHOLDERS: '1', AI_OPENROUTER_URL: mock.url, AI_OPENROUTER_MASTER_KEY: 'sk-dev-master',
-    AI_TICKET_SECRET: randomBytes(24).toString('hex'), AI_KEY_ENC_SECRET: randomBytes(24).toString('hex'),
-    AI_ADMIN_SECRET: randomBytes(24).toString('hex'), AI_CRON_SECRET: randomBytes(24).toString('hex'), AI_ALLOWED_ORIGINS: origin,
+    AI_TICKET_SECRET: secret('ticket'), AI_KEY_ENC_SECRET: secret('enc'),
+    AI_ADMIN_SECRET: secret('admin'), AI_CRON_SECRET: secret('cron'), AI_ALLOWED_ORIGINS: origin,
     ...envOver
   };
   const deps = makeDeps({ rpc: psqlRpc(dbUrl), env });
   const doors = { route: H.routeHandler(deps), run: H.runHandler(deps), outcome: H.outcomeHandler(deps), admin: H.adminHandler(deps),
     cleanup: H.cleanupHandler(deps), reconcile: H.reconcileHandler(deps) };
 
+  const rpc = psqlRpc(dbUrl);
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    // the browser's one database door, as Supabase's REST API serves it: POST /rest/v1/rpc/my_balance { p_pass }
+    if (req.method === 'POST' && url.pathname === '/rest/v1/rpc/my_balance') {
+      let raw = '';
+      for await (const c of req) { raw += c; if (raw.length > 10000) break; }
+      let pass = '';
+      try { pass = String(JSON.parse(raw).p_pass || ''); } catch (e) { /* empty pass: null balance */ }
+      const r = await rpc('my_balance', { p_pass: pass });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(r.error ? null : r.data));
+    }
+    // dev only: steer the fake model to try failure paths by hand. POST /dev/mock { mode: ok|cutoff|error5xx|unreadable|slow|drop, jobOnly }
+    if (req.method === 'POST' && url.pathname === '/dev/mock') {
+      let raw = '';
+      for await (const c of req) raw += c;
+      const o = JSON.parse(raw || '{}');
+      mock.state.mode = o.mode || 'ok';
+      mock.state.modeFilter = o.jobOnly ? (b) => !/safety check|route requests/.test(b.messages[0].content) : null;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, mode: mock.state.mode }));
+    }
     const m = url.pathname.match(/^\/functions\/v1\/([a-z]+)$/);
     if (m && doors[m[1]]) {
       // node request -> Fetch Request (the same object Deno.serve hands the hosted functions); a closed socket aborts it.
@@ -58,7 +82,7 @@ export async function startDevServer({ port = 0, dbUrl, mockOpts = {}, envOver =
   await new Promise((ok) => server.listen(port, '127.0.0.1', ok));
   const actual = server.address().port;
   origin = 'http://localhost:' + actual;
-  env.AI_ALLOWED_ORIGINS = origin + ',http://127.0.0.1:' + actual;
+  if (!envOver.AI_ALLOWED_ORIGINS) env.AI_ALLOWED_ORIGINS = origin + ',http://127.0.0.1:' + actual;
   return {
     url: origin, deps, mock, env,
     newPass: async (grant, label = 'dev') => (await admin(deps.admin, { action: 'create', label, grant })).body,
@@ -71,7 +95,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
   const dbUrl = process.env.AI_TEST_DATABASE_URL;
   if (!dbUrl) { console.error('set AI_TEST_DATABASE_URL to a scratch database (bash ideas/ai-whiteboard/supabase/tests/scratch.sh makes one)'); process.exit(1); }
-  const s = await startDevServer({ port: Number(arg('--port', 8787)), dbUrl });
+  const envOver = process.env.AI_ORPHAN_WAIT_SECS ? { AI_ORPHAN_WAIT_SECS: process.env.AI_ORPHAN_WAIT_SECS } : {};
+  const s = await startDevServer({ port: Number(arg('--port', 8787)), dbUrl, envOver });
   console.log('board: ' + s.url + '/?toolbox=local');
   if (process.argv.includes('--pass')) {
     const p = await s.newPass(Number(arg('--pass', 5)));

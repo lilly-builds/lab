@@ -38,7 +38,8 @@
   async function answer(orig) {
     var ac = new AbortController(), timer = setTimeout(function () { ac.abort(); }, TIMEOUT_MS);
     try {
-      var reply = await H.complete({ system: SYSTEM, text: 'To-do: ' + String(orig.text || '').slice(0, 600), signal: ac.signal, maxTokens: 300 });
+      var reply = await H.complete({ system: SYSTEM, text: 'To-do: ' + String(orig.text || '').slice(0, 600), signal: ac.signal, maxTokens: 300,
+        job: 'todo', ask: String(orig.text || '').slice(0, 600) });
       var t = clean(reply);
       if (!t) throw new Error('empty answer');
       return t;

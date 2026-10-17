@@ -2,6 +2,14 @@
 // the board expects, so the whole path can be clicked through with no real AI account. Never used by product code.
 import { IDEAMAP_RULE, DREAM_SYSTEM, TODO_SYSTEM, NEXTMOVES_SYSTEM, SYSTEM_EDIT, SYSTEM_APP } from '../supabase/functions/_shared/prompts.mjs';
 
+// A small working app, long enough for the board's app checks (at least 300 characters, a full HTML document).
+const APP = '<!doctype html><html><head><meta charset="utf-8"><title>Tip calculator</title><style>body{font:16px system-ui;margin:24px;min-height:100%}' +
+  'label{display:block;margin:8px 0}input{font:inherit;width:8em}</style></head><body><h1>Tip calculator</h1>' +
+  '<label>Bill <input id="b" type="number" value="20"></label><label>Tip % <input id="p" type="number" value="18"></label><p id="o"></p>' +
+  '<script>function u(){var b=+document.getElementById("b").value||0,p=+document.getElementById("p").value||0;' +
+  'document.getElementById("o").textContent="Tip: $"+(b*p/100).toFixed(2)+"  Total: $"+(b*(1+p/100)).toFixed(2)}' +
+  'document.addEventListener("input",u);u()</script></body></html>';
+
 const textOf = (content) => (typeof content === 'string' ? content : (content.find((p) => p.type === 'text') || {}).text || '');
 function boardOf(user) {
   const i = user.indexOf('Board JSON:\n');
@@ -44,7 +52,7 @@ export function respond(body) {
   if (sys.startsWith(DREAM_SYSTEM)) return JSON.stringify({ goal: 'Open a small corner bakery', milestones: ['Write the menu', 'Find a space', 'Bake a test batch'], firstAction: 'List five favorite pastries' });
   if (sys.startsWith(TODO_SYSTEM)) return 'Start with the smallest piece: set a 10 minute timer and do just the first step.';
   if (sys.startsWith(NEXTMOVES_SYSTEM)) return JSON.stringify({ next: ['Add a dark mode', 'Save the last result'] });
-  if (sys.startsWith(SYSTEM_APP)) return '<!doctype html><html><head><title>Tip calculator</title></head><body><h1>Tip calculator</h1><p>It works.</p></body></html>';
+  if (sys.startsWith(SYSTEM_APP)) return APP;
   if (sys.startsWith(SYSTEM_EDIT)) return JSON.stringify({ say: 'Tidied up.', ops: [] });
   const board = boardOf(user), r = room(board), ask = askOf(user).slice(0, 40);
   if (sys.includes(IDEAMAP_RULE)) {

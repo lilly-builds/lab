@@ -75,8 +75,9 @@ const ev = (code, args) => new Function(...(args || []), code);
     }],
     ['the browser sends those same shapes (draw and edit put the board after "Board JSON:")', () => {
       const routeSrc = fs.readFileSync(path.join(__dirname, 'app-09-route.js'), 'utf8');
-      assert.ok(routeSrc.includes("var text = c.text + '\\n\\nBoard JSON:\\n' + JSON.stringify(sceneForModel());"));
-      assert.ok(routeSrc.includes("text: c.text + '\\n\\nBoard JSON:\\n' + JSON.stringify(scene)"));
+      assert.ok(routeSrc.includes("var board = JSON.stringify(sceneForModel()), text = c.text + '\\n\\nBoard JSON:\\n' + board;"));
+      assert.ok(routeSrc.includes("var board = JSON.stringify(scene);") && routeSrc.includes("text: c.text + '\\n\\nBoard JSON:\\n' + board"));
+      assert.ok(routeSrc.includes('ask: c.text, board: board'), 'the toolbox gets the same ask and board the legacy text is built from');
       assert.ok(routeSrc.includes('text: JSON.stringify({ request: text, board: boardSummary() })'));
     }],
     ['every server job has a system prompt; the idea map is the draw prompt plus its rule; next moves can be switched off', () => {

@@ -69,7 +69,10 @@ export async function startMock(opts = {}) {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       if (mode === 'unreadable') { res.write('data: {not json\n\n'); return res.end(); }
       const parts = mode === 'cutoff' ? chunks.slice(0, 1) : chunks;
-      for (const c of parts) { sse(res, { id, model, choices: [{ delta: { content: c } }] }); if (mode === 'slow') await new Promise((r) => setTimeout(r, 30)); }
+      // slow: 30ms between pieces; stall: 3s between pieces (long enough to press Stop by hand). Pieces after a hang-up go nowhere.
+      const gap = mode === 'stall' ? 3000 : mode === 'slow' ? 30 : 0;
+      for (const c of parts) { if (res.destroyed) break; sse(res, { id, model, choices: [{ delta: { content: c } }] }); if (gap) await new Promise((r) => setTimeout(r, gap)); }
+      if (res.destroyed) { charge(); return; } // the caller hung up: what was generated is still charged, as on OpenRouter
       if (mode === 'cutoff') { charge(); await new Promise((r) => setTimeout(r, 40)); return res.socket.destroy(); } // cut-off answers are charged
       charge();
       sse(res, { id, model, choices: [{ delta: {} }], usage: { cost } });
