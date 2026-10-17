@@ -1,7 +1,7 @@
 /* node ideas/ai-whiteboard/route-edit.test.js
-   Runs the ROUTE-PURE and EDIT-PURE blocks of index.html: classifier-reply parser and edit-op validator. */
+   Runs the ROUTE-PURE and EDIT-PURE blocks of app-09-route.js: classifier-reply parser and edit-op validator. */
 const fs = require('fs'), path = require('path'), assert = require('assert');
-const src = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const src = fs.readFileSync(path.join(__dirname, 'app-09-route.js'), 'utf8');
 const block = (name) => { const m = src.match(new RegExp('/\\* ' + name + '-PURE-BEGIN[^\\n]*\\n([\\s\\S]*?)/\\* ' + name + '-PURE-END \\*/')); assert(m, name + ' block not found'); return m[1]; };
 const lib = new Function(block('ROUTE') + block('EDIT') + '; return { parseRoute, needsAsk, buildRouteSystem, validateEditOps, needsDeleteConfirm };')();
 
