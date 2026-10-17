@@ -1,6 +1,6 @@
-/* node ideas/ai-whiteboard/test-isimageurl.js : runs isImageUrl exactly as it appears in index.html */
+/* node ideas/ai-whiteboard/test-isimageurl.js : runs isImageUrl exactly as it appears in app-11-embeds.js */
 const fs = require('fs'), path = require('path'), assert = require('assert');
-const src = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const src = fs.readFileSync(path.join(__dirname, 'app-11-embeds.js'), 'utf8');
 const m = /\/\* isImageUrl:start \*\/([\s\S]*?)\/\* isImageUrl:end \*\//.exec(src);
 assert(m, 'isImageUrl block not found');
 const isImageUrl = new Function(m[1] + '; return isImageUrl;')();
