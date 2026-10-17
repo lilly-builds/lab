@@ -1,5 +1,6 @@
 /* node ideas/ai-whiteboard/ai-prompts.test.js
-   Server prompt templates must equal the browser's (index.html) while both copies exist. Reads index.html, runs no browser. */
+   Server prompt templates must equal the browser's while both copies exist. Reads the app-*.js modules
+   (app-01-providers.js: edit and app prompts; app-02-state.js: draw prompt; app-09-route.js: router prompt). Runs no browser. */
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -9,7 +10,8 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
   () => console.log('ok  ' + name),
   (e) => { failures++; console.log('FAIL  ' + name + '  -> ' + (e && e.message)); }); };
 
-const src = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const src = ['app-01-providers.js', 'app-02-state.js', 'app-09-route.js']
+  .map((f) => fs.readFileSync(path.join(__dirname, f), 'utf8')).join('\n');
 const between = (a, b, includeB) => {
   const i = src.indexOf(a); assert.ok(i >= 0, 'start marker not found: ' + a);
   const j = src.indexOf(b, i); assert.ok(j >= 0, 'end marker not found: ' + b);

@@ -300,8 +300,12 @@ const tests = [
   ['migration: anon insert is published-only, capped, idempotent, and leaves sync policies alone', async () => {
     const { dir, file, sql } = migration();
     assert(file && /^\d{12}_/.test(file), 'timestamp-prefixed file');
+    // Applies after every other migration that touches public.templates, so nothing later can undo its policies.
+    // Migrations for other tables (the AI toolbox's, for one) may sort after it.
     const all = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
-    assert.strictEqual(all[all.length - 1], file, 'applies last, after the policies it builds on');
+    const touching = all.filter((f) => f !== file && /public\.templates\b/.test(fs.readFileSync(path.join(dir, f), 'utf8')));
+    assert(touching.length >= 2, 'found the migrations it builds on');
+    assert(touching.every((f) => f < file), 'applies after the policies it builds on: ' + touching.filter((f) => f > file).join(', '));
     assert(/drop policy if exists templates_anon_publish/.test(sql) && /create policy templates_anon_publish[\s\S]*for insert to anon/.test(sql));
     assert(/status = 'published'[\s\S]*author_user_id is null[\s\S]*is_sample = false/.test(sql), 'no attribution, never a sample');
     const grant = sql.match(/grant insert \(([^)]*)\)\s+on public\.templates to anon/);
