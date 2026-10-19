@@ -96,6 +96,10 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
       assert.deepStrictEqual([a1.done.status, a1.done.reason, a1.done.canRetry], [502, 'cut_off', true]);
       const held = await psqlRows(DB, "select state from public.ai_holds where request_id = 'run:" + tid + ":1'");
       assert.deepStrictEqual(held.map((h) => h.state), ['open'], 'the cut-off cost is not known yet, so the hold stays');
+      // This cut-off is staged, not a model failing: age its usage row out of the model-health window (one day), or ten runs on one
+      // scratch database would take the plan model out of use and attempt 2 could no longer move to a different model.
+      require('child_process').execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-c',
+        "update public.ai_usage set created_at = now() - interval '2 days' where hold_id = 'run:" + tid + ":1' and job = 'plan'"]);
       const a2 = await runStream({ ticket: r.ticket, ask: 'a dream plan' }, tester);
       assert.deepStrictEqual([a2.done.status, a2.done.attempt], [200, 2]);
       const jobModels = s.mock.state.calls.slice(-4).filter((c) => !/safety check/.test(c.messages[0].content)).map((c) => c.models[0]);

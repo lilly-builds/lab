@@ -65,6 +65,9 @@ export async function startDevServer({ port = 0, dbUrl, mockOpts = {}, envOver =
       // node request -> Fetch Request (the same object Deno.serve hands the hosted functions); a closed socket aborts it.
       const ac = new AbortController();
       res.on('close', () => { if (!res.writableFinished) ac.abort(); });
+      // A door can answer before reading the whole body (413 on a declared size). The rest of the upload is then read and thrown
+      // away; left unread, the sender stalls mid-upload and its connection can break the next request (a flaky ai-outcome run).
+      res.on('finish', () => { if (!req.complete) { req.removeAllListeners('data'); req.resume(); } });
       const hasBody = req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
       const request = new Request(origin + req.url, { method: req.method, headers: req.headers, body: hasBody ? Readable.toWeb(req) : undefined, duplex: 'half', signal: ac.signal });
       const response = await doors[m[1]](request);
