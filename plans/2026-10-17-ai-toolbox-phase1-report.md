@@ -46,3 +46,54 @@ Nothing has touched the hosted Supabase project, a real OpenRouter key, or Strip
 - Defaults from the plan still stand: first ask means first ask ever; 5 gate blocks in a day pause a person; 30 asks an hour per person,
   120 per address; a model failing over 10% of its last 50 calls is skipped; an unpriced hold is flagged after 10 minutes; a day's spend
   over $10 is flagged; one grant is capped at $50.
+- Added after the code review: a call the person stops is recorded as `cancelled`. It is billed like a cut-off (the hold waits for
+  cleanup to price it) but never counts as a model failure, and the model-failure count only looks at the past day, so a skipped model
+  comes back. An attempt whose hold is refused (out of credit, paused) made no call and is given back, so the retry is still there once
+  the money is. The safety gate wraps each request in markers with a random tag made fresh on every call.
+
+## Code review (2026-10-19)
+
+Ten reviewers read the branch at `a0465e1`: correctness, security, testing, maintainability, project standards, performance, data
+migration, reliability, frontend races, and an adversarial pass. The Codex second-model pass ran but returned nothing usable (it went
+quiet for 8 minutes and was stopped), so the adversarial pass ran on Claude instead. An independent checker confirmed all 9 findings it
+was given. Verdict at `a0465e1`: ready with fixes. Every finding below is fixed on this branch, each with a test that failed first.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 (P1) | A safety-gate block at `/run` (board text, pictures) was never recorded, so it never counted toward the 5-a-day pause | `/run` records it the same way `/route` does (one shared helper) |
+| 2 | Two answers that both stopped early showed "That pass didn't work." for a good pass | They now read as a cut-off; no refusal other than a bad pass reaches the board as one |
+| 3 | A connection that dropped mid-answer skipped the second attempt in the ask box and Dream plan | It counts as a cut-off and gets attempt 2; Stop still stops |
+| 5 | A build's suggestions could land after a newer ask and replace its suggestions | Suggestions that finish after a newer ask started are dropped (also clicked through in the browser) |
+| 6 | The Have-to loop asked again after the toolbox had already used both attempts (a third paid ask, a second gate block) | It stops on a final error |
+| 8 | A call stopped before it was sent was recorded as unknown, kept its hold and raised a high flag | It is never sent and costs nothing |
+| 11 | Every Stop counted as a model failure, so a few Stops could take a model out of use for everyone, for good | See "Added after the code review" above |
+| 12 | The admin tool refused amounts like $1.10 | Whole cents are accepted |
+| 15 | After a cut-off, a near-empty balance refused attempt 2 and burned it | The refused attempt is given back |
+
+Also fixed from the reviewers' notes: the safety gate's fixed markers could be closed by request text (now a random tag per call); the
+model allowlist was read off disk, which a deployed function may not carry (now an imported module); the key limit was figured from at
+most 1000 ledger rows, the hosted API's row cap (now one value, tested with 1100 rows); one failing hold stopped the whole cleanup run
+(now it stays open for the next run); a flaky end-to-end test (the local dev server left an oversized upload unread, which broke the next
+request about once in a hundred; reproduced 3 times in 300, then 0 in 300 after the fix); and the end-to-end test's staged cut-off no
+longer counts against the model's health, so many runs on one scratch database stay green (14 in a row after the fix).
+
+A second reviewer read the fixes themselves and found two more, both fixed with tests that failed first: when two builds overlapped, one
+could run the other's suggestion ticket (each build now runs its own, once, and a build that lands last is the newest answer); and the
+Have-to fix had also dropped the one quiet retry after a server hiccup (it is back). Its second read: ship.
+
+Verified locally on 2026-10-19: 31 test suites green with and without the scratch database (three full runs with it), the SQL policy
+suite 191/191, `deno check` on the six functions, and a browser click-through on the local stack (a dead pass gets "That pass didn't
+work." and keeps the ask; a new pass's first ask lands as an idea map; a build's late suggestions are dropped when a newer ask started,
+and shown when none did).
+
+Left for Lilly (not changed):
+
+- The board accepts `?toolbox=on` in its address to turn the toolbox on for one visit, without the switch. No AI runs without a tester
+  pass. Keep it as a testing door, limit it to this computer, or remove it.
+- One grant over $50 is refused with the same message as a typo. Keep, raise or drop the cap.
+- A note dragged into "Have to do" is an ask too: it counts toward the hourly limit and the 5-a-day blocks, and it can be the person's
+  first ask, which then never becomes an idea map.
+- Phase 0 has to check, on the host: that a closed tab really stops the call on the server (the Stop button depends on it), the
+  `cf-connecting-ip` header, whether a model's thinking phase trips the board's 60-second wait, and how a cut-short answer is marked.
+- Smaller, logged in the review: no time limit on outside calls (a hung call ends at the platform's limit, and its hold is kept and
+  flagged), the ledger allows TRUNCATE by the service role, and the "one waiting key-limit retry" rule has no index behind it.

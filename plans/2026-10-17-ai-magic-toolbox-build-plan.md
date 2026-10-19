@@ -144,7 +144,7 @@ Server steps first (they don't touch the board and can proceed during the freeze
 - Real path: used by step 1.8's limit setter and step 1.12's reconciler; their tests assert the same numbers.
 
 **1.4 Rulebook (pure) and model allowlist**
-- Files: new `_shared/rulebook.mjs` and `_shared/allowlist.json`; `ai-rulebook.test.js`.
+- Files: new `_shared/rulebook.mjs` and `_shared/allowlist.mjs` (a module, so the deployed bundle carries it); `ai-rulebook.test.js`.
 - `pick(job, clues, payload, person)` returns `{ models, effort, answerBudget, thinkingBudget, sort, temperature, maxPrice }`. Table-driven. Fixed rows: router, gate, plan, todo, nextmoves.
   Pictures only pick image-capable models. Final values come from step 0.5. The code can be built before that with an allowlist marked `"status": "placeholder"`;
   `pick()` throws on a placeholder list unless `AI_ALLOW_PLACEHOLDERS=1` is set (local and mock only), so `/route` can't run live on guesses. A test covers the guard.
