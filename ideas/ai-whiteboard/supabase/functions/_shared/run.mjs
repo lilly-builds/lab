@@ -1,10 +1,10 @@
 // THIS FILE IS FOR: /run (build plan 1.11). Takes a ticket, gates the whole payload, holds money, calls the stored pick, settles to real cost.
 // Everything outside is injected (deps), as in route.mjs. Answer text streams out through onDelta; the result carries the whole reply.
 import { authenticate } from './auth.mjs';
-import { LedgerError, takeAttempt, takeChild } from './ledger.mjs';
+import { LedgerError, takeAttempt, takeChild, giveBackAttempt } from './ledger.mjs';
 import { worstCaseCost } from './rulebook.mjs';
 import { systemFor, userText, IMAGE_JOBS } from './prompts.mjs';
-import { runGate, gateMessages } from './gate.mjs';
+import { runGate, gateMessages, noteBlock } from './gate.mjs';
 import { userContent } from './openrouter.mjs';
 import { verifyTicket, issueTicket, hashAsk, MAX_ATTEMPTS } from './ticket.mjs';
 import { withHold, tally, messageTokens } from './billing.mjs';
@@ -63,11 +63,21 @@ export async function run(deps, input) {
       return { gate: g, r };
     });
   } catch (e) {
-    if (e instanceof LedgerError) return refuse(e.code === 'insufficient' ? 402 : e.code === 'paused' ? 403 : 503, e.code);
-    return refuse(503, 'server');
+    if (!(e instanceof LedgerError)) return refuse(503, 'server');
+    // Out of credit or paused can only come from placing the hold, so no call was made: the attempt goes back, and the retry is
+    // still there once the money is (a cut-off attempt 1 keeps its hold until cleanup prices it). If the give-back itself fails,
+    // the refusal stands and the person can send the ask again for a fresh ticket.
+    if (e.code === 'insufficient' || e.code === 'paused') {
+      try { await giveBackAttempt(deps.rpc, stored.id, person, attempt); } catch (ge) { /* the refusal below is the answer either way */ }
+    }
+    return refuse(e.code === 'insufficient' ? 402 : e.code === 'paused' ? 403 : 503, e.code);
   }
 
-  if (!out.gate.pass) return refuse(out.gate.kind === 'server' ? 503 : 422, out.gate.kind === 'server' ? 'server' : 'blocked');
+  if (!out.gate.pass) {
+    if (out.gate.kind === 'server') return refuse(503, 'server'); // the gate failed; not an accusation
+    await noteBlock(deps, person, deps.now());
+    return refuse(422, 'blocked');
+  }
   const ok = out.r.outcome === 'ok';
   const body = { ok, job, text: ok ? out.r.text : '', attempt, canRetry: !ok && attempt < MAX_ATTEMPTS, reason: ok ? null : out.r.outcome };
 

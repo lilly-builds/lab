@@ -33,5 +33,8 @@ export const adjust = (rpc, person, amount, note, idemKey = null) =>
 // Returns the attempt number taken (1 or 2), or null when refused (expired, wrong person, or both attempts used).
 export const takeAttempt = (rpc, ticketId, person) =>
   call(rpc, 'ticket_take_attempt', { p_ticket: ticketId, p_person: person });
+// A refused hold made no call: the attempt goes back. Returns true when it did.
+export const giveBackAttempt = (rpc, ticketId, person, attempt) =>
+  call(rpc, 'ticket_give_back_attempt', { p_ticket: ticketId, p_person: person, p_attempt: attempt });
 export const takeChild = (rpc, ticketId, person) =>
   call(rpc, 'ticket_take_child', { p_ticket: ticketId, p_person: person });

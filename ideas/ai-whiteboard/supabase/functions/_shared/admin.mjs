@@ -11,7 +11,8 @@ export const MAX_GRANT = 50;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const refuse = (status, reason) => ({ status, body: { ok: false, reason } });
-const money = (v) => typeof v === 'number' && isFinite(v) && v > 0 && v <= MAX_GRANT && Math.round(v * 100) === v * 100;
+// Whole cents only. 1.10 * 100 is 110.00000000000001 in floating point, so "whole" means within a millionth of a cent.
+const money = (v) => typeof v === 'number' && isFinite(v) && v > 0 && v <= MAX_GRANT && Math.abs(v * 100 - Math.round(v * 100)) < 1e-6;
 
 export async function admin(deps, input) {
   const a = input || {};

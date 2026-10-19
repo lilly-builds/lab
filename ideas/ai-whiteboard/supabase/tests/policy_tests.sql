@@ -627,6 +627,16 @@ select pg_temp.ok('attempt 1 and 2 succeed in order',
 select pg_temp.ok('attempt 3 is refused', public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') is null);
 select pg_temp.ok('wrong person is refused', public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000001') is null);
 select pg_temp.ok('an expired ticket is refused', public.ticket_take_attempt('t2', 'aaaaaaaa-0000-0000-0000-000000000002') is null);
+select pg_temp.ok('only the newest attempt can be given back',
+  not public.ticket_give_back_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002', 1));
+select pg_temp.ok('another person cannot give an attempt back',
+  not public.ticket_give_back_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000001', 2));
+select pg_temp.ok('a refused hold gives its attempt back', public.ticket_give_back_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002', 2));
+select pg_temp.ok('the same attempt is not given back twice',
+  not public.ticket_give_back_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002', 2));
+select pg_temp.ok('a given-back attempt can be taken again, and only once',
+  public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') = 2);
+select pg_temp.ok('after that the ticket is spent', public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') is null);
 select pg_temp.ok('the child slot is won once',
   public.ticket_take_child('t1', 'aaaaaaaa-0000-0000-0000-000000000002')
   and not public.ticket_take_child('t1', 'aaaaaaaa-0000-0000-0000-000000000002'));
@@ -673,6 +683,16 @@ select pg_temp.ok('model failures count only finished job calls',
   (select failures from public.ai_model_failures(50) where model = 'm/a') = 1
   and (select failures from public.ai_model_failures(50) where model = 'm/b') = 0
   and not exists (select 1 from public.ai_model_failures(50) where model = 'm/gate'));
+select public.ai_usage_start('u-3', 'h-x', 'aaaaaaaa-0000-0000-0000-000000000002', 'draw', 1);
+select public.ai_usage_finish('u-3', 'g-3', 'm/b', 500, null, 'cancelled');
+select pg_temp.ok('a call the person cancelled says nothing about the model''s health',
+  (select calls from public.ai_model_failures(50) where model = 'm/b') = 1
+  and (select failures from public.ai_model_failures(50) where model = 'm/b') = 0);
+select public.ai_usage_start('u-4', 'h-x', 'aaaaaaaa-0000-0000-0000-000000000002', 'draw', 1);
+select public.ai_usage_finish('u-4', 'g-4', 'm/old', 500, 0.001, 'cut_off');
+update public.ai_usage set created_at = now() - interval '2 days' where request_id = 'u-4';
+select pg_temp.ok('failures older than a day age out, so a model the router stopped picking can come back',
+  not exists (select 1 from public.ai_model_failures(50) where model = 'm/old'));
 select pg_temp.ok('usage rows hold no text column',
   not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'ai_usage'
               and column_name ~ '(prompt|text|answer|reply|content|message)'));

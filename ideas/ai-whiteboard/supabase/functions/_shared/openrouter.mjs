@@ -36,12 +36,16 @@ function scrub(msg, secrets) {
 }
 
 // THIS SECTION IS FOR: one call. Returns { outcome, text, cost, generationId, model, error? }.
-// outcome: ok | error_before_start | cut_off | unreadable | unknown. error_before_start was not charged; unknown needs a flag.
+// outcome: ok | error_before_start | cut_off | unreadable | unknown | cancelled. error_before_start was not charged; unknown needs a flag.
+// cancelled: the person stopped it after it was sent. It may still cost something, so it is billed like a cut-off (the hold waits
+// for cleanup when the cost is unknown), but it says nothing about the model's health (ai_model_failures leaves it out).
 // onStart(generationId) fires once, when the first chunk names the generation (the cleanup job's lookup key if the call dies later).
 // onDelta(text) fires for each piece of answer text. A hook that throws is ignored: it must never change what the call cost.
 export async function callOpenRouter({ baseUrl, apiKey, body, fetchImpl = fetch, signal, onStart, onDelta }) {
   const secrets = [apiKey];
   const safe = (fn, v) => { if (typeof fn === 'function') { try { fn(v); } catch (e) { /* a hook never breaks billing */ } } };
+  const stopped = () => !!(signal && signal.aborted);
+  if (stopped()) return { outcome: 'error_before_start', text: '', cost: 0, generationId: null, error: 'cancelled before it was sent' };
   let res;
   try {
     res = await fetchImpl(baseUrl + '/chat/completions', {
@@ -50,7 +54,7 @@ export async function callOpenRouter({ baseUrl, apiKey, body, fetchImpl = fetch,
       body: JSON.stringify(body)
     });
   } catch (e) {
-    return { outcome: 'unknown', text: '', cost: null, generationId: null, error: scrub(e && e.message, secrets) };
+    return { outcome: stopped() ? 'cancelled' : 'unknown', text: '', cost: null, generationId: null, error: scrub(e && e.message, secrets) };
   }
   if (!res.ok) return { outcome: 'error_before_start', text: '', cost: 0, generationId: null, error: 'status ' + res.status };
 
@@ -91,9 +95,10 @@ export async function callOpenRouter({ baseUrl, apiKey, body, fetchImpl = fetch,
     }
     if (buf.trim()) eat(buf.trim());
   } catch (e) {
-    return { outcome: generationId ? 'cut_off' : 'unknown', text, cost, generationId, model, error: scrub(e && e.message, secrets) };
+    const outcome = stopped() ? 'cancelled' : generationId ? 'cut_off' : 'unknown';
+    return { outcome, text, cost, generationId, model, error: scrub(e && e.message, secrets) };
   }
   if (bad && !text) return { outcome: 'unreadable', text, cost, generationId, model };
-  if (!done) return { outcome: generationId ? 'cut_off' : 'unknown', text, cost, generationId, model };
+  if (!done) return { outcome: stopped() ? 'cancelled' : generationId ? 'cut_off' : 'unknown', text, cost, generationId, model };
   return { outcome: 'ok', text, cost, generationId, model };
 }

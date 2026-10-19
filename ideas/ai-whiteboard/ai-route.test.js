@@ -274,6 +274,20 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
       const r3 = await run(w.deps, runIn(body));
       assert.deepStrictEqual([r3.status, r3.body.reason], [403, 'no_attempts_left']);
     }],
+    ['run: a refused hold gives the attempt back, so the retry is still there once the money is', async () => {
+      const w = world({ script: { job: [{ outcome: 'cut_off', text: 'par', cost: null, generationId: 'g1' }, { outcome: 'ok', text: 'done', cost: 0.002 }] } });
+      const { body } = await route(w.deps, ask);
+      const r1 = await run(w.deps, runIn(body)); // cut off with no cost: attempt 1's hold waits for cleanup
+      assert.strictEqual(r1.body.reason, 'cut_off');
+      const was = w.led.s.balance;
+      w.led.s.balance = [...w.led.s.holds.values()].reduce((t, h) => t + h, 0); // everything left is held by attempt 1
+      const r2 = await run(w.deps, runIn(body));
+      assert.deepStrictEqual([r2.status, r2.body.reason], [402, 'insufficient']);
+      assert.strictEqual(jobCalls(w).length, 1, 'no call was made on the refused attempt');
+      w.led.s.balance = was; // cleanup priced attempt 1, or Lilly granted more
+      const r3 = await run(w.deps, runIn(body));
+      assert.deepStrictEqual([r3.status, r3.body.attempt, r3.body.text], [200, 2, 'done']);
+    }],
     ['run: an error before the call started costs nothing and the hold is released', async () => {
       const w = world({ script: { job: [{ outcome: 'error_before_start', text: '', cost: 0 }] } });
       const { body } = await route(w.deps, ask);
@@ -291,6 +305,14 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
       assert.strictEqual(open.length, 1);
       assert.ok([...w.usage.values()].some((u) => u.holdId === open[0] && u.outcome === 'unknown'));
     }],
+    ['run: a call the person cancelled keeps its hold for cleanup to price, like a cut-off', async () => {
+      const w = world({ script: { job: [{ outcome: 'cancelled', text: 'par', cost: null, generationId: 'g-c', model: 'm/job' }] } });
+      const { body } = await route(w.deps, ask);
+      await run(w.deps, runIn(body));
+      const open = [...w.led.s.holds.keys()].filter((k) => k.startsWith('run:'));
+      assert.strictEqual(open.length, 1, 'money is never quietly released');
+      assert.ok([...w.usage.values()].some((u) => u.holdId === open[0] && u.outcome === 'cancelled' && u.generationId === 'g-c'));
+    }],
     ['run: a blocked payload never reaches the job model', async () => {
       const w = world();
       const { body } = await route(w.deps, ask);
@@ -299,6 +321,23 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
       const r = await run(w.deps, runIn(body));
       assert.strictEqual(r.body.reason, 'blocked');
       assert.strictEqual(jobCalls(w).length, 0);
+    }],
+    ['run: a block at /run (board text or picture) is recorded, and five in a day pause the person', async () => {
+      const w = world({ blockTimes: [999, 998, 997, 996] });
+      const { body } = await route(w.deps, ask);
+      w.deps.call = async (p, m) => ({ outcome: 'ok', text: /safety check/.test(m[0].content) ? '{"ok":false}' : 'x', cost: 0 });
+      const r = await run(w.deps, runIn(body));
+      assert.deepStrictEqual([r.status, r.body.reason], [422, 'blocked']);
+      assert.strictEqual(w.blocks.length, 1, 'the block was recorded');
+      assert.deepStrictEqual(w.paused, ['u1']);
+    }],
+    ['run: a broken gate at /run is a server problem and records no block', async () => {
+      const w = world();
+      const { body } = await route(w.deps, ask);
+      w.deps.call = async (p, m) => ({ outcome: 'ok', text: /safety check/.test(m[0].content) ? 'garbage' : 'x', cost: 0 });
+      const r = await run(w.deps, runIn(body));
+      assert.deepStrictEqual([r.status, r.body.reason], [503, 'server']);
+      assert.deepStrictEqual([w.blocks.length, w.paused.length], [0, 0]);
     }],
     ['run: a finished build hands back one next-moves ticket that runs once', async () => {
       const w = world({ script: { job: [{ outcome: 'ok', text: '<html></html>', cost: 0.01 }, { outcome: 'ok', text: '{"next":["add a dark mode"]}', cost: 0.0005 }] } });

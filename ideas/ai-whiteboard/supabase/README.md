@@ -52,7 +52,7 @@ Every AI ask goes through six Edge Functions (`functions/route`, `run`, `outcome
 
 Turning it on is Lilly's, in this order. Nothing here has been run against the hosted project.
 
-1. Phase 0 first: the model allowlist (`functions/_shared/allowlist.json`) is a placeholder and the functions refuse to run on it.
+1. Phase 0 first: the model allowlist (`functions/_shared/allowlist.mjs`) is a placeholder and the functions refuse to run on it.
    The OpenRouter field names are unverified until the step 0.7 probe passes.
 2. Apply the migrations: `supabase db push`.
 3. Set the function secrets (names only here; values never go in a file):

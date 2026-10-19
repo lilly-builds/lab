@@ -4,6 +4,7 @@
 import { spawn } from 'node:child_process';
 
 const NAME = /^[a-z_][a-z0-9_]*$/;
+export const MAX_ROWS = 1000; // the hosted API's row cap (Supabase "max rows" default), mirrored so tests see what production sees
 
 // THIS SECTION IS FOR: refusing to touch anything that is not a throwaway database.
 export function assertScratchUrl(url) {
@@ -61,7 +62,9 @@ export function psqlRpc(url) {
     });
     const callSql = 'public.' + name + '(' + params.join(', ') + ')';
     // jsonb prints on one line (json_agg breaks lines between rows), so the last output line is the whole answer.
-    const sql = shape === 'set' ? "select coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb) from " + callSql + ' r'
+    // A set is cut at MAX_ROWS, as the hosted API cuts every response (Supabase's max rows, 1000 by default): a function whose
+    // whole answer matters must return one value (a jsonb array), not a set.
+    const sql = shape === 'set' ? "select coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb) from (select * from " + callSql + ' limit ' + MAX_ROWS + ') r'
       : shape === 'void' ? 'select ' + callSql + "; select 'null'"
       : 'select to_jsonb(' + callSql + ')';
     const r = await psql(url, sql, vars);

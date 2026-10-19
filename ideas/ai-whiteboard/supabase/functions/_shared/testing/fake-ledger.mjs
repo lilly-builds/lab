@@ -21,6 +21,11 @@ export function fakeLedger(balance) {
       s.attempts.set(a.p_ticket, n);
       return { data: n };
     }
+    if (name === 'ticket_give_back_attempt') {
+      if ((s.attempts.get(a.p_ticket) || 0) !== a.p_attempt || a.p_attempt < 1) return { data: false };
+      s.attempts.set(a.p_ticket, a.p_attempt - 1);
+      return { data: true };
+    }
     if (name === 'ticket_take_child') {
       if (s.children.has(a.p_ticket)) return { data: false };
       s.children.add(a.p_ticket);

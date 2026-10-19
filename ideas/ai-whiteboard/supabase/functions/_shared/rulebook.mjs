@@ -1,8 +1,8 @@
 // THIS FILE IS FOR: the rulebook (architecture 4.2). Pure table: job + clues + payload -> which models and budgets.
 // No AI calls, no network. Every number below is a PLACEHOLDER until phase 0 step 0.5 measures it live.
-import { readFileSync } from 'node:fs';
+import { ALLOWLIST } from './allowlist.mjs';
 
-export const ALLOWLIST = JSON.parse(readFileSync(new URL('./allowlist.json', import.meta.url), 'utf8'));
+export { ALLOWLIST };
 
 // THIS SECTION IS FOR: the table. tier is the preferred model tier; hard asks move up to frontier where allowed.
 // maxPrice is dollars per million tokens (prompt / completion), always set so a call has a worst case.

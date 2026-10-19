@@ -56,6 +56,18 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
       assert.strictEqual(log.flags.get('hold_unresolved:h5').sev, 'high');
       assert.deepStrictEqual(log.flags.get('hold_unresolved:h6').detail.unresolved, ['h6:1']);
     }],
+    ['one hold that fails mid-run is kept for the next run; the rest of the run still happens', async () => {
+      let drained = false, pruned = false;
+      const { deps, log } = jobs([hold('bad', [{ request_id: 'bad:1', generation_id: 'g-down', cost: null, outcome: 'cut_off' }]),
+        hold('good', [{ request_id: 'good:1', cost: 0.003, outcome: 'ok' }])], { spent: 50 });
+      deps.lookupCost = async () => { throw new Error('openrouter is down'); };
+      deps.drainLimits = async () => { drained = true; return { done: 0, failed: 0 }; };
+      deps.prune = async () => { pruned = true; };
+      const rep = await c.cleanup(deps);
+      assert.deepStrictEqual(log.settled, [['good', 0.003]]);
+      assert.deepStrictEqual(log.released, [], 'the failed hold is never released');
+      assert.deepStrictEqual([rep.errors, drained, pruned, rep.spendAlert], [1, true, true, true]);
+    }],
     ['a standing problem is flagged once, not every run', async () => {
       const holds = [hold('h7', [{ request_id: 'h7:1', cost: null, outcome: 'unknown' }])];
       const { deps } = jobs(holds);

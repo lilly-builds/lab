@@ -91,6 +91,15 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
         assert.strictEqual(w.ledger.length, 0);
       } finally { await w.mock.close(); }
     }],
+    ['every whole-cent amount is accepted, including ones floats cannot hold exactly (1.10, 0.29, 2.55)', async () => {
+      const w = await world();
+      try {
+        for (const g of [1.1, 0.29, 2.55, 4.35, 0.57, 0.01, MAX_GRANT]) {
+          const r = await admin(w.deps, { action: 'grant', person: '00000000-0000-4000-8000-000000000001', amount: g, idem: 'k' + g });
+          assert.notStrictEqual(r.status, 400, g + ' was refused');
+        }
+      } finally { await w.mock.close(); }
+    }],
     ['grant: raises the ledger and SETS the key limit to the new total; a retry with the same idem is one grant', async () => {
       const w = await world();
       try {

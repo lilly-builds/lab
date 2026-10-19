@@ -128,19 +128,22 @@ create or replace function public.ai_usage_finish(p_request text, p_generation t
                                                   p_cost numeric, p_outcome text) returns void
   language plpgsql security definer set search_path = pg_catalog, public as $$
 begin
-  if p_outcome not in ('ok', 'error_before_start', 'cut_off', 'unreadable', 'unknown') then raise exception 'unknown outcome'; end if;
+  if p_outcome not in ('ok', 'error_before_start', 'cut_off', 'unreadable', 'unknown', 'cancelled') then raise exception 'unknown outcome'; end if;
   update public.ai_usage set generation_id = coalesce(generation_id, p_generation), model = p_model, latency_ms = p_latency_ms,
     cost = p_cost, outcome = p_outcome, finished_at = now()
   where request_id = p_request;
 end $$;
 
--- Per model: how many of its last p_last finished job calls failed (step 1.20, the router avoids models that fail too often).
+-- Per model: how many of its last p_last finished job calls of the past day failed (step 1.20, the router avoids models that fail
+-- too often). A call the person cancelled says nothing about the model, so it is left out. The day bound lets a model the router
+-- stopped picking come back: its old failures age out, since no new rows can arrive while it is avoided.
 create or replace function public.ai_model_failures(p_last int)
   returns table (model text, calls int, failures int)
   language sql stable security definer set search_path = pg_catalog, public as $$
   select x.model, count(*)::int, count(*) filter (where x.outcome <> 'ok')::int
   from (select u.model, u.outcome, row_number() over (partition by u.model order by u.created_at desc) as rn
-        from public.ai_usage u where u.model is not null and u.finished_at is not null and u.job not in ('gate', 'router')) x
+        from public.ai_usage u where u.model is not null and u.finished_at is not null and u.job not in ('gate', 'router')
+          and u.outcome <> 'cancelled' and u.created_at > now() - interval '1 day') x
   where x.rn <= p_last
   group by x.model
 $$;
@@ -182,10 +185,13 @@ create or replace function public.ai_prune(p_older_secs int) returns void
 $$;
 
 -- THIS SECTION IS FOR: the limit setter and its retry queue (step 1.8, I4).
-create or replace function public.ai_ledger_rows(p_person uuid)
-  returns table (id bigint, reason text, amount numeric)
+-- One jsonb array, not a set of rows: the hosted API cuts any set at its max rows (1000 by default), and a key limit figured from
+-- part of a ledger is wrong. A value is never cut.
+drop function if exists public.ai_ledger_rows(uuid);
+create or replace function public.ai_ledger_rows(p_person uuid) returns jsonb
   language sql stable security definer set search_path = pg_catalog, public as $$
-  select l.id, l.reason, l.amount from public.credit_ledger l where l.person_id = p_person order by l.id
+  select coalesce(jsonb_agg(jsonb_build_object('id', l.id, 'reason', l.reason, 'amount', l.amount) order by l.id), '[]'::jsonb)
+  from public.credit_ledger l where l.person_id = p_person
 $$;
 
 -- One waiting retry per person is enough: a retry recomputes from the whole ledger.

@@ -43,6 +43,33 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
     }],
     ['unreadable stream is classified', async () => { assert.strictEqual((await run('unreadable')).outcome, 'unreadable'); }],
     ['dropped connection before any response: unknown, cost null', async () => { const r = await run('drop'); assert.strictEqual(r.outcome, 'unknown'); assert.strictEqual(r.cost, null); }],
+    ['a call cancelled before it was sent is never sent and costs nothing', async () => {
+      const m = await startMock({ mode: 'ok', cost: 0.0123 });
+      try {
+        const ac = new AbortController(); ac.abort();
+        const r = await or.callOpenRouter({ baseUrl: m.url, apiKey: 'k', body: mk(), signal: ac.signal });
+        assert.deepStrictEqual([r.outcome, r.cost, m.state.calls.length], ['error_before_start', 0, 0]);
+      } finally { await m.close(); }
+    }],
+    ['a call the person cancels mid-answer is "cancelled": generation kept for cleanup, cost unknown', async () => {
+      const m = await startMock({ mode: 'stall', cost: 0.0123 });
+      try {
+        const ac = new AbortController();
+        const r = await or.callOpenRouter({ baseUrl: m.url, apiKey: 'k', body: mk(), signal: ac.signal, onStart: () => ac.abort() });
+        assert.strictEqual(r.outcome, 'cancelled');
+        assert.ok(r.generationId, 'the generation id stays, so cleanup can price it');
+        assert.strictEqual(r.cost, null);
+      } finally { await m.close(); }
+    }],
+    ['a call cancelled while waiting for the first byte is "cancelled", not "unknown"', async () => {
+      const m = await startMock({ mode: 'ok', cost: 0.0123 });
+      try {
+        const ac = new AbortController();
+        const fetchImpl = (u, init) => { ac.abort(); return fetch(u, init); };
+        const r = await or.callOpenRouter({ baseUrl: m.url, apiKey: 'k', body: mk(), signal: ac.signal, fetchImpl });
+        assert.deepStrictEqual([r.outcome, r.cost], ['cancelled', null]);
+      } finally { await m.close(); }
+    }],
     ['the api key never appears in a result', async () => {
       const r = await or.callOpenRouter({ baseUrl: 'http://127.0.0.1:1', apiKey: 'sk-secret-key-1', body: mk() });
       assert.strictEqual(r.outcome, 'unknown'); assert.ok(!JSON.stringify(r).includes('sk-secret-key-1'));

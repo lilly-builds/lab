@@ -39,6 +39,16 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
       const bad = await rpc('ledger_place_hold', { p_person: id, p_request: 'x' + id, p_amount: 5 });
       assert.match(bad.error.message, /insufficient balance/);
     }],
+    ['I4: the key limit is figured from the whole ledger, past the API\'s 1000-row cap', async () => {
+      const id = await person(0);
+      require('child_process').execFileSync('psql', ['-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', URL_, '-c',
+        "insert into public.credit_ledger (person_id, reason, amount, note) select '" + id + "', 'adjustment', 0.01, 'bulk' from generate_series(1, 1100)"]);
+      const { makeDeps } = await import(S + 'wire.mjs');
+      const { limitFromRows } = await import(S + 'limit-rule.mjs');
+      const rows = await makeDeps({ rpc, env: {} }).admin.limits.loadRows(id);
+      assert.strictEqual(rows.length, 1100);
+      assert.strictEqual(limitFromRows(rows).limit, 11);
+    }],
     ['I1: 20 parallel holds of $0.10 against $1.00: exactly 10 succeed and the open total never passes the balance', async () => {
       const id = await person(1);
       const rs = await Promise.all(Array.from({ length: 20 }, (_, i) =>

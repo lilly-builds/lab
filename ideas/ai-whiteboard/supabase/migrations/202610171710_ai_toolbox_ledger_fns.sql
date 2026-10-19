@@ -72,6 +72,17 @@ create or replace function public.ticket_take_attempt(p_ticket text, p_person uu
   returning attempts
 $$;
 
+-- A /run whose hold was refused (out of credit, paused) made no call, so it gives its attempt back: the person can try again once
+-- the money is there (a cut-off attempt 1 keeps its hold until cleanup prices it). Only the newest attempt can be given back, by its
+-- own person, once. Returns true when an attempt was given back.
+create or replace function public.ticket_give_back_attempt(p_ticket text, p_person uuid, p_attempt int) returns boolean
+  language sql security definer set search_path = pg_catalog, public as $$
+  with u as (
+    update public.route_tickets set attempts = attempts - 1
+    where id = p_ticket and person_id = p_person and attempts = p_attempt and p_attempt > 0 returning 1)
+  select exists (select 1 from u)
+$$;
+
 -- A build ticket may issue one nextmoves child, once. Returns true when this call won the child slot.
 create or replace function public.ticket_take_child(p_ticket text, p_person uuid) returns boolean
   language sql security definer set search_path = pg_catalog, public as $$
@@ -86,7 +97,8 @@ declare f text;
 begin
   foreach f in array array[
     'ledger_place_hold(uuid,text,numeric)', 'ledger_settle(text,numeric)', 'ledger_release(text)',
-    'ledger_adjust(uuid,numeric,text,text)', 'ticket_take_attempt(text,uuid)', 'ticket_take_child(text,uuid)'] loop
+    'ledger_adjust(uuid,numeric,text,text)', 'ticket_take_attempt(text,uuid)', 'ticket_give_back_attempt(text,uuid,int)',
+    'ticket_take_child(text,uuid)'] loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);
     execute format('grant execute on function public.%s to service_role', f);
   end loop;

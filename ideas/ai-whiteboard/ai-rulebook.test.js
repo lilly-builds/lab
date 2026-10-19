@@ -14,6 +14,16 @@ const t = (name, fn) => { n++; return Promise.resolve().then(fn).then(
   const byId = (id) => rb.ALLOWLIST.models.find((m) => m.id === id);
 
   const tests = [
+    ['the allowlist ships inside the function bundle: no server module reads a file at runtime', () => {
+      // A deployed Edge Function carries only what is imported; a file read off disk (readFileSync, Deno.readTextFile) can be missing
+      // there and crash every function at boot.
+      const fs = require('fs'), path = require('path');
+      const dir = path.join(__dirname, 'supabase/functions/_shared');
+      const readers = fs.readdirSync(dir).filter((f) => /\.(mjs|ts)$/.test(f))
+        .filter((f) => /readFileSync|readTextFile|readFile\(/.test(fs.readFileSync(path.join(dir, f), 'utf8')));
+      assert.deepStrictEqual(readers, []);
+      assert.ok(rb.ALLOWLIST.models.length && rb.ALLOWLIST.status, 'the list itself still loads');
+    }],
     ['placeholder list is refused without the switch', () => assert.throws(() => rb.pick('draw', {}, {}, 'p', {}), /placeholder/)],
     ['placeholder list is allowed with the switch', () => assert.ok(rb.pick('draw', {}, {}, 'p', ok).models.length)],
     ['every job returns only allowlist models', () => {

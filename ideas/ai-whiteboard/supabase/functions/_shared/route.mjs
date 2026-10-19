@@ -4,7 +4,7 @@ import { authenticate } from './auth.mjs';
 import { LedgerError } from './ledger.mjs';
 import { pick, worstCaseCost } from './rulebook.mjs';
 import { buildRouteSystem, ROUTER_ROUTES, ROUTER_CLUES, userText } from './prompts.mjs';
-import { runGate, shouldPause, gateMessages, BLOCK_WINDOW_MS } from './gate.mjs';
+import { runGate, noteBlock, gateMessages } from './gate.mjs';
 import { issueTicket, hashAsk } from './ticket.mjs';
 import { withHold, tally, messageTokens } from './billing.mjs';
 
@@ -115,8 +115,7 @@ export async function route(deps, input) {
 
   if (!out.gate.pass) {
     if (out.gate.kind === 'server') return refuse(503, 'server'); // the gate failed; not an accusation
-    const times = await deps.recordBlock(person);
-    if (shouldPause(times, now, undefined, BLOCK_WINDOW_MS)) await deps.pause(person);
+    await noteBlock(deps, person, now);
     return refuse(422, 'blocked');
   }
 

@@ -27,18 +27,22 @@ export async function holdCost(hold, lookupCost) {
 }
 
 export async function cleanup(deps) {
-  const report = { settled: 0, released: 0, flagged: 0, kept: 0, limits: null, spendAlert: false };
+  const report = { settled: 0, released: 0, flagged: 0, kept: 0, errors: 0, limits: null, spendAlert: false };
 
   for (const h of await deps.staleHolds(deps.orphanWaitSecs == null ? ORPHAN_WAIT_SECS : deps.orphanWaitSecs)) {
-    const c = await holdCost(h, deps.lookupCost);
-    if (c.unresolved) {
-      report.kept++;
-      if (await deps.flag('hold_unresolved:' + h.request_id, 'high', h.person_id, { hold: Number(h.amount), unresolved: c.unresolved })) report.flagged++;
-      continue;
-    }
-    // No usage rows means no call was ever started under this hold (each call writes its row first), so nothing was spent.
-    if (c.total > 0) { await deps.settle(h.request_id, c.total); report.settled++; }
-    else { await deps.release(h.request_id); report.released++; }
+    // One hold that fails (OpenRouter down for its cost lookup, a refused settle) stays open for the next run and is counted in
+    // the report; it never stops the other holds, the key-limit retries or the spend alert.
+    try {
+      const c = await holdCost(h, deps.lookupCost);
+      if (c.unresolved) {
+        report.kept++;
+        if (await deps.flag('hold_unresolved:' + h.request_id, 'high', h.person_id, { hold: Number(h.amount), unresolved: c.unresolved })) report.flagged++;
+        continue;
+      }
+      // No usage rows means no call was ever started under this hold (each call writes its row first), so nothing was spent.
+      if (c.total > 0) { await deps.settle(h.request_id, c.total); report.settled++; }
+      else { await deps.release(h.request_id); report.released++; }
+    } catch (e) { report.errors++; }
   }
 
   report.limits = await deps.drainLimits(deps.now());
