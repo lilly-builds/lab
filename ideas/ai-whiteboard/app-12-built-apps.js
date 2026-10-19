@@ -452,8 +452,9 @@
       if (!storeApp(cur.appId, out.html)) { outcome = 'storage'; return; }
       cur.title = out.title || firstWords(idea);
       outcome = 'ok';
-      /* next moves for the new app: one cheap follow-up, shown under the ask box; its failure never touches the app */
-      if (PROVIDER === 'toolbox') AIToolbox.nextMoves(key).then(showNext, function () {});
+      /* next moves for the new app: one cheap follow-up, shown under the ask box; its failure never touches the app.
+         None come back if a newer ask started meanwhile, and then the newer ask's chips stay as they are. */
+      if (PROVIDER === 'toolbox') AIToolbox.nextMoves(key).then(function (list) { if (list.length) showNext(list); }, function () {});
       await whirl.land(id);
     } catch (err) {
       if (g.removed) outcome = 'gone';

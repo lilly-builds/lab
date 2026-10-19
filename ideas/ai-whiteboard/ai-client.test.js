@@ -26,6 +26,14 @@ function load({ search = '', hostname = 'lilly-builds.github.io', cfg = { url: '
     calls.push({ url, body, headers: init.headers });
     const r = await script(url, body, calls.length);
     if (r.ndjson) return new Response(r.ndjson.map((l) => JSON.stringify(l)).join('\n') + '\n', { status: 200, headers: { 'content-type': 'application/x-ndjson' } });
+    // broken: these lines arrive, then the connection drops while the body is still being read
+    if (r.broken) {
+      let sent = false;
+      return new Response(new ReadableStream({ pull(c) {
+        if (sent) { c.error(new TypeError('network connection was lost')); return; }
+        sent = true; c.enqueue(new TextEncoder().encode(r.broken.map((l) => JSON.stringify(l)).join('\n') + '\n'));
+      } }), { status: 200, headers: { 'content-type': 'application/x-ndjson' } });
+    }
     return new Response(JSON.stringify(r.json), { status: r.status || 200, headers: { 'content-type': 'application/json' } });
   };
   const window = { AIWB_SUPABASE: cfg };
@@ -109,6 +117,30 @@ const done = (o) => ({ t: 'done', status: 200, ok: true, ...o });
       assert.strictEqual(await T.provider.complete({ key: 'tp_x', job: 'draw', ask: 'x' }), 'whole');
       assert.strictEqual(calls.length, 3);
     }],
+    ['two streams that stop before their done line end as a cut-off, never as a bad pass', async () => {
+      const { T, calls } = load({ script: (url) => url.endsWith('/route') ? { json: { ok: true, ticket: 'TK' } } : { ndjson: [{ t: 'delta', d: 'half' }] } });
+      await assert.rejects(T.provider.complete({ key: 'tp_x', job: 'build', ask: 'x' }),
+        (e) => e.reason === 'cut_off' && e.status === 502 && e.final === true && /twice/.test(e.message));
+      assert.strictEqual(calls.filter((c) => c.url.endsWith('/run')).length, 2);
+    }],
+    ['a 403 refusal that is not a paused pass (spent or expired ticket) never reads as a bad pass', () => {
+      for (const reason of ['ticket_expired', 'ticket_unknown', 'ticket_wrong_ask', 'no_attempts_left']) {
+        const e = pure.errorFor({ reason }, 403);
+        assert.ok(e.status !== 401 && e.status !== 403, reason + ' kept status ' + e.status);
+      }
+    }],
+    ['a connection that drops mid-stream counts as a cut-off and is retried', async () => {
+      const { T, calls } = load({ script: (url, b, i) => url.endsWith('/route') ? { json: { ok: true, ticket: 'TK' } }
+        : i === 2 ? { broken: [{ t: 'delta', d: 'half' }] } : { ndjson: [done({ text: 'whole', job: 'draw' })] } });
+      assert.strictEqual(await T.provider.complete({ key: 'tp_x', job: 'draw', ask: 'x' }), 'whole');
+      assert.deepStrictEqual(calls.map((c) => c.url.split('/').pop()), ['route', 'run', 'run']);
+    }],
+    ['a Stop while the stream is being read stays a Stop: no second attempt', async () => {
+      const ac = new AbortController();
+      const { T, calls } = load({ script: (url) => { if (url.endsWith('/route')) return { json: { ok: true, ticket: 'TK' } }; ac.abort(); return { broken: [{ t: 'delta', d: 'half' }] }; } });
+      await assert.rejects(T.provider.complete({ key: 'tp_x', job: 'draw', ask: 'x', signal: ac.signal }), /connection was lost/);
+      assert.strictEqual(calls.filter((c) => c.url.endsWith('/run')).length, 1);
+    }],
     ['a refusal at /route (out of credit) is plain words with its status', async () => {
       const { T } = load({ script: () => ({ status: 402, json: { ok: false, reason: 'insufficient' } }) });
       await assert.rejects(T.provider.complete({ key: 'tp_x', job: 'build', ask: 'x' }), (e) => e.status === 402 && /credit/.test(e.message));
@@ -137,6 +169,51 @@ const done = (o) => ({ t: 'done', status: 200, ok: true, ...o });
       T.outcome('tp_x', 'undo');
       await new Promise((r) => setTimeout(r, 0));
       assert.deepStrictEqual(calls.pop().body, { ticket: 'CHILD', code: 'undo' });
+    }],
+    ['next moves that finish after a newer ask started are dropped, and never replace the newer answer', async () => {
+      let release; const held = new Promise((r) => { release = r; });
+      const { T } = load({ script: async (url, b) => url.endsWith('/route') ? { json: { ok: true, ticket: 'TK2' } }
+        : b.ticket === 'CHILD' ? (await held, { ndjson: [done({ text: '{"next":["stale idea"]}', job: 'nextmoves' })] })
+        : b.ticket === 'TK2' ? { ndjson: [done({ text: '{}', job: 'draw' })] }
+        : { ndjson: [done({ text: '<html></html>', job: 'build', next: 'CHILD' })] } });
+      await T.provider.complete({ key: 'tp_x', ticket: 'TK1', ask: 'tip calculator' });
+      const late = T.nextMoves('tp_x');
+      await new Promise((r) => setTimeout(r, 0));
+      await T.provider.complete({ key: 'tp_x', job: 'draw', ask: 'a newer ask' });
+      release();
+      assert.strictEqual(JSON.stringify(await late), '[]'); // an array from the sandbox's realm, so compared as text
+      assert.strictEqual(T.last().ticket, 'TK2', 'the newer answer stays the one outcomes are logged against');
+    }],
+    ['next moves asked for twice at once run the child ticket once', async () => {
+      const { T, calls } = load({ script: (url, b) => b.ticket === 'CHILD' ? { ndjson: [done({ text: '{"next":["x"]}', job: 'nextmoves' })] }
+        : { ndjson: [done({ text: '<html></html>', job: 'build', next: 'CHILD' })] } });
+      await T.provider.complete({ key: 'tp_x', ticket: 'TB', ask: 'app' });
+      const both = await Promise.all([T.nextMoves('tp_x'), T.nextMoves('tp_x')]);
+      assert.strictEqual(JSON.stringify(both), '[["x"],[]]');
+      assert.strictEqual(calls.filter((c) => c.body && c.body.ticket === 'CHILD').length, 1);
+    }],
+    ['two builds that overlap: each answer that lands is the newest, and each build\'s next moves use its own child ticket, once', async () => {
+      let releaseA, releaseCB;
+      const heldA = new Promise((r) => { releaseA = r; }), heldCB = new Promise((r) => { releaseCB = r; });
+      const { T, calls } = load({ script: async (url, b) => {
+        if (b.ticket === 'TA') { await heldA; return { ndjson: [done({ text: '<html>A</html>', job: 'build', next: 'CA' })] }; }
+        if (b.ticket === 'TB') return { ndjson: [done({ text: '<html>B</html>', job: 'build', next: 'CB' })] };
+        if (b.ticket === 'CB') { await heldCB; return { ndjson: [done({ text: '{"next":["idea for B"]}', job: 'nextmoves' })] }; }
+        return { ndjson: [done({ text: '{"next":["idea for A"]}', job: 'nextmoves' })] };
+      } });
+      const a = T.provider.complete({ key: 'tp_x', ticket: 'TA', ask: 'app A' });
+      await T.provider.complete({ key: 'tp_x', ticket: 'TB', ask: 'app B' });
+      const lateB = T.nextMoves('tp_x');           // B's follow-up, held
+      await new Promise((r) => setTimeout(r, 0));
+      releaseA(); await a;                          // A lands after B: A is now the newest answer
+      assert.strictEqual(T.last().ticket, 'TA', 'a build that lands last is the newest answer, so an undo is logged against it');
+      const forA = await T.nextMoves('tp_x');
+      releaseCB();
+      assert.strictEqual(JSON.stringify(forA), '["idea for A"]');
+      assert.strictEqual(JSON.stringify(await lateB), '[]', 'B\'s follow-up landed after a newer answer');
+      const runs = calls.filter((c) => c.url.endsWith('/run')).map((c) => c.body.ticket);
+      assert.strictEqual(runs.filter((x) => x === 'CB').length, 1, 'a child ticket is used once: ' + runs.join(' '));
+      assert.ok(runs.includes('CA'), 'A\'s own child ticket ran');
     }]
   ];
   for (const [name, fn] of tests) await t(name, fn);

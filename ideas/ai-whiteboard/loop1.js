@@ -54,6 +54,9 @@
       catch (e) {
         err = e;
         if (e && (e.status === 401 || e.status === 403)) break; /* a bad key is not a snag to retry */
+        /* the AI Magic Toolbox's errors are final (both attempts used, a block, no credit): another ask would be a third, paid try.
+           A one-off server hiccup (reason 'server', whatever its status) is the exception and keeps its quiet retry. */
+        if (e && e.final && e.reason !== 'server') break;
         if (attempt === 0) await sleep(RETRY_MS); /* one silent retry with backoff */
       }
     }

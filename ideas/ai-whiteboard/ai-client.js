@@ -48,8 +48,9 @@
     var key = reason === 'unknown' && status === 502 ? 'unknown_outcome' : reason;
     var e = new Error(WORDS[key] || WORDS.server);
     e.reason = reason; e.apiMessage = e.message; e.final = true;
-    /* keep 401 for a bad pass (the board then asks for a new one); paused is not a bad pass, so it gets 423 */
-    e.status = reason === 'paused' ? 423 : status;
+    /* keep 401 for a bad pass (the board then asks for a new one). The server's other 403s are a paused pass (423) or a spent,
+       expired or unknown ticket (409); neither is a bad pass, so neither may reach the board as 401 or 403. */
+    e.status = reason === 'paused' ? 423 : status === 403 ? 409 : status;
     e.kind = reason === 'cut_off' || reason === 'no_attempts_left' ? 'cut' : reason === 'unreadable' ? 'invalid' : 'http';
     if (e.kind === 'cut') e.apiMessage = 'ended early';
     return e;
@@ -63,6 +64,7 @@
   var MODE = mode(cfg, location.search, location.hostname);
   var END = MODE === 'off' ? null : endpoints(MODE, cfg, location.origin);
   var last = null; /* the newest answer's ticket, job and next-moves ticket (outcome logging and next moves read it) */
+  var moves = 0;   /* bumps when an ask starts or an answer lands: a follow-up that began before the latest bump is about an older answer */
 
   function headers(pass) {
     var h = { 'content-type': 'application/json', apikey: END.apikey };
@@ -84,6 +86,7 @@
 
   /* /route: the ask box (the server's router picks the job) or a named job. Returns { ticket, job, steps, firstAsk } or { clarify }. */
   function route(o) {
+    moves++;
     return postJson('route', o.pass, { ask: o.ask, summary: o.summary || null, job: o.job || null, second: !!o.second, hasImage: !!o.hasImage }, o.signal);
   }
 
@@ -93,7 +96,9 @@
     if (!res.ok || !res.body) { var d = null; try { d = await res.json(); } catch (e) {} throw errorFor(d, res.status); }
     var reader = res.body.getReader(), dec = new TextDecoder(), buf = '', text = '', done = null;
     for (;;) {
-      var r = await reader.read();
+      /* a connection that drops while the answer streams is a cut-off (the second attempt covers it); a Stop stays a Stop */
+      var r;
+      try { r = await reader.read(); } catch (e) { if (o.signal && o.signal.aborted) throw e; break; }
       if (r.done) break;
       var got = takeLines(buf + dec.decode(r.value, { stream: true }));
       buf = got.rest;
@@ -107,19 +112,27 @@
   }
 
   /* One ask, start to finish: a ticket (from the caller, or a named-job /route), then up to two /run attempts on the same ticket.
-     Attempt 2 is the server's: it moves to the next model and is charged only for what it uses. */
+     Attempt 2 is the server's: it moves to the next model and is charged only for what it uses. An answer that lands is the newest
+     (an undo right after it undoes it). A follow-up (next moves) is not a new ask; it is the newest only if nothing moved while it ran. */
   async function ask(o, onText) {
     if (!o.ticket && !o.job) throw new Error('No job named for this ask'); /* never a silent way around /route */
     var a = o.ask != null ? String(o.ask) : String(o.text || '');
     var ticket = o.ticket;
     if (!ticket) ticket = (await route({ pass: o.key, ask: a, job: o.job, hasImage: !!o.imagePng, signal: o.signal })).ticket;
+    else if (!o.followUp) moves++;
+    var mine = moves;
     for (var attempt = 1; attempt <= 2; attempt++) {
       var done = await runOnce({ pass: o.key, ticket: ticket, ask: a, board: o.board, image: o.imagePng, advanceEm: o.advanceEm, signal: o.signal, onText: onText, onChunk: o.onChunk });
-      if (done.ok) { last = { ticket: ticket, job: done.job, next: done.next || null, ask: a, at: Date.now() }; return done.text; }
+      if (done.ok) {
+        var landed = { ticket: ticket, job: done.job, next: done.next || null, ask: a, at: Date.now() };
+        if (!o.followUp) { moves++; last = landed; } else if (mine === moves) last = landed;
+        return done.text;
+      }
       if (!done.canRetry) throw done.lost || errorFor(done);
       if (onText) onText('');
     }
-    throw errorFor({ reason: 'no_attempts_left', status: 403 });
+    /* both streams stopped before their done line: the same words as the server's own double cut-off */
+    throw errorFor({ reason: 'cut_off', status: 502 });
   }
 
   /* the balance door (my_balance): a number for a live pass, null for an unknown or revoked one */
@@ -130,11 +143,14 @@
     return typeof v === 'number' ? v : v == null ? null : Number(v);
   }
 
-  /* next moves for a finished build (build plan 1.19): one cheap follow-up on the child ticket the build handed back */
+  /* next moves for a finished build (build plan 1.19): one cheap follow-up on the child ticket the build handed back, claimed once so
+     no other build can run it. None if an ask started or an answer landed while they were made: they would be about an older answer. */
   async function nextMoves(pass, signal) {
-    var l = last;
+    var l = last, mine = moves;
     if (!l || !l.next) return [];
-    var text = await ask({ key: pass, ticket: l.next, ask: l.ask, signal: signal });
+    var child = l.next; l.next = null;
+    var text = await ask({ key: pass, ticket: child, ask: l.ask, signal: signal, followUp: true });
+    if (mine !== moves) return [];
     var m = /\{[\s\S]*\}/.exec(text || ''), o = null;
     try { o = m ? JSON.parse(m[0]) : null; } catch (e) { o = null; }
     return o && Array.isArray(o.next) ? o.next : [];
