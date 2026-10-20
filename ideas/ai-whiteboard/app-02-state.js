@@ -80,7 +80,8 @@
   /* a route's model slot: 'main' is the per-provider model, 'fast' the cheap routing model */
   function modelFor(slot) { return slot === 'fast' ? getFastModel(PROVIDER) : getModel(PROVIDER); }
   function mask(k) { return k ? '••••' + k.slice(-4) : ''; }
-  var PROVIDER = providers[lsGet(KEY_PROVIDER)] ? lsGet(KEY_PROVIDER) : 'anthropic';
+  /* a saved choice wins; otherwise the AI Magic Toolbox when it is switched on, else Anthropic */
+  var PROVIDER = providers[lsGet(KEY_PROVIDER)] ? lsGet(KEY_PROVIDER) : providers.toolbox ? 'toolbox' : 'anthropic';
 
   /* silently move a key saved by the previous version of this page */
   (function migrate() {

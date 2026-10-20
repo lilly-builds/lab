@@ -187,6 +187,8 @@
       }
     }
   };
+  /* the AI Magic Toolbox (ai-client.js): asks go through our server with a tester pass. Only listed when switched on. */
+  if (window.AIToolbox && AIToolbox.enabled()) providers.toolbox = AIToolbox.provider;
 
   var SYSTEM_EDIT = [
     'You change what is already on a shared whiteboard. You get the board as JSON (ids, board coordinates, "view", "bounds", "free" rectangles, "zones" and "selection").',

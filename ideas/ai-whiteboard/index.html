@@ -96,7 +96,11 @@
   #note .mini { min-height: 36px; padding: 0 14px; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); font: 300 12px/1 var(--mono); letter-spacing: .04em; }
   #note .mini:active { background: var(--ink); color: var(--paper); }
   #note[hidden], #note .chips[hidden] { display: none; }
-  #panel.busy #note { display: none; }
+  #next { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 12px 8px 0; }
+  #next .mini { min-height: 36px; max-width: 100%; padding: 8px 14px; border: 1px solid var(--ink); border-radius: 0; background: var(--paper); font: 300 12px/1.3 var(--mono); letter-spacing: .04em; text-align: left; white-space: normal; }
+  #next .mini:active { background: var(--ink); color: var(--paper); }
+  #next .x { width: 36px; padding: 0; text-align: center; }
+  #panel.busy #note, #panel.busy #next { display: none; }
   #panel.busy #stopBtn { display: flex; }
   #panel.busy .gear { display: none; }
   #panel.busy #makeReal { visibility: hidden; }
@@ -286,6 +290,7 @@
       </button>
     </div>
     <div id="note" hidden><p id="noteText" role="status" aria-live="polite"></p><div class="chips" id="noteChips" hidden><button type="button" class="mini" id="noteYes">Yes, delete</button><button type="button" class="mini" id="noteNo">Cancel</button></div></div>
+    <div id="next" role="group" aria-label="Next moves" hidden></div>
     <div id="status" aria-live="polite"></div>
     <div class="row2"><button type="button" class="mini" id="makeReal">Make it real</button></div>
   </form>
@@ -337,7 +342,7 @@
       <div class="field" id="fastField">
         <input id="fastModel" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Model for routing" title="Model for routing">
       </div>
-      <p class="trust">Your key stays on this device.</p>
+      <p class="trust" id="trust">Your key stays on this device.</p>
       <button type="submit" class="btn solid" id="connectBtn">Connect</button>
       <div id="manageRow">
         <button type="button" class="btn" id="replaceBtn">Replace key</button>
@@ -402,6 +407,7 @@
 <script src="team.js"></script>
 <script src="templates.js"></script>
 <script src="note-resize.js"></script>
+<script src="ai-client.js"></script>
 <script src="app-01-providers.js"></script>
 <script src="app-02-state.js"></script>
 <script src="app-03-render.js"></script>

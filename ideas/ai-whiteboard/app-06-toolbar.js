@@ -109,6 +109,8 @@
     commitEdit();
     if (!undoStack.length) return;
     els = JSON.parse(undoStack.pop()); save(); syncUndo(); draw();
+    /* an undo within two minutes of an AI answer is logged as the code "undo" (no text), so the toolbox learns what missed */
+    if (PROVIDER === 'toolbox') AIToolbox.outcome(getKey(PROVIDER), 'undo', 120000);
   }
   document.getElementById('undo').addEventListener('click', undo);
   document.addEventListener('keydown', function (e) {

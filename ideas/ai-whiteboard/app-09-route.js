@@ -70,6 +70,39 @@
   /* ROUTE-PURE-END */
 
   var DEFAULT_ASK = 'Do you want me to change what is on the board, or make something new?';
+  /* the AI Magic Toolbox turns someone's first ask ever into an idea map: the draw handler places it, so every box and line is an ordinary,
+     editable note and arrow */
+  var IDEAMAP_ROUTE = { busy: ['Mapping your idea', 'Sketching'], run: function (c) { return runDraw(c); } };
+  var buildTickets = {};
+
+  /* ---------- next moves: up to 3 suggestions under the input; a tap only fills the box, nothing is sent ---------- */
+  var nextBox = document.getElementById('next');
+  function hideNext() { nextBox.hidden = true; nextBox.textContent = ''; }
+  function showNext(list) {
+    var seen = {}, items = (Array.isArray(list) ? list : []).filter(function (s) {
+      if (typeof s !== 'string') return false;
+      var k = s.trim().toLowerCase();
+      if (!k || seen[k]) return false;
+      seen[k] = true;
+      return true;
+    }).slice(0, 3).map(function (s) { return s.trim().slice(0, 80); });
+    hideNext();
+    if (!items.length) return;
+    items.forEach(function (s) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'mini'; b.textContent = s;
+      b.addEventListener('click', function () {
+        ask.value = s; hideNext(); openPanel();
+        if (PROVIDER === 'toolbox') AIToolbox.outcome(getKey(PROVIDER), 'nextmove_tap');
+      });
+      nextBox.appendChild(b);
+    });
+    var x = document.createElement('button');
+    x.type = 'button'; x.className = 'mini x'; x.textContent = '×'; x.setAttribute('aria-label', 'Hide suggestions');
+    x.addEventListener('click', hideNext);
+    nextBox.appendChild(x);
+    nextBox.hidden = false;
+  }
   function boardSummary() {
     var counts = {}, texts = [], s = selEl();
     els.forEach(function (e) {
@@ -79,15 +112,22 @@
     });
     return { counts: counts, recentTexts: texts.slice(-12), hasSelection: !!s, selected: s ? { id: s.id, type: s.type } : null, hasApps: els.some(function (e) { return e.kind === 'app'; }) };
   }
-  /* one cheap call, no image; anything but a key error or a user cancel falls back to the draw route */
-  async function routeRequest(text, signal) {
+  /* one cheap call, no image; anything but a key error or a user cancel falls back to the draw route.
+     On the AI Magic Toolbox the server routes, checks the ask and hands back a ticket for the first step; its refusals are real answers. */
+  async function routeRequest(text, signal, second) {
+    if (PROVIDER === 'toolbox') {
+      var tr = await AIToolbox.route({ pass: getKey(PROVIDER), ask: text, summary: boardSummary(), second: !!second, hasImage: true, signal: signal });
+      if (tr.clarify) return { steps: ['draw'], ambiguous: true, ask: tr.clarify };
+      return { steps: tr.steps, ticket: tr.ticket };
+    }
     var cac = new AbortController(), timer = setTimeout(function () { cac.abort(); }, 10000);
     var onAbort = function () { cac.abort(); };
     if (signal) signal.addEventListener('abort', onAbort);
     try {
+      /* the own-key router; the toolbox returned above. job 'router' is never a job the toolbox accepts by name, so it fails closed there */
       var reply = await providers[PROVIDER].complete({
         system: buildRouteSystem(ROUTES), text: JSON.stringify({ request: text, board: boardSummary() }),
-        model: modelFor('fast'), key: getKey(PROVIDER), signal: cac.signal, maxTokens: 150
+        model: modelFor('fast'), key: getKey(PROVIDER), signal: cac.signal, maxTokens: 150, job: 'router'
       });
       var r = parseRoute(reply, ROUTES);
       if (!r) return { steps: ['draw'] };
@@ -116,7 +156,7 @@
       second = true;
     }
     var orig = clar ? clar.orig : typed;
-    hideNote(); pendingEdit = null;
+    hideNote(); hideNext(); pendingEdit = null;
     var prov = providers[PROVIDER];
     var ac = new AbortController();
     curAbort = ac;
@@ -128,17 +168,18 @@
       /* let the animation paint before the heavy snapshot work */
       await new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); });
       if (ac.signal.aborted) return;
-      var plan = second && !answered ? { steps: ['draw'] } : await routeRequest(text, ac.signal);
+      var plan = second && !answered ? { steps: ['draw'] } : await routeRequest(text, ac.signal, second);
       if (ac.signal.aborted) return;
       if (plan.ambiguous) {
         if (second) plan = { steps: ['draw'] };
         else { clar = { orig: orig, ask: plan.ask }; showNote(plan.ask); return; }
       }
       for (var i = 0; i < plan.steps.length; i++) {
-        var route = ROUTES[plan.steps[i]];
+        var job = plan.steps[i], route = ROUTES[job] || (job === 'ideamap' ? IDEAMAP_ROUTE : null);
         if (!route) continue;
         setPhrases(route.busy); arm();
-        var res = await route.run({ text: text, prov: prov, key: key, ac: ac });
+        /* the toolbox's ticket covers the first step only; a second step names its job and gets its own */
+        var res = await route.run({ text: text, prov: prov, key: key, ac: ac, job: job, ticket: i === 0 ? plan.ticket : null });
         if (ac.signal.aborted) return;
         if (res !== true) return;
       }
@@ -163,18 +204,22 @@
   }
 
   /* ---------- the three handlers; each returns true when it finished and the box can clear ---------- */
+  /* job, ticket, ask, board and advanceEm are read by the AI Magic Toolbox (the server builds the prompt from them); other providers ignore them */
   async function runDraw(c) {
-    var text = c.text + '\n\nBoard JSON:\n' + JSON.stringify(sceneForModel());
-    var reply = await c.prov.complete({ system: buildSystem(), text: text, imagePng: boardPng(), model: modelFor(ROUTES.draw.model), key: c.key, signal: c.ac.signal });
+    var board = JSON.stringify(sceneForModel()), text = c.text + '\n\nBoard JSON:\n' + board;
+    var reply = await c.prov.complete({ system: buildSystem(), text: text, imagePng: boardPng(), model: modelFor(ROUTES.draw.model), key: c.key, signal: c.ac.signal,
+      job: c.job || 'draw', ticket: c.ticket, ask: c.text, board: board, advanceEm: advanceEm() });
     if (c.ac.signal.aborted) return false;
     var parsed = parseReply(reply);
     if (!parsed) { showErr('Could not read the reply'); return false; }
     applyReply(parsed);
+    showNext(parsed.next);
     return true;
   }
   function runBuild(c) {
     if (embedCount() >= EMB_MAX) { showErr('Six frames at most. Close one first.'); return false; }
     var made = addApp(c.text.slice(0, 2000));
+    if (c.ticket) buildTickets[made.el.id] = c.ticket; /* the router's ticket for this idea; startApp uses it once */
     ask.value = ''; closePanel();
     startApp(made.el.id, made.undoLen);
     return true;
@@ -182,7 +227,9 @@
   async function runEdit(c) {
     var scene = sceneForModel(), sel = selEl();
     scene.selection = sel ? { id: sel.id, type: sel.type } : null;
-    var reply = await c.prov.complete({ system: SYSTEM_EDIT, text: c.text + '\n\nBoard JSON:\n' + JSON.stringify(scene), model: modelFor(ROUTES.edit.model), key: c.key, signal: c.ac.signal, maxTokens: 3000 });
+    var board = JSON.stringify(scene);
+    var reply = await c.prov.complete({ system: SYSTEM_EDIT, text: c.text + '\n\nBoard JSON:\n' + board, model: modelFor(ROUTES.edit.model), key: c.key, signal: c.ac.signal, maxTokens: 3000,
+      job: 'edit', ticket: c.ticket, ask: c.text, board: board });
     if (c.ac.signal.aborted) return false;
     var parsed = parseReply(reply);
     if (!parsed) { showErr('Could not read the reply'); return false; }
@@ -196,6 +243,7 @@
       return false;
     }
     applyEdit(v.ops, say);
+    showNext(parsed.next);
     return true;
   }
 

@@ -75,7 +75,9 @@
     dreamBubble(el, DREAM_COPY.busy);
     var box = dreamBox, ac = new AbortController(), timer = setTimeout(function () { ac.abort(); }, 25000);
     try {
-      var reply = await providers[PROVIDER].complete({ system: DREAM_SYSTEM, text: 'Dream: ' + String(el.text || '').slice(0, 600), model: modelFor('fast'), key: key, signal: ac.signal, maxTokens: 400 });
+      var dream = String(el.text || '').slice(0, 600);
+      var reply = await providers[PROVIDER].complete({ system: DREAM_SYSTEM, text: 'Dream: ' + dream, model: modelFor('fast'), key: key, signal: ac.signal, maxTokens: 400,
+        job: 'plan', ask: dream });
       var o = parseReply(reply), ms = o && Array.isArray(o.milestones) ? o.milestones.filter(function (m) { return typeof m === 'string' && m.trim(); }).slice(0, 5) : [];
       if (!o || typeof o.goal !== 'string' || !o.goal.trim() || !ms.length || typeof o.firstAction !== 'string' || !o.firstAction.trim()) throw new Error('bad plan');
       if (dreamBox !== box) return; /* dismissed or replaced while thinking */

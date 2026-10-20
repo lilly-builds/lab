@@ -534,6 +534,203 @@ select pg_temp.throws('the 4,001st stored row is rejected',
   'storage cap');
 reset role;
 
+-- ------------------------------------------------------------ AI toolbox: access, ledger, holds, tickets (plan 1.1, 1.2)
+insert into public.tester_passes (id, pass_hash, label) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', encode(sha256(convert_to('pass-one','utf8')),'hex'), 'one'),
+  ('aaaaaaaa-0000-0000-0000-000000000002', encode(sha256(convert_to('pass-two','utf8')),'hex'), 'two');
+
+-- browser roles see and write nothing in the AI tables
+do $$
+declare t text; r text;
+begin
+  foreach r in array array['anon','authenticated'] loop
+    foreach t in array array['tester_passes','credit_ledger','ai_holds','ai_usage','route_tickets',
+                             'ops_flags','gate_blocks','limit_updates','rate_counters'] loop
+      perform pg_temp.ok(r || ' has no privilege on ' || t,
+        not has_table_privilege(r, 'public.' || t, 'select,insert,update,delete'));
+    end loop;
+  end loop;
+end $$;
+select pg_temp.ok('anon cannot run the ledger functions',
+  not has_function_privilege('anon', 'public.ledger_place_hold(uuid,text,numeric)', 'execute')
+  and not has_function_privilege('authenticated', 'public.ledger_settle(text,numeric)', 'execute')
+  and not has_function_privilege('anon', 'public.ledger_adjust(uuid,numeric,text,text)', 'execute')
+  and not has_function_privilege('anon', 'public.ticket_take_attempt(text,uuid)', 'execute'));
+
+select public.ledger_adjust('aaaaaaaa-0000-0000-0000-000000000001', 10, 'grant', 'k1');
+select public.ledger_adjust('aaaaaaaa-0000-0000-0000-000000000001', 10, 'grant again', 'k1');
+select pg_temp.ok('a retried grant with the same key is one grant',
+  public.ai_balance('aaaaaaaa-0000-0000-0000-000000000001', false) = 10);
+
+select pg_temp.throws('the ledger rejects update', $$update public.credit_ledger set amount = 99$$, 'append-only');
+select pg_temp.throws('the ledger rejects delete', $$delete from public.credit_ledger$$, 'append-only');
+select pg_temp.throws('duplicate stripe_event_id is rejected',
+  $$insert into public.credit_ledger (person_id, reason, amount, stripe_event_id) select 'aaaaaaaa-0000-0000-0000-000000000002','paid',1,'evt_1' from generate_series(1,2)$$,
+  'duplicate key');
+select pg_temp.throws('duplicate refund_id is rejected',
+  $$insert into public.credit_ledger (person_id, reason, amount, refund_id) select 'aaaaaaaa-0000-0000-0000-000000000002','refund',1,'re_1' from generate_series(1,2)$$,
+  'duplicate key');
+
+-- my_balance: only the pass holder's number
+set role anon;
+select pg_temp.ok('my_balance returns the caller''s own number', public.my_balance('pass-one') = 10);
+select pg_temp.ok('my_balance with another pass returns that person''s number only', public.my_balance('pass-two') = 0);
+select pg_temp.ok('my_balance with a wrong pass returns nothing', public.my_balance('nope') is null);
+reset role;
+
+-- holds: the second hold that would pass the balance fails; same request id twice is one hold
+select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r1', 6);
+select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r1', 6);
+select pg_temp.ok('a retried hold is one hold',
+  (select count(*) from public.ai_holds where request_id = 'r1') = 1);
+select pg_temp.throws('a second hold past the balance fails',
+  $$select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r2', 5)$$, 'insufficient');
+select pg_temp.throws('a hold for a person with no balance fails',
+  $$select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000002', 'r3', 1)$$, 'insufficient');
+
+-- settle: once only, real cost recorded
+select public.ledger_settle('r1', 2.5);
+select public.ledger_settle('r1', 2.5);
+select pg_temp.ok('settling twice writes one spend row',
+  (select count(*) from public.credit_ledger where request_id = 'r1') = 1);
+select pg_temp.ok('balance is grants minus spend after settle',
+  public.ai_balance('aaaaaaaa-0000-0000-0000-000000000001', true) = 7.5);
+select pg_temp.throws('reusing a settled request id is refused (a replay never runs calls that settle into nothing)',
+  $$select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r1', 1)$$, 'already closed');
+
+-- release returns the held amount
+select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r4', 7);
+select pg_temp.ok('an open hold lowers the available balance',
+  public.ai_balance('aaaaaaaa-0000-0000-0000-000000000001', true) = 0.5);
+select public.ledger_release('r4');
+select pg_temp.ok('release gives the amount back',
+  public.ai_balance('aaaaaaaa-0000-0000-0000-000000000001', true) = 7.5);
+
+-- settle over the hold: cost still recorded, flag written, person paused
+select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r5', 1);
+select public.ledger_settle('r5', 1.5);
+select pg_temp.ok('settle past the hold still records the real cost',
+  (select amount from public.credit_ledger where request_id = 'r5') = 1.5);
+select pg_temp.ok('settle past the hold writes a high flag and pauses the person',
+  (select count(*) from public.ops_flags where severity = 'high' and cause = 'settle_over_hold:r5') = 1
+  and (select paused from public.tester_passes where id = 'aaaaaaaa-0000-0000-0000-000000000001'));
+select pg_temp.throws('a paused person cannot place a hold',
+  $$select public.ledger_place_hold('aaaaaaaa-0000-0000-0000-000000000001', 'r6', 1)$$, 'paused');
+
+-- tickets: two attempts, right person, not expired; one child
+insert into public.route_tickets (id, person_id, ask_hash, expires_at) values
+  ('t1', 'aaaaaaaa-0000-0000-0000-000000000002', 'h', now() + interval '5 minutes'),
+  ('t2', 'aaaaaaaa-0000-0000-0000-000000000002', 'h', now() - interval '1 minute');
+select pg_temp.ok('attempt 1 and 2 succeed in order',
+  public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') = 1
+  and public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') = 2);
+select pg_temp.ok('attempt 3 is refused', public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') is null);
+select pg_temp.ok('wrong person is refused', public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000001') is null);
+select pg_temp.ok('an expired ticket is refused', public.ticket_take_attempt('t2', 'aaaaaaaa-0000-0000-0000-000000000002') is null);
+select pg_temp.ok('only the newest attempt can be given back',
+  not public.ticket_give_back_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002', 1));
+select pg_temp.ok('another person cannot give an attempt back',
+  not public.ticket_give_back_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000001', 2));
+select pg_temp.ok('a refused hold gives its attempt back', public.ticket_give_back_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002', 2));
+select pg_temp.ok('the same attempt is not given back twice',
+  not public.ticket_give_back_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002', 2));
+select pg_temp.ok('a given-back attempt can be taken again, and only once',
+  public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') = 2);
+select pg_temp.ok('after that the ticket is spent', public.ticket_take_attempt('t1', 'aaaaaaaa-0000-0000-0000-000000000002') is null);
+select pg_temp.ok('the child slot is won once',
+  public.ticket_take_child('t1', 'aaaaaaaa-0000-0000-0000-000000000002')
+  and not public.ticket_take_child('t1', 'aaaaaaaa-0000-0000-0000-000000000002'));
+
+-- ------------------------------------------------------------ AI toolbox: server doors (plan 1.8 to 1.12, 1.20)
+-- every server function is closed to the browser roles; my_balance is the one door (I7)
+select pg_temp.ok('browser roles can run no AI server function except my_balance',
+  not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and (p.proname like 'ai\_%' or p.proname like 'ledger\_%' or p.proname like 'ticket\_%')
+                and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))),
+  (select string_agg(p.proname, ', ') from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and (p.proname like 'ai\_%' or p.proname like 'ledger\_%' or p.proname like 'ticket\_%')
+     and has_function_privilege('anon', p.oid, 'execute')));
+select pg_temp.ok('browser roles have no privilege on ai_outcomes',
+  not has_table_privilege('anon', 'public.ai_outcomes', 'select,insert,update,delete')
+  and not has_table_privilege('authenticated', 'public.ai_outcomes', 'select,insert,update,delete'));
+
+select pg_temp.ok('find_pass returns the row for a hash and nothing for a stranger',
+  (select count(*) from public.ai_find_pass(encode(sha256(convert_to('pass-two','utf8')),'hex'))) = 1
+  and (select count(*) from public.ai_find_pass('nope')) = 0);
+select pg_temp.ok('a rate counter counts hits in its window',
+  public.ai_rate_hit('p:test', 3600) = 1 and public.ai_rate_hit('p:test', 3600) = 2 and public.ai_rate_hit('p:other', 3600) = 1);
+select pg_temp.ok('a recorded block comes back with the earlier ones in the window',
+  array_length(public.ai_record_block('aaaaaaaa-0000-0000-0000-000000000002', 86400), 1) = 1
+  and array_length(public.ai_record_block('aaaaaaaa-0000-0000-0000-000000000002', 86400), 1) = 2);
+
+select pg_temp.ok('a person with no finished job is on their first ask',
+  public.ai_first_ask('aaaaaaaa-0000-0000-0000-000000000002'));
+select public.ai_usage_start('u-gate', 'h-x', 'aaaaaaaa-0000-0000-0000-000000000002', 'gate', 1);
+select public.ai_usage_finish('u-gate', 'g-0', 'm/gate', 10, 0.0001, 'ok');
+select pg_temp.ok('a gate call does not end the first ask', public.ai_first_ask('aaaaaaaa-0000-0000-0000-000000000002'));
+select public.ai_usage_start('u-1', 'h-x', 'aaaaaaaa-0000-0000-0000-000000000002', 'draw', 1);
+select public.ai_usage_seen('u-1', 'g-1');
+select public.ai_usage_finish('u-1', null, 'm/a', 1200, 0.002, 'cut_off');
+select pg_temp.ok('a failed job does not end the first ask', public.ai_first_ask('aaaaaaaa-0000-0000-0000-000000000002'));
+select pg_temp.ok('the generation seen on the first chunk is kept when the finish has none',
+  (select generation_id from public.ai_usage where request_id = 'u-1') = 'g-1');
+select public.ai_usage_start('u-2', 'h-x', 'aaaaaaaa-0000-0000-0000-000000000002', 'draw', 2);
+select public.ai_usage_finish('u-2', 'g-2', 'm/b', 900, 0.003, 'ok');
+select pg_temp.ok('an ok job ends the first ask', not public.ai_first_ask('aaaaaaaa-0000-0000-0000-000000000002'));
+select pg_temp.throws('a usage outcome outside the list is refused',
+  $$select public.ai_usage_finish('u-2', 'g-2', 'm/b', 1, 0, 'great')$$, 'unknown outcome');
+select pg_temp.ok('model failures count only finished job calls',
+  (select failures from public.ai_model_failures(50) where model = 'm/a') = 1
+  and (select failures from public.ai_model_failures(50) where model = 'm/b') = 0
+  and not exists (select 1 from public.ai_model_failures(50) where model = 'm/gate'));
+select public.ai_usage_start('u-3', 'h-x', 'aaaaaaaa-0000-0000-0000-000000000002', 'draw', 1);
+select public.ai_usage_finish('u-3', 'g-3', 'm/b', 500, null, 'cancelled');
+select pg_temp.ok('a call the person cancelled says nothing about the model''s health',
+  (select calls from public.ai_model_failures(50) where model = 'm/b') = 1
+  and (select failures from public.ai_model_failures(50) where model = 'm/b') = 0);
+select public.ai_usage_start('u-4', 'h-x', 'aaaaaaaa-0000-0000-0000-000000000002', 'draw', 1);
+select public.ai_usage_finish('u-4', 'g-4', 'm/old', 500, 0.001, 'cut_off');
+update public.ai_usage set created_at = now() - interval '2 days' where request_id = 'u-4';
+select pg_temp.ok('failures older than a day age out, so a model the router stopped picking can come back',
+  not exists (select 1 from public.ai_model_failures(50) where model = 'm/old'));
+select pg_temp.ok('usage rows hold no text column',
+  not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'ai_usage'
+              and column_name ~ '(prompt|text|answer|reply|content|message)'));
+
+select pg_temp.ok('a flag is written once per open cause',
+  public.ai_flag('test:cause', 'normal', null, '{}') and not public.ai_flag('test:cause', 'high', null, '{}'));
+select pg_temp.ok('open flags list high severity first and include the new cause',
+  (select severity from public.ai_open_flags() limit 1) = 'high'
+  and exists (select 1 from public.ai_open_flags() where cause = 'test:cause'));
+select public.ai_resolve_flag((select id from public.ops_flags where cause = 'test:cause' and resolved_at is null));
+select pg_temp.ok('a resolved flag leaves the list, and the same cause can be flagged again',
+  not exists (select 1 from public.ai_open_flags() where cause = 'test:cause')
+  and public.ai_flag('test:cause', 'normal', null, '{}'));
+
+insert into public.ai_holds (request_id, person_id, amount, created_at)
+  values ('h-stale', 'aaaaaaaa-0000-0000-0000-000000000002', 0.5, now() - interval '20 minutes');
+select public.ai_usage_start('h-stale:0', 'h-stale', 'aaaaaaaa-0000-0000-0000-000000000002', 'gate', 1);
+select pg_temp.ok('a stale open hold is listed with its usage rows',
+  (select jsonb_array_length(usage) from public.ai_stale_holds(600) where request_id = 'h-stale') = 1
+  and not exists (select 1 from public.ai_stale_holds(600) where request_id = 'r4'));
+
+select public.ai_limit_enqueue('aaaaaaaa-0000-0000-0000-000000000002');
+select public.ai_limit_enqueue('aaaaaaaa-0000-0000-0000-000000000002');
+select pg_temp.ok('one waiting limit retry per person',
+  (select count(*) from public.limit_updates where person_id = 'aaaaaaaa-0000-0000-0000-000000000002' and not done) = 1);
+
+select public.ai_set_paused('aaaaaaaa-0000-0000-0000-000000000002', true, 'gate blocks');
+select pg_temp.ok('a pause flags Lilly once',
+  (select count(*) from public.ops_flags where cause = 'paused:aaaaaaaa-0000-0000-0000-000000000002' and resolved_at is null) = 1);
+select public.ai_set_paused('aaaaaaaa-0000-0000-0000-000000000002', false, null);
+select pg_temp.ok('unpausing resolves the flag and lifts the pause',
+  not (select paused from public.tester_passes where id = 'aaaaaaaa-0000-0000-0000-000000000002')
+  and (select count(*) from public.ops_flags where cause = 'paused:aaaaaaaa-0000-0000-0000-000000000002' and resolved_at is null) = 0);
+update public.tester_passes set key_hash = 'kh-2' where id = 'aaaaaaaa-0000-0000-0000-000000000002';
+select pg_temp.ok('revoking returns the key hash', public.ai_revoke_pass('aaaaaaaa-0000-0000-0000-000000000002') = 'kh-2');
+select pg_temp.ok('revoking disables the pass',
+  (select disabled from public.tester_passes where id = 'aaaaaaaa-0000-0000-0000-000000000002'));
+
 -- ------------------------------------------------------------ final gate
 -- Any failed assertion aborts the session; with psql -v ON_ERROR_STOP=1 the
 -- exit code is non-zero, so CI cannot wave a red suite through.

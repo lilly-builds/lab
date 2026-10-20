@@ -31,16 +31,56 @@
 
   panel.addEventListener('submit', function (e) { e.preventDefault(); send(); });
 
+  /* ---------- typewriter hints (build plan 1.18): the empty box types out dream-builder prompts in its placeholder ---------- */
+  /* HINTS-PURE-BEGIN (no DOM; exercised by ai-hints.test.js) */
+  /* Lilly's prompts; ___ is the blank the person fills in. The third is TEMPORARY: her wording for it is still open (question 2). */
+  var HINTS = ['My biggest dream is ___. Help me make it real.', 'I have to do ___ today. Get it done so I can focus on building my dream.',
+    'I want to design today to be an adventure where we ___.'];
+  var HINT_TYPE = 45, HINT_HOLD = 1800, HINT_ERASE = 18, HINT_GAP = 400;
+  /* the placeholder at t ms into the cycle: type a prompt, hold it, erase it, pause, next prompt */
+  function hintAt(list, t) {
+    var lens = list.map(function (s) { return s.length * HINT_TYPE + HINT_HOLD + s.length * HINT_ERASE + HINT_GAP; });
+    var total = lens.reduce(function (a, b) { return a + b; }, 0), u = ((t % total) + total) % total, i = 0;
+    while (u >= lens[i]) { u -= lens[i]; i++; }
+    var s = list[i], typed = s.length * HINT_TYPE;
+    if (u < typed) return s.slice(0, Math.floor(u / HINT_TYPE));
+    if (u < typed + HINT_HOLD) return s;
+    var erased = Math.floor((u - typed - HINT_HOLD) / HINT_ERASE);
+    return s.slice(0, Math.max(0, s.length - erased));
+  }
+  /* HINTS-PURE-END */
+  var askPlaceholder = ask.getAttribute('placeholder'), hintTimer = null, hintT0 = 0;
+  function stopHints() { clearInterval(hintTimer); hintTimer = null; ask.setAttribute('placeholder', askPlaceholder); }
+  /* only on the AI Magic Toolbox, only while the box is empty and untouched; a click or a keystroke stops it. A placeholder is never sent. */
+  function startHints() {
+    if (hintTimer || PROVIDER !== 'toolbox' || ask.value) return;
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) { ask.setAttribute('placeholder', HINTS[0]); return; }
+    hintT0 = Date.now();
+    var shown = null;
+    hintTimer = setInterval(function () {
+      if (ask.value || !panel.classList.contains('open')) { stopHints(); return; }
+      var s = hintAt(HINTS, Date.now() - hintT0) || ' ';
+      if (s !== shown) { shown = s; ask.setAttribute('placeholder', s); }
+    }, 50);
+  }
+  ask.addEventListener('pointerdown', stopHints);
+  ask.addEventListener('keydown', stopHints);
+  magic.addEventListener('click', function () { if (panel.classList.contains('open')) startHints(); else stopHints(); });
+
   /* ---------- connect modal: the only place a key is ever asked for ---------- */
   var dock = document.getElementById('dock'), scrim = document.getElementById('scrim'), dlg = document.getElementById('dlg');
   var provList = document.getElementById('provList'), keyForm = document.getElementById('keyForm'), keyField = document.getElementById('keyField');
   var fastField = document.getElementById('fastField'), fastIn = document.getElementById('fastModel');
   var keyIn = document.getElementById('key'), reveal = document.getElementById('reveal'), modelField = document.getElementById('modelField'), modelIn = document.getElementById('model');
   var connectBtn = document.getElementById('connectBtn'), manageRow = document.getElementById('manageRow'), replaceBtn = document.getElementById('replaceBtn'), disconnectBtn = document.getElementById('disconnectBtn');
-  var stateEl = document.getElementById('state');
+  var stateEl = document.getElementById('state'), trustEl = document.getElementById('trust');
   var cOpen = false, cDraft = null, modalOpen = false, replacing = false, resumeSend = false, resumeReal = false, modalOpener = null, checking = null;
 
-  function setState(msg) { stateEl.textContent = msg || ''; }
+  /* the AI Magic Toolbox takes a tester pass, not a key: the same messages say "pass" for it */
+  function setState(msg) {
+    var p = providers[PROVIDER];
+    stateEl.textContent = msg && p && p.noun ? String(msg).replace("That key didn't work.", 'That ' + p.noun + " didn't work.") : msg || '';
+  }
   function setReveal(on) {
     keyIn.type = on ? 'text' : 'password';
     reveal.textContent = on ? 'Hide' : 'Show';
@@ -61,10 +101,24 @@
       provList.appendChild(b);
     });
     var p = providers[PROVIDER], connected = !!getKey(PROVIDER), managed = connected && !replacing;
-    keyField.hidden = managed; connectBtn.hidden = managed; modelField.hidden = !connected; fastField.hidden = !connected; manageRow.hidden = !managed;
-    keyIn.placeholder = p.placeholder; keyIn.setAttribute('aria-label', p.label + ' API key');
+    /* nobody picks a model on the AI Magic Toolbox, so its model fields never show */
+    keyField.hidden = managed; connectBtn.hidden = managed; modelField.hidden = !connected || !!p.noModels; fastField.hidden = !connected || !!p.noModels; manageRow.hidden = !managed;
+    keyIn.placeholder = p.placeholder; keyIn.setAttribute('aria-label', p.keyLabel || p.label + ' API key');
     modelIn.placeholder = p.defaults.model; modelIn.value = getModel(PROVIDER);
     fastIn.placeholder = p.defaults.fastModel; fastIn.value = getFastModel(PROVIDER);
+    trustEl.textContent = p.trust || 'Your key stays on this device.';
+    replaceBtn.textContent = 'Replace ' + (p.noun || 'key');
+    if (managed && p.balance) showBalance(PROVIDER);
+  }
+  /* the toolbox's balance, read through the one browser door (my_balance); a newer read cancels an older one */
+  var balanceAc = null;
+  function showBalance(id) {
+    if (balanceAc) balanceAc.abort();
+    var ac = balanceAc = new AbortController();
+    providers[id].balance(getKey(id), ac.signal).then(function (v) {
+      if (!modalOpen || PROVIDER !== id || replacing) return;
+      setState(v == null ? "That key didn't work." : 'Balance: $' + Number(v).toFixed(2));
+    }, function () { if (!ac.signal.aborted && modalOpen && PROVIDER === id) setState("Couldn't read the balance right now."); });
   }
   function openModal(o) {
     o = o || {};
@@ -76,6 +130,7 @@
   function closeModal() {
     if (!modalOpen) return;
     if (checking) { checking.abort(); checking = null; }
+    if (balanceAc) { balanceAc.abort(); balanceAc = null; }
     modalOpen = false; scrim.hidden = true; dock.inert = false;
     keyIn.value = ''; setReveal(false); setState('');
     (modalOpener || magic).focus();

@@ -12,7 +12,7 @@
     editingId: function () { return editing; }, bubble: dreamBubble, closeBubble: dreamClose, bubbleBox: function () { return dreamBox; },
     hasKey: function () { return !!getKey(PROVIDER); }, needKey: function () { openModal({ opener: magic }); },
     badKey: function () { openModal({ opener: magic, replace: true, message: "That key didn't work." }); },
-    complete: function (o) { return providers[PROVIDER].complete({ system: o.system, text: o.text, model: modelFor('fast'), key: getKey(PROVIDER), signal: o.signal, maxTokens: o.maxTokens }); }
+    complete: function (o) { return providers[PROVIDER].complete({ system: o.system, text: o.text, model: modelFor('fast'), key: getKey(PROVIDER), signal: o.signal, maxTokens: o.maxTokens, job: o.job, ask: o.ask }); }
   });
 
   gcApps();
