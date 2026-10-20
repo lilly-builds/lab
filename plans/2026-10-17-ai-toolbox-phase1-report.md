@@ -4,6 +4,30 @@ Date: 2026-10-17. Branch `invisible-ai-toolbox` (PR #214), not merged. Everythin
 real migrations, the real function handlers (also run once under Deno 2.7.12), the real board in Chromium, and a fake OpenRouter.
 Nothing has touched the hosted Supabase project, a real OpenRouter key, or Stripe. Status: **locally verified**, not production verified.
 
+## Where it stands (2026-10-19, end of the build thread)
+
+- PR #214 is open as a draft, not merged. The review fixes are pushed (`45d2576`) and GitHub says the branch merges cleanly. Merging is
+  Lilly's call.
+- Phase 1 is built except session memory (step 1.17, skipped with a TODO until gate G2). The checklist below says what was and wasn't
+  clicked through. The code review and all its fixes are done (section "Code review").
+- CI on `45d2576`: the client suites and the Claude review pass. The database job fails on the template seed (`templates_reserved_slugs`,
+  SQLSTATE 23514), the same failure main has; no toolbox table is involved.
+- Not started: phase 0 live runs, the deploy, and the phase 2 plan.
+
+Next, in order:
+
+1. Lilly: the calls under "Left for Lilly" at the bottom of this report, then merge or not.
+2. Lilly: phase 0 live runs and the deploy (next section, "What only Lilly can do next").
+3. Plan phase 2 (`/ce-plan`). Building it waits on phase 0's numbers (the model allowlist, the cost of an idea map) and on the phase 2
+   prerequisites in the architecture doc, section 8. Lilly's part: the Supabase Pro plan (backups), CAPTCHA turned on, the hosted sign-in
+   site URL fixed (it is still localhost), an email sender, OpenRouter's written OK that this isn't reselling (their terms, section 7),
+   the lawyer and accountant checks, and a yes or change on open questions 13 (top-ups) and 16 (does free credit expire monthly).
+   Claude's part: the plan, then the code and the app copy that still says keys stay on the device.
+4. Fix CI's database seed on main, in its own PR.
+
+To pick this up in a new thread: read this report, then the build plan (section 4, what needs Lilly's accounts) and the architecture doc
+(section 8, phases). PR #214's "How to test" has the commands.
+
 ## Checklist from the build plan, section 5 (mock stack)
 
 | # | Check | Result |
